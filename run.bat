@@ -120,7 +120,7 @@ echo.
 PowerShell -NoP -C "Write-Host '[4/5] Checking Web App Frontend...' -ForegroundColor Cyan"
 if not exist "%ROOT_DIR%frontend\dist" (
     PowerShell -NoP -C "Write-Host '  Building React Frontend...' -ForegroundColor Yellow"
-    cmd.exe /c "cd /d ""%ROOT_DIR%frontend"" && npm install && npm run build"
+    cmd.exe /c "cd /d ""%ROOT_DIR%frontend"" && npm install --no-fund --no-audit && npm run build"
     if errorlevel 1 goto :error_build
     PowerShell -NoP -C "Write-Host '  [OK] React Frontend built successfully.' -ForegroundColor Green"
 ) else (
