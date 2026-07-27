@@ -192,7 +192,7 @@ This project is made possible thanks to the amazing open-source AI community:
 
 ## 📄 License
 
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details. This license provides broad permissions for use, distribution, and modification while protecting authors regarding patents and liability.
+This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE.txt) file for details. This license provides broad permissions for use, distribution, and modification while protecting authors regarding patents and liability.
 
 <div align="center">
 <i>Developed for the community of manga artists, scanlators, and enthusiasts — 2026</i>
