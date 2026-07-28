@@ -22,7 +22,7 @@ Transform black-and-white manga pages (lineart) into professionally shaded, vibr
 
 This software is designed to be **100% portable** and zero-configuration.
 
-> **Important:** Download the **`Manga-Coloring-Tool-v2.0.0.zip`** from the [**Releases**](https://codeberg.org/Gladioul/Manga_Coloring_Tool) section to get all pre-packaged models and dependencies.
+> **Important:** Download the **`Manga-Coloring-Tool-v2.0.0.zip`** from the [**Releases**](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases) section to get all pre-packaged models and dependencies.
 
 ### 📋 System Requirements
 
