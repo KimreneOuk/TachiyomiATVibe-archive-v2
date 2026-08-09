@@ -33,7 +33,7 @@ This software is designed to be **100% portable** and zero-configuration.
 * **Drivers:** Latest NVIDIA Game Ready / Studio Drivers. *(No manual CUDA Toolkit installation required)*.
 * **RAM:** 16 GB System Memory.
 * **Storage:** 15 GB free disk space (for local FLUX.2 Klein model weights and execution environment).
-* **OS:** Windows 10 / 11 (64-bit).
+* **OS:** Windows 10 / 11 (64-bit) and Linux (The source code is in other branch)
 
 ### 🚀 One-Click Launch
 
