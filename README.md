@@ -210,3 +210,5 @@ This project is licensed under the **Apache License 2.0** - see the [LICENSE](LI
 <div align="center">
 <i>Developed for the community of manga artists, scanlators, and enthusiasts — 2026</i>
 </div>
+
+![Visitas](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fcodeberg.org%2FGladioul%2FManga_Coloring_Tool_2&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=Visitas&edge_flat=false)
