@@ -210,5 +210,3 @@ This project is licensed under the **Apache License 2.0** - see the [LICENSE](LI
 <div align="center">
 <i>Developed for the community of manga artists, scanlators, and enthusiasts — 2026</i>
 </div>
-
-![Visitas](https://komarev.com/ghpvc/?username=Gladioul-MangaColoringTool2&label=Visitas&color=blue)
