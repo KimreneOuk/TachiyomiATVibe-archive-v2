@@ -4,9 +4,6 @@
 
 <div align="center">
 
-# TRY IT ONLNE 
-
- # [MANGA COLORING TOOL 2](https://manga-color-saas.pages.dev/)
 
 ---
 
