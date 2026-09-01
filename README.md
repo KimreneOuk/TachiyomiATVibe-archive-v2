@@ -8,9 +8,15 @@
 ---
 
 # DOWNLOAD MANGA COLORING TOOL 2
- # [WINDOWS](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2.zip)
+ # [WINDOWS (NVIDIA GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2.zip)
 
- # [LINUX](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_v2.0_Linux.zip)
+ # [WINDOWS (AMD GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_AMD_GPU.zip)
+
+ # [LINUX (NVIDIA GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_v2.0_Linux.zip)
+
+ # [LINUX (AMD GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_v2.0_Linux_AMD_GPU.zip)
+
+ 
 
  ### ▶️ WATCH DEMO & TUTORIAL ON YOUTUBE
 [![Manga AI Coloring Tool: Online Demo and Local Install](https://img.youtube.com/vi/LCzhJmvjs4A/hqdefault.jpg)](http://www.youtube.com/watch?v=LCzhJmvjs4A)
