@@ -1,0 +1,30 @@
+name: ⭐ Feature request
+description: Suggest a feature for TachiyomiATVibe
+labels: [Feature request]
+body:
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Describe your suggested feature
+      description: What problem would the feature solve, and how would you expect it to work?
+      placeholder: |
+        Example:
+          "It should work like this..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: other-details
+    attributes:
+      label: Other details
+      description: Add examples or context that may help explain the request.
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I have searched the repository's existing issues for duplicates.
+          required: true
+        - label: I have written a clear title and described the use case.
+          required: true

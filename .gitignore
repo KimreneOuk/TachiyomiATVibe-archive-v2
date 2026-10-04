@@ -1,0 +1,67 @@
+# Build files
+.gradle
+.kotlin
+build
+
+# IDE files
+*.iml
+.idea/*
+!.idea/icon.svg
+/captures
+
+# Configuration files
+local.properties
+
+# macOS specific files
+.DS_Store
+
+# Logs
+*.log
+logcat*.txt
+log.txt
+recent_log.txt
+*.logcat
+logs/
+
+# Tool caches (not project artifacts)
+.codex-remote-attachments/
+.codex/
+
+# Local agent state — agent tooling/runtime dirs, not project code
+.kilo/
+.zcode/
+.agents/
+.superpowers/
+
+# Inpaint debug viewer: local-only dev tool, not a build dependency
+tools/inpaint-debug-viewer/
+# Downloaded raw manga test images (regenerable; very long path names)
+tools/*Rawkuma*/
+__pycache__/
+*.pyc
+
+# Regenerable debug/test outputs from overlay_lab (code is tracked, these are not)
+overlay_lab/debug_*.png
+
+# local agent-tool config containing credentials - never commit
+kilo.json
+
+
+# Local signing credentials and environment files
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Locally generated Android packages and captures
+*.apk
+*.aab
+/captures/
+
+# Runtime models are fetched from the models-v1 release; retain empty placeholders
+/app/src/main/assets/models/**
+!/app/src/main/assets/models/**/
+!/app/src/main/assets/models/**/.gitkeep
