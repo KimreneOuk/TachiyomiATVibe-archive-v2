@@ -9,10 +9,32 @@ import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.translation.ColorCombineMode
+import tachiyomi.domain.translation.TranslationPreferences
 import java.io.File
 
-/** Runs the static SAM encoder on the NPU and the live-conditioned generator on the GPU. */
-internal class MangaLightHybridColorizationEngine(private val context: Context) : PageColorizationEngine {
+/** Runs the static SAM encoder on the NPU and the live-conditioned generator on the GPU.
+ *  Shares the colorization pipeline with MCV2: same gray prep (gate/bilateral or FFDNet) and the
+ *  same ink-aware chroma combine; only work resolution and model invocation differ. */
+internal class MangaLightHybridColorizationEngine(
+    private val context: Context,
+    private val ffdnetEngine: FfdnetDenoiserEngine? = null,
+    private val preferFfdnetDenoising: () -> Boolean = { false },
+    private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
+) : PageColorizationEngine {
+
+    /** Production wiring: mirrors NpuMangaColorizationEngine's dependency shape. */
+    constructor(
+        context: Context,
+        preferences: TranslationPreferences? = null,
+        ffdnetEngine: FfdnetDenoiserEngine? = null,
+    ) : this(
+        context = context,
+        ffdnetEngine = ffdnetEngine ?: FfdnetDenoiserEngine(context),
+        preferFfdnetDenoising = { preferences?.preferFfdnetDenoising()?.get() == true },
+        colorCombineMode = { preferences?.colorCombineMode()?.get() ?: ColorCombineMode.DEFAULT },
+    )
+
     private var session: Session? = null
     private var initialized = false
     private var error: String? = null
@@ -37,17 +59,36 @@ internal class MangaLightHybridColorizationEngine(private val context: Context) 
     override fun initializationError(): String? = error
 
     @Synchronized
-    override fun currentStamp(): String? = session?.let { STAMP }
+    override fun currentStamp(): String? = session?.let {
+        STAMP + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising())
+    }
 
     @Synchronized
     override fun colorize(source: Bitmap, seed: Long): Bitmap {
         val active = checkNotNull(session) { error ?: "Manga Light is unavailable" }
         val started = System.nanoTime()
-        val pixels = IntArray(source.width * source.height)
-        source.getPixels(pixels, 0, source.width, 0, 0, source.width, source.height)
-        val gray = MangaColorizationPreprocessor.grayLFromArgb(pixels)
-        val image512 = AreaResampler.resample(gray, source.width, source.height, SIZE, SIZE)
-        val luma = FloatArray(SIZE * SIZE) { (image512[it].toInt() and 0xff) / 255f }
+        val useFfdnet = preferFfdnetDenoising()
+        val prepped = if (useFfdnet) {
+            val engine = checkNotNull(ffdnetEngine) {
+                "FFDNet denoising enabled but FfdnetDenoiserEngine is null"
+            }
+            check(engine.isAvailable()) {
+                "FFDNet denoising unavailable: ${engine.initializationError() ?: "unknown"}"
+            }
+            val res = MangaColorizationPreprocessor.ffdnetGrayPlane(source, SIZE, SIZE, engine)
+            logcat(LogPriority.INFO) {
+                "[MangaLightColor] FFDNetSmooth native=${source.width}x${source.height} work=$SIZE x$SIZE"
+            }
+            res
+        } else {
+            val res = MangaColorizationPreprocessor.grayPlane(source, SIZE, SIZE)
+            logcat(LogPriority.INFO) {
+                "[MangaLightColor] ScreentoneSmooth score=" + res.score +
+                    " smoothed=" + res.smoothingApplied
+            }
+            res
+        }
+        val luma = prepped.plane
         val rgb = samRgb(luma)
         val prepared = System.nanoTime()
         val output = active.run(luma, rgb)
@@ -59,7 +100,11 @@ internal class MangaLightHybridColorizationEngine(private val context: Context) 
             SIZE,
         )
         return try {
-            MangaColorizationImageProcessing.combineColoredWithSource(source, work)
+            MangaColorizationImageProcessing.combineColoredWithSource(
+                source,
+                work,
+                colorCombineMode().shadingStrength,
+            )
         } finally {
             work.recycle()
             logcat(LogPriority.INFO) {
@@ -75,6 +120,7 @@ internal class MangaLightHybridColorizationEngine(private val context: Context) 
         session?.close()
         session = null
         initialized = false
+        ffdnetEngine?.let { runCatching { it.close() } }
     }
 
     private fun extract(artifact: Artifact): File {

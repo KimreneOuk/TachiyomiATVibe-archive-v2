@@ -7,6 +7,7 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import tachiyomi.domain.translation.AiEngine
+import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
@@ -32,6 +33,7 @@ data class TranslationSettingsState(
     val inpaintingNeuralModel: NeuralInpaintModel = NeuralInpaintModel.DEFAULT,
     val colorizationEnabled: Boolean = false,
     val colorizationModel: ColorizationModel = ColorizationModel.DEFAULT,
+    val colorCombineMode: ColorCombineMode = ColorCombineMode.DEFAULT,
     val upscalingEnabled: Boolean = false,
     val engineCategory: TranslationEngineCategory = TranslationEngineCategory.STANDARD,
     val standardEngine: StandardEngine = StandardEngine.GOOGLE,

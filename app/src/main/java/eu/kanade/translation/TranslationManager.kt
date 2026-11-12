@@ -208,7 +208,7 @@ class TranslationManager private constructor(
 
     private fun buildColorizationEngine(model: ColorizationModel): PageColorizationEngine = when (model) {
         ColorizationModel.MANGA_COLORIZATION_V2_NPU_W8A8 -> NpuMangaColorizationEngine(context, translationPreferences)
-        ColorizationModel.MANGA_LIGHT_SAM_NPU_GPU -> MangaLightHybridColorizationEngine(context)
+        ColorizationModel.MANGA_LIGHT_SAM_NPU_GPU -> MangaLightHybridColorizationEngine(context, translationPreferences)
     }
 
     private fun swapColorizationEngine(model: ColorizationModel) {

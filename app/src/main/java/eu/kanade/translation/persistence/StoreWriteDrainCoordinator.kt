@@ -92,8 +92,6 @@ internal class StoreWriteDrainCoordinator(
         }
     }
 
-    internal fun hasActiveChildren(): Boolean = drainScopeJob.children.any { it.isActive }
-
     internal fun isDrainScopeActive(): Boolean = drainScopeJob.isActive
 
     /** Caller holds the store mutex. */

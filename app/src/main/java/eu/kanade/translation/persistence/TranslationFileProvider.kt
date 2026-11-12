@@ -248,9 +248,6 @@ class TranslationFileProvider(
         return dir.findFile(pageImageName)
     }
 
-    fun deleteCompanionImages(mangaTitle: String, source: Source, chapterName: String, chapterScanlator: String?) {
-        findCompanionImageDir(mangaTitle, source, chapterName, chapterScanlator)?.delete()
-    }
 
     fun companionImageNameForPage(pageKey: String, type: String = "cleaned"): String {
         val sanitized = pageKey.replace(Regex("[^a-zA-Z0-9.\\-_]"), "_")

@@ -17,15 +17,22 @@ import android.os.HandlerThread
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** Ink-aware AGSL combine: original L kept on ink (Rec.601 gray ≤0.12), L mixes toward the colorized
- *  lightness by [INK_SHADING_STRENGTH] elsewhere; work layer contributes a/b; API 33+ only. */
+/**
+ * Ink-aware AGSL combine: original L kept on ink (Rec.601 gray ≤0.12), L mixes toward the colorized
+ * lightness by [shadingStrength] elsewhere; work layer contributes a/b; API 33+ only.
+ */
 internal object AgslChromaCombiner {
-
     val supported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 
     /** Renders at [mergeWidth]x[mergeHeight]; throws on GPU failure so the caller falls back to CPU. */
-    fun combine(source: Bitmap, coloredWork: Bitmap, mergeWidth: Int, mergeHeight: Int): Bitmap {
+    fun combine(
+        source: Bitmap,
+        coloredWork: Bitmap,
+        mergeWidth: Int,
+        mergeHeight: Int,
+        shadingStrength: Float,
+    ): Bitmap {
         val thread = HandlerThread("mcv2-agsl-combine")
         thread.start()
         val handler = Handler(thread.looper)
@@ -54,7 +61,7 @@ internal object AgslChromaCombiner {
                 setInputShader("uOrig", origShader)
                 setFloatUniform("uOrigSize", floatArrayOf(mergeWidth.toFloat(), mergeHeight.toFloat()))
                 setFloatUniform("uWorkSize", floatArrayOf(coloredWork.width.toFloat(), coloredWork.height.toFloat()))
-                setFloatUniform("uShadingStrength", floatArrayOf(INK_SHADING_STRENGTH))
+                setFloatUniform("uShadingStrength", floatArrayOf(shadingStrength))
             }
             val node = RenderNode("mcv2-chroma-combine").apply { setPosition(0, 0, mergeWidth, mergeHeight) }
             node.beginRecording(mergeWidth, mergeHeight).drawPaint(Paint().also { it.shader = shader })

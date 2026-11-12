@@ -153,7 +153,7 @@ internal class BatchPageOperation(
             return failProgress
         }
 
-        for (pageKey in remainingKeys) {
+        for ((pageIndex, pageKey) in remainingKeys.withIndex()) {
             try {
                 prepareStream?.invoke(pageKey)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -192,6 +192,14 @@ internal class BatchPageOperation(
                 failedCount++
                 publish(progress, Progress(chapterKey, completedCount, totalCount, "COLORING"), onProgress)
                 continue
+            }
+            // Input-identity line: identical fingerprints across different page
+            // keys here mean the stream resolution fed the same image twice.
+            logcat(LogPriority.INFO) {
+                "BatchColorizeOnly: page ${pageIndex + 1}/$totalCount key=$pageKey " +
+                    "fp=${decoded.sourceFingerprint?.take(12) ?: "null"} bytes=${decoded.sourceBytesSize} " +
+                    "decoded=${decoded.bitmap.width}x${decoded.bitmap.height} " +
+                    "orig=${decoded.originalWidth}x${decoded.originalHeight} sample=${decoded.sampleSize}"
             }
             // Reuse only identity-verified coloring: the stored fingerprint
             // must match the bytes just decoded; otherwise recolor.

@@ -48,3 +48,10 @@ Before creating new algorithms, formatters, or pipeline utilities, scan the code
 - **Fix the Cause**: Never apply a bandaid to make a failure disappear. Trace lint, format, compiler, test, and build failures to their source and correct the underlying defect.
 - **No Hidden Failures**: Do not suppress, exclude, disable, or weaken a check to get a green result unless the coordinator explicitly approves that specific exception. Lint findings must be fixed, not ignored as pre-existing.
 - **Verify the Repair**: Rerun the failed check after fixing it. Do not commit while a required check still reports unresolved findings; if a safe root-cause fix is unclear, report the evidence and stop for direction.
+
+## 8. Git Operations — Local vs Remote Consent
+
+- **Ask before every git action**: before any commit, push, branch create/delete, or history operation, ask the user whether it should apply **locally** or **remotely**. Never assume either.
+- **Remote needs an explicit instruction**: nothing is pushed unless the user asks for that specific push. Unguided or unreviewed work stays local until the user declares it clean.
+- **History rewrites need sign-off**: removing or rewriting pushed history requires the user's approval of the method (erase via force-push vs forward revert) before execution.
+

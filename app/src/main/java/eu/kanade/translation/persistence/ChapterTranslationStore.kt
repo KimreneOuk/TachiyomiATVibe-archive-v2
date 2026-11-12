@@ -8,7 +8,6 @@ import eu.kanade.translation.model.PublishedPageTranslation
 import eu.kanade.translation.model.StageFingerprints
 import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.Translation
-import eu.kanade.translation.model.TranslationBlock
 import eu.kanade.translation.model.blockFingerprints
 import eu.kanade.translation.model.detachedCopy
 import eu.kanade.translation.model.hasRenderedResult
@@ -306,13 +305,6 @@ class ChapterTranslationStore internal constructor(
     internal var lastGuardedWriteRejectionDiagnostic: String? = null
         internal set
 
-    @Volatile
-    internal var lastBatchWriteGateRejectionDiagnostic: String? = null
-        internal set
-
-    internal fun recordBatchWriteGateRejectionDiagnostic(diagnostic: String) {
-        lastBatchWriteGateRejectionDiagnostic = diagnostic
-    }
 
     /** Enables memory-first publication for a registered production chapter. */
     internal fun enableLazyPersistence() {
@@ -518,25 +510,6 @@ class ChapterTranslationStore internal constructor(
             }
         }
 
-    internal suspend fun patchBlock(
-        pageKey: String,
-        blockIndex: Int,
-        expected: PatchPrecondition,
-        expectedBlockFingerprint: String,
-        expectedTranslation: String? = null,
-        expectedUserEditedAt: Long? = null,
-        description: String,
-        patch: (TranslationBlock) -> TranslationBlock,
-    ): PatchResult = pageMutations.patchBlock(
-        pageKey,
-        blockIndex,
-        expected,
-        expectedBlockFingerprint,
-        expectedTranslation,
-        expectedUserEditedAt,
-        description,
-        patch,
-    )
 
     suspend fun mergeOcr(
         patch: OcrStagePatch,

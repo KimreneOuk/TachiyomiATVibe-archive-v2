@@ -13,6 +13,10 @@ internal object MangaColorizationPreprocessor {
     const val STAMP_SUFFIX = "+BILATERAL_SMOOTH"
     const val STAMP_FFDNET_SUFFIX = "+FFDNET_SMOOTH"
 
+    /** Pipeline-config identity suffix for the prep stage that runs on a colorize pass. */
+    fun stampSuffix(useFfdnet: Boolean): String =
+        if (useFfdnet) STAMP_FFDNET_SUFFIX else STAMP_SUFFIX
+
     class GrayPlane(val plane: FloatArray, val score: Float, val smoothingApplied: Boolean)
 
     /** Full-resolution [source] aspect-true content dims [workWidth]x[workHeight] -> gray plane. */

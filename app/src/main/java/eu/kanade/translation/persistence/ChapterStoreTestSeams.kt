@@ -25,7 +25,4 @@ internal class ChapterStoreTestSeams internal constructor(
     internal fun countPublishedPageCopy() {
         publishedPageCopyCount.incrementAndGet()
     }
-
-    /** Test seam for verifying that closeAndFlush joins all drain children. */
-    internal fun hasActivePersistenceChildren(): Boolean = store.writeDrain.hasActiveChildren()
 }

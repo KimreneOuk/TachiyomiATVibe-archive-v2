@@ -377,28 +377,6 @@ internal class ChapterPageMutations(
         update: (PageTranslation?) -> PageTranslation,
     ): PatchResult = updatePageGuarded(pageKey, store.snapshot(pageKey).toPrecondition(), description, update)
 
-    internal suspend fun patchBlock(
-        pageKey: String,
-        blockIndex: Int,
-        expected: PatchPrecondition,
-        expectedBlockFingerprint: String,
-        expectedTranslation: String? = null,
-        expectedUserEditedAt: Long? = null,
-        description: String,
-        patch: (TranslationBlock) -> TranslationBlock,
-    ): PatchResult = patchPage(pageKey, expected, description) { page ->
-        requireNotNull(page) { "page missing" }
-        val current = page.blocks.getOrNull(blockIndex)
-            ?: throw IllegalStateException("block index $blockIndex missing")
-        check(current.stableFingerprint() == expectedBlockFingerprint) { "block fingerprint changed" }
-        if (expectedTranslation !=
-            null
-        ) {
-            check(current.translation == expectedTranslation) { "block translation changed" }
-        }
-        check(current.userEditedAt == expectedUserEditedAt) { "block edit timestamp changed" }
-        page.apply { blocks[blockIndex] = patch(current.detachedCopy()).detachedCopy() }
-    }
 
     /** Apply a stage patch while checking only the identities owned by that stage. */
     internal suspend fun publishLocked(

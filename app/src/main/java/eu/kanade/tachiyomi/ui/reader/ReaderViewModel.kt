@@ -80,6 +80,7 @@ import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.translation.AiEngine
+import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
@@ -162,7 +163,10 @@ class ReaderViewModel @JvmOverloads constructor(
                         translationPreferences.translationColorizationModel().changes(),
                         translationPreferences.autoColorize().changes(),
                         translationPreferences.translationUpscalingEnabled().changes(),
-                    ) { model, autoColorize, upscaling -> Triple(model, autoColorize, upscaling) },
+                        translationPreferences.colorCombineMode().changes(),
+                    ) { model, autoColorize, upscaling, combineMode ->
+                        Quad(model, autoColorize, upscaling, combineMode)
+                    },
                 ) { inpaintingMode, neuralModel, colorization, colorModel ->
                     Quad(inpaintingMode, neuralModel, colorization, colorModel)
                 },
@@ -226,9 +230,10 @@ class ReaderViewModel @JvmOverloads constructor(
             inpaintingMode = q2.d.a,
             inpaintingNeuralModel = q2.d.b,
             colorizationEnabled = q2.d.c,
-            colorizationModel = q2.d.d.first,
-            autoColorize = q2.d.d.second,
-            upscalingEnabled = q2.d.d.third,
+            colorizationModel = q2.d.d.a,
+            autoColorize = q2.d.d.b,
+            upscalingEnabled = q2.d.d.c,
+            colorCombineMode = q2.d.d.d,
             engineCategory = q3.a,
             standardEngine = q3.b,
             deeplApiKey = q3.c,
@@ -964,6 +969,9 @@ class ReaderViewModel @JvmOverloads constructor(
 
     fun setTranslationColorizationModel(model: ColorizationModel) =
         translationController.setTranslationColorizationModel(model)
+
+    fun setTranslationColorCombineMode(mode: ColorCombineMode) =
+        translationController.setTranslationColorCombineMode(mode)
 
     fun setTranslationUpscalingEnabled(enabled: Boolean) =
         translationController.setTranslationUpscalingEnabled(enabled)
