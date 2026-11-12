@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>translation/ — folder structure (281 files)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans, sans-serif);
+    font-size: 14px; line-height: 1.45;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--color-text-secondary); margin: 0 0 12px; }
+  .satellite {
+    background: var(--color-background-secondary);
+    border: 1px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    padding: 10px 12px; margin: 0 0 16px;
+    font-size: 13px; color: var(--color-text-secondary);
+  }
+  .satellite code { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--color-text-primary); }
+  #search {
+    width: 100%; box-sizing: border-box;
+    padding: 8px 10px; margin-bottom: 14px;
+    border: 1px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    background: var(--color-background-secondary);
+    color: var(--color-text-primary);
+    font-family: var(--font-mono, monospace); font-size: 13px;
+  }
+  #count { color: var(--color-text-tertiary); font-size: 12px; margin: -10px 0 10px 2px; }
+  details.folder { margin: 2px 0; }
+  details.folder > summary {
+    cursor: pointer; list-style: none;
+    padding: 5px 8px; border-radius: var(--border-radius-sm);
+    display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+    background: var(--color-background-tertiary);
+    margin-bottom: 2px;
+  }
+  details.folder > summary::-webkit-details-marker { display: none; }
+  details.folder > summary::before { content: "▸"; color: var(--color-text-tertiary); }
+  details.folder[open] > summary::before { content: "▾"; }
+  details.folder > summary:hover { background: var(--color-background-secondary); }
+  .dname { font-family: var(--font-mono, monospace); font-weight: 600; }
+  .drole { color: var(--color-text-secondary); font-size: 12px; min-width: 0; }
+  .badge {
+    font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+    background: var(--color-background-info); color: var(--color-text-info);
+    white-space: nowrap;
+  }
+  .badge.warn { background: var(--color-background-warning); color: var(--color-text-warning); }
+  .badge.ok { background: var(--color-background-success); color: var(--color-text-success); }
+  ul.files { list-style: none; margin: 0; padding: 2px 0 6px 22px; }
+  ul.files li {
+    font-family: var(--font-mono, monospace); font-size: 12.5px;
+    padding: 1.5px 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+    min-width: 0;
+  }
+  ul.files li .kb { color: var(--color-text-tertiary); font-size: 11px; }
+  ul.files li .note { font-family: var(--font-sans, sans-serif); color: var(--color-text-secondary); font-size: 12px; }
+  ul.files li.hit .fname { background: var(--color-background-warning); color: var(--color-text-warning); border-radius: 3px; }
+  .hidden { display: none !important; }
+  .legend { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; font-size: 12px; color: var(--color-text-secondary); align-items: center; }
+</style>
+</head>
+<body>
+<h1>eu/kanade/translation/</h1>
+<p class="sub">The app's translation+colorization pipeline — 281 Kotlin files, 38 folders (~2.6 MB). Sizes in KB. Type in the box to filter by file name.</p>
+
+<div class="satellite">
+  <strong>Satellite locations outside this folder:</strong>
+  <code>domain/src/main/java/tachiyomi/domain/translation/</code> (domain types + TranslationPreferences) ·
+  <code>app/src/main/java/eu/kanade/tachiyomi/data/translation/</code> (foreground service, download policy) ·
+  <code>eu/kanade/tachiyomi/ui/reader/</code> (reader integration — <code>HttpPageLoader.kt</code> stamps the page keys) ·
+  <code>app/src/test/java/eu/kanade/translation/</code> (~70 test files) ·
+  <code>app/src/debug/java/eu/kanade/translation/diagnostics/</code> (trace-file runtime)
+</div>
+
+<div class="legend">
+  <span class="badge">today's colorize-bug files</span>
+  <span class="badge ok">audit: dead code removed</span>
+  <span class="badge warn">dead subsystem / findings</span>
+</div>
+
+<input id="search" type="text" placeholder="filter files… e.g. merge, npu, batch, webtoon" autocomplete="off">
+<div id="count"></div>
+<div id="tree"></div>
+
+<script>
+const FOLDERS = [
+  { name: "(root)", role: "Entry point + lifecycle", files: [
+    ["README.md", 8, ""],
+    ["TranslationManager.kt", 33, "public API — colorizeChapter(), session admission"],
+    ["TranslationManagerCoordinators.kt", 5, ""],
+    ["TranslationManagerInitialization.kt", 12, ""],
+  ]},
+  { name: "context", role: "Chapter-scoped batch context", files: [
+    ["BatchContextFrontier.kt", 4, ""],
+    ["ChapterContextService.kt", 7, ""],
+  ]},
+  { name: "coordinator", role: "Queue admission, sessions, page stream sources", files: [
+    ["BatchQueuePolicy.kt", 3, ""],
+    ["BatchTranslationCoordinator.kt", 51, "owns chapter queue + admits runs"],
+    ["ChapterQueueConflictDetection.kt", 2, ""],
+    ["ChapterQueuePreflight.kt", 1, ""],
+    ["CompletedDownloadRekeyCoordinator.kt", 17, ""],
+    ["DownloadPageStreamResolver.kt", 1, "stream source: downloaded chapters"],
+    ["OnlineColorizePageStreamResolver.kt", 7, "EDITED TODAY — [ColorizePlan] collision logging"],
+    ["ReaderTranslationContracts.kt", 1, ""],
+    ["ReaderTranslationCoordinator.kt", 48, ""],
+    ["TranslationPendingRequestStore.kt", 6, ""],
+    ["TranslationProgressProjection.kt", 20, ""],
+    ["TranslationQueueStatusProjection.kt", 1, ""],
+    ["TranslationQueueStore.kt", 3, ""],
+    ["TranslationRequestCoordinator.kt", 42, ""],
+    ["TranslationSession.kt", 0, ""],
+    ["TranslationSessionCoordinator.kt", 13, ""],
+    ["TranslationStoreResolver.kt", 1, ""],
+  ]},
+  { name: "diagnostics", role: "Pipeline tracing + telemetry", files: [
+    ["AutoSmoothnessTelemetry.kt", 2, ""],
+    ["BatchDownloadDiagnostics.kt", 10, ""],
+    ["BatchTranslationDiagnostics.kt", 11, ""],
+    ["DeviceStageNormalization.kt", 1, ""],
+    ["NativeVisionTelemetry.kt", 3, ""],
+    ["ReaderEntryTrace.kt", 5, ""],
+    ["TelemetryTrace.kt", 3, ""],
+    ["TranslationPipelineDiagnostics.kt", 47, "the diagnostics sink (debug builds write translation-trace.log)"],
+    ["TranslationTrace.kt", 50, ""],
+  ]},
+  { name: "engines/coloring", role: "Colorization engines + image post-processing", files: [
+    ["AgslChromaCombiner.kt", 7, ""],
+    ["AreaResampler.kt", 3, ""],
+    ["ColorizationBackendRouter.kt", 4, ""],
+    ["CpuChromaCombiner.kt", 2, ""],
+    ["FfdnetDenoiserEngine.kt", 7, "FFDNet σ25 denoiser (on-device)"],
+    ["LineArtMerger.kt", 4, ""],
+    ["MangaColorizationImageProcessing.kt", 9, ""],
+    ["MangaColorizationLetterbox.kt", 1, ""],
+    ["MangaColorizationModelStore.kt", 1, ""],
+    ["MangaColorizationOnnxSession.kt", 6, ""],
+    ["MangaColorizationPreprocessor.kt", 4, ""],
+    ["MangaLightHybridColorizationEngine.kt", 13, "MangaLight hybrid route"],
+    ["NpuMangaColorizationEngine.kt", 17, "MCV2 W8A8 SM8650 NPU route — hash-verified contract"],
+    ["OnnxMangaColorizationEngine.kt", 3, ""],
+    ["PageColorizationEngine.kt", 1, "interface"],
+    ["ScreentoneGate.kt", 4, ""],
+    ["SelectiveBilateral.kt", 3, ""],
+    ["UnprovisionedColorizationEngine.kt", 1, ""],
+  ]},
+  { name: "engines/inpainting", role: "Text removal (inpainting) engines", files: [
+    ["InpaintBoxGeometry.kt", 11, ""],
+    ["InpaintingFailureNotifier.kt", 2, ""],
+    ["InpaintingHardwareOverride.kt", 1, ""],
+    ["InpaintingMode.kt", 2, ""],
+    ["InpaintPadOps.kt", 4, ""],
+    ["InpaintPixelOps.kt", 3, ""],
+    ["PageInpaintingEngine.kt", 8, ""],
+    ["PageInpaintingPlanner.kt", 9, ""],
+    ["PushPullGradient.kt", 11, ""],
+    ["RegionDispatch.kt", 7, ""],
+  ]},
+  { name: "engines/inpainting/aot", role: "AOT/NNAPI neural inpainting session", files: [
+    ["AotExecutionCoordinator.kt", 3, ""],
+    ["AotFixedTensorContract.kt", 3, ""],
+    ["AotModelContract.kt", 3, ""],
+    ["AotOutputGuard.kt", 4, ""],
+    ["AotSessionLifecycle.kt", 2, ""],
+    ["NeuralInpaintingCoordinator.kt", 92, "largest file in the tree"],
+    ["NnapiCapabilityGate.kt", 2, ""],
+    ["NnapiHealthMonitor.kt", 1, ""],
+    ["QnnSessionMemoryPrecheck.kt", 2, ""],
+  ]},
+  { name: "engines/inpainting/bubble", role: "Bubble-specific fill", files: [
+    ["BubbleMaskBuilder.kt", 16, ""],
+    ["BubbleMedianDiffusionFill.kt", 12, ""],
+  ]},
+  { name: "engines/inpainting/litert", role: "LiteRT inpainting models", files: [
+    ["LiteRTMangaInpaintingEngine.kt", 43, ""],
+    ["LiteRtSignatureBinding.kt", 2, ""],
+    ["LiteRtTensorAdapter.kt", 5, ""],
+  ]},
+  { name: "engines/inpainting/opencv", role: "Classic OpenCV fallback", files: [
+    ["OpenCvInpaintEngine.kt", 7, ""],
+  ]},
+  { name: "engines/rendering", role: "Translated text layout + drawing", files: [
+    ["CollisionRelaxation.kt", 16, ""],
+    ["ComponentClipCache.kt", 2, ""],
+    ["FontFittingAlgorithms.kt", 10, ""],
+    ["MaskGeometryClustering.kt", 4, ""],
+    ["ProductionTextMeasurer.kt", 1, ""],
+    ["ReaderTextLayoutCache.kt", 3, ""],
+    ["RenderColorEstimator.kt", 14, ""],
+    ["TextLayoutCoordinator.kt", 5, ""],
+    ["TextLayoutPlanner.kt", 53, ""],
+    ["TextLineBreaker.kt", 9, ""],
+  ]},
+  { name: "engines/runtime", role: "Runtime/hardware selection + budgets", files: [
+    ["EngineMemoryBudget.kt", 8, ""],
+    ["ModelDeployment.kt", 5, ""],
+  ]},
+  { name: "engines/runtime/litert", role: "LiteRT vision runner", files: [
+    ["LiteRtVisionLayouts.kt", 1, ""],
+    ["LiteRtVisionRunner.kt", 5, ""],
+  ]},
+  { name: "engines/runtime/onnx", role: "ONNX Runtime + QNN session management", files: [
+    ["CheckNnapi.java", 0, ""],
+    ["CheckXnnpack.java", 0, ""],
+    ["DeviceCapability.kt", 4, ""],
+    ["HardwareDiscoveryEngine.kt", 12, ""],
+    ["ModelRoutingEngine.kt", 8, ""],
+    ["OnnxModelStore.kt", 23, ""],
+    ["OnnxRuntimeProvider.kt", 35, ""],
+    ["PaddleOcrProviderOverride.kt", 4, ""],
+    ["PaddleOcrSessionFactory.kt", 9, ""],
+    ["QnnContextCacheManager.kt", 6, ""],
+    ["QnnDiagnostics.kt", 44, ""],
+    ["QnnProbeModel.kt", 1, ""],
+    ["QnnVisionContextCache.kt", 5, ""],
+  ]},
+  { name: "engines/translator", role: "Text translation core + governor", files: [
+    ["AiTranslatorKind.kt", 3, ""],
+    ["InputAccountingContract.kt", 4, ""],
+    ["NativeStallWatchdog.kt", 3, ""],
+    ["OperationPaidCallLifecycle.kt", 3, ""],
+    ["ProviderRequestGovernor.kt", 38, ""],
+    ["StandardTranslatorKind.kt", 3, ""],
+    ["TextTranslator.kt", 1, "interface"],
+    ["TranslationBlockValidation.kt", 6, ""],
+    ["TranslationEngineBuilder.kt", 2, ""],
+    ["TranslationOutputSemantics.kt", 7, ""],
+    ["TranslatorComputeClass.kt", 3, ""],
+  ]},
+  { name: "engines/translator/contextual", role: "Context-aware AI batch protocol (chunking, prompts)", files: [
+    ["BatchTranslationProtocol.kt", 1, ""],
+    ["ContextualRequestBuilder.kt", 9, ""],
+    ["ContextualResponseParser.kt", 13, ""],
+    ["ContextualTranslationBatch.kt", 8, ""],
+    ["GlobalEnvelopePlanner.kt", 19, ""],
+    ["OcrCorpusManifest.kt", 10, ""],
+    ["StableBlockIds.kt", 1, ""],
+    ["StreamingChunkPlanner.kt", 12, ""],
+    ["TranslationBlockFilters.kt", 0, ""],
+    ["TranslationContextChunkPlanner.kt", 10, ""],
+    ["TranslationPrompts.kt", 4, ""],
+    ["TranslationResponseFaithfulness.kt", 3, ""],
+  ]},
+  { name: "engines/translator/fumeto", role: "On-device local translator model", files: [
+    ["FumetoBeamSearch.kt", 5, ""],
+    ["FumetoPagePlanner.kt", 2, ""],
+    ["FumetoTranslateEngine.kt", 21, ""],
+    ["SentencePieceDecoder.kt", 4, ""],
+    ["UnigramTokenizer.kt", 5, ""],
+  ]},
+  { name: "engines/translator/providers", role: "Cloud/provider translators", files: [
+    ["AiModelFetcher.kt", 11, ""],
+    ["AiTranslator.kt", 3, ""],
+    ["BaseTranslator.kt", 2, ""],
+    ["DeepLApi.kt", 1, ""],
+    ["DeepLTranslator.kt", 8, ""],
+    ["DeepSeekTranslator.kt", 5, ""],
+    ["GeminiTranslator.kt", 18, ""],
+    ["GoogleTranslator.kt", 15, ""],
+    ["LineTranslationWorkerPool.kt", 2, ""],
+    ["LmStudioTranslator.kt", 5, ""],
+    ["MLKitTranslator.kt", 4, ""],
+    ["OcrArtifactSanitizer.kt", 3, ""],
+    ["OpenAiCompatibleTranslator.kt", 16, ""],
+    ["OpenRouterTranslator.kt", 5, ""],
+  ]},
+  { name: "engines/translator/retry", role: "Retry planning + failure classification", files: [
+    ["AiChunkAdaptiveRetry.kt", 46, ""],
+    ["AiTranslationRetryPlanner.kt", 2, ""],
+    ["ProviderFailureClassification.kt", 8, ""],
+    ["TranslationRetry.kt", 13, ""],
+  ]},
+  { name: "engines/upscaling", role: "Output upscaling", files: [
+    ["LiteRTQuickSRNetUpscalingEngine.kt", 21, "QuickSRNet SM8650 NPU route"],
+    ["PageUpscalingEngine.kt", 1, "interface"],
+    ["UnprovisionedUpscalingEngine.kt", 1, ""],
+    ["UpscalingModelCatalog.kt", 1, ""],
+  ]},
+  { name: "engines/vision/detection", role: "Text + panel detection (ONNX)", files: [
+    ["OnnxPageTextDetector.kt", 16, ""],
+    ["OnnxPanelDetector.kt", 19, ""],
+    ["PanelAssignment.kt", 5, ""],
+  ]},
+  { name: "engines/vision/ocr", role: "OCR engines — Paddle v6, MangaOcr, vertical text", files: [
+    ["BoxGeometry.kt", 4, ""],
+    ["DbPostProcess.kt", 16, ""],
+    ["MangaOcrEngine.kt", 37, ""],
+    ["MlKitOcrPreprocessor.kt", 3, ""],
+    ["MlKitRoiOcrEngine.kt", 1, ""],
+    ["OcrBlockDeduper.kt", 3, ""],
+    ["OcrBlockDeduplication.kt", 9, ""],
+    ["OcrDiagnostics.kt", 1, ""],
+    ["OcrModelCatalog.kt", 3, ""],
+    ["OcrTextFilter.kt", 1, ""],
+    ["PaddleCtcDecoder.kt", 4, ""],
+    ["PaddleOcrDetProviderSelection.kt", 1, ""],
+    ["PaddleOcrV6BatchBufferPool.kt", 6, ""],
+    ["PaddleOcrV6BatchCtcDecoder.kt", 2, ""],
+    ["PaddleOcrV6BatchExecutor.kt", 16, ""],
+    ["PaddleOcrV6BatchSession.kt", 3, ""],
+    ["PaddleOcrV6DetEngine.kt", 27, ""],
+    ["PaddleOcrV6SmallEngine.kt", 32, ""],
+    ["PaddlePageOcrCoordinator.kt", 23, ""],
+    ["PaddleVerticalRecognitionPlan.kt", 1, ""],
+    ["PageRecognitionEngine.kt", 1, "interface"],
+    ["ReadingOrderSorter.kt", 3, ""],
+    ["RoiOcrEngine.kt", 3, ""],
+    ["RoiPageRecognitionEngine.kt", 74, "second-largest file"],
+    ["TextRecognizer.kt", 2, ""],
+    ["TranslationBlockSorter.kt", 3, ""],
+    ["TranslationSafetyPrimitives.kt", 3, ""],
+    ["VerticalLineOcr.kt", 29, "vertical (Japanese) text OCR"],
+  ]},
+  { name: "engines/vision/ocr/paddle/batch", role: "Paddle batch scheduling policies", files: [
+    ["PaddleOcrBatchActivationPolicy.kt", 3, ""],
+    ["PaddleOcrBatchPlanner.kt", 8, ""],
+    ["PaddleOcrBatchDevicePolicy.kt", 3, ""],
+    ["PaddleOcrDeviceProfile.kt", 2, ""],
+    ["PaddleOcrDynamicPageBatchPolicy.kt", 3, ""],
+    ["PaddleOcrLeafWork.kt", 4, ""],
+    ["PaddleOcrRollingP95HysteresisDowngradePolicy.kt", 5, ""],
+  ]},
+  { name: "engines/vision/segmentation", role: "Bubble segmentation", files: [
+    ["BubbleMaskRleEncoding.kt", 1, ""],
+    ["BubbleSegmentationDecoder.kt", 10, ""],
+    ["OnnxBubbleSegmenter.kt", 20, ""],
+  ]},
+  { name: "engines/vision/webtoon", role: "Long-strip specific vision", files: [
+    ["WebtoonSlidingDetector.kt", 9, "the ONLY webtoon-specific code in the pipeline — sliding-window detection"],
+  ]},
+  { name: "model", role: "Data types + page identity", files: [
+    ["BatchHeroProjection.kt", 9, ""],
+    ["BatchPhase.kt", 0, ""],
+    ["BubbleMaskRle.kt", 3, ""],
+    ["Detection.kt", 1, ""],
+    ["EnvelopePlan.kt", 3, ""],
+    ["MaskGeometry.kt", 28, ""],
+    ["PageDisplayProjection.kt", 5, ""],
+    ["PageDisplayState.kt", 2, ""],
+    ["PageTranslation.kt", 18, "the per-page durable record"],
+    ["PageTranslationKey.kt", 0, "BUG FILE — URL-tail page key that collides on some extensions"],
+    ["PageTranslationOwnership.kt", 3, ""],
+    ["PageTranslationState.kt", 10, ""],
+    ["PageTranslationView.kt", 31, ""],
+    ["PageView.kt", 2, ""],
+    ["SinglePageOutcome.kt", 3, ""],
+    ["StageFingerprints.kt", 26, "identity fingerprints (sourceFingerprint lives here)"],
+    ["TextRecognizerLanguage.kt", 2, ""],
+    ["TextTranslatorLanguage.kt", 8, ""],
+    ["Translation.kt", 3, ""],
+    ["TranslationProgressSnapshot.kt", 9, ""],
+    ["TranslationRequestState.kt", 3, ""],
+  ]},
+  { name: "persistence", role: "Durable per-chapter store + artifacts (AUDITED TODAY)", files: [
+    ["ActiveChapterStoreRegistry.kt", 6, ""],
+    ["ArtifactContracts.kt", 7, ""],
+    ["ArtifactRetention.kt", 10, ""],
+    ["ChapterArtifactDeletion.kt", 9, ""],
+    ["ChapterArtifactEngine.kt", 22, ""],
+    ["ChapterArtifactLayout.kt", 8, ""],
+    ["ChapterArtifactManifest.kt", 9, ""],
+    ["ChapterArtifactRekey.kt", 10, ""],
+    ["ChapterBulkMutator.kt", 34, "batch ops — audit: KEEP (distinct concern)"],
+    ["ChapterCandidateTransactions.kt", 31, ""],
+    ["ChapterDataResetController.kt", 12, "AUDIT EDIT — dead reconcile fn removed"],
+    ["ChapterDisplayPublication.kt", 13, ""],
+    ["ChapterDocumentIo.kt", 27, ""],
+    ["ChapterPageMutations.kt", 31, "live write path · AUDIT EDIT — dead patchBlock removed"],
+    ["ChapterStageMerges.kt", 19, "DEAD SUBSYSTEM under review — state merges, NOT image merges"],
+    ["ChapterStoreContracts.kt", 1, ""],
+    ["ChapterStoreOpener.kt", 18, ""],
+    ["ChapterStorePublicationBridge.kt", 22, ""],
+    ["ChapterStoreTestSeams.kt", 1, "AUDIT EDIT — dead seam removed"],
+    ["ChapterTranslationAccessController.kt", 9, ""],
+    ["ChapterTranslationStore.kt", 32, "core store · AUDIT EDIT — dead fields/method/import removed"],
+    ["CleanedImageLifecycleController.kt", 12, ""],
+    ["CleanedImagePublication.kt", 12, ""],
+    ["DurableChapterStatusResolver.kt", 9, ""],
+    ["PageStageLeaseTable.kt", 6, ""],
+    ["StoreStatusProjector.kt", 18, ""],
+    ["StoreWriteDrainCoordinator.kt", 7, "250ms debounced disk drain · AUDIT EDIT — dead fn removed"],
+    ["StrandedPageLeaseRepair.kt", 6, ""],
+    ["TranslationFileProvider.kt", 10, "AUDIT EDIT — dead deleteCompanionImages removed"],
+    ["TranslationStageContracts.kt", 9, ""],
+    ["WriteDiagnostics.kt", 0, ""],
+  ]},
+  { name: "presentation", role: "UI projections + notification copy", files: [
+    ["BatchStatusLine.kt", 1, ""],
+    ["TranslationNotificationCopy.kt", 6, ""],
+    ["TranslationUiProjection.kt", 2, ""],
+    ["TranslationUiTruth.kt", 45, ""],
+  ]},
+  { name: "processing", role: "Pipeline execution — decode → OCR → translate → inpaint → colorize", files: [
+    ["AttemptAuthority.kt", 11, ""],
+    ["BatchPageOperation.kt", 25, "EDITED TODAY — per-page fingerprint log in colorize pass"],
+    ["CleanedPublication.kt", 5, ""],
+    ["ColoredBitmapHandoff.kt", 2, "hands colored bitmaps to the reader"],
+    ["DeferredPagePublications.kt", 2, ""],
+    ["EngineLane.kt", 28, ""],
+    ["MemoryPressurePolicy.kt", 3, ""],
+    ["PageDecode.kt", 9, "decode + sourceFingerprint computation"],
+    ["PageStoreWriter.kt", 8, ""],
+    ["PostOcrStageSemantics.kt", 1, ""],
+    ["TranslationProcessingTimeouts.kt", 1, ""],
+    ["TranslationProcessor.kt", 43, "the stage orchestrator"],
+  ]},
+  { name: "processing/adaptive", role: "Device-adaptive permits", files: [
+    ["DevicePagePermitGate.kt", 8, ""],
+  ]},
+  { name: "processing/batch", role: "Batch admission + pass outcomes", files: [
+    ["BatchAdmissionProbe.kt", 4, ""],
+    ["BatchPass1Outcome.kt", 1, ""],
+    ["BatchPersistenceRejectedException.kt", 0, ""],
+  ]},
+  { name: "processing/batch/progress", role: "Batch progress tracking + reconciliation", files: [
+    ["BatchProgressReconciler.kt", 12, ""],
+    ["TranslationBatchEvent.kt", 3, ""],
+    ["TranslationBatchProgressTracker.kt", 30, ""],
+    ["TranslationBatchTrackerRegistry.kt", 5, ""],
+  ]},
+  { name: "processing/execution", role: "Native lane + stream registry", files: [
+    ["NativeRunQuarantine.kt", 5, ""],
+    ["PreparedPageBoundary.kt", 1, ""],
+    ["TranslationStreamRegistry.kt", 11, ""],
+  ]},
+  { name: "processing/memory", role: "Decode bitmap memory governance", files: [
+    ["MemoryGovernance.kt", 5, ""],
+    ["TranslationMemoryBudget.kt", 12, ""],
+  ]},
+  { name: "processing/planning", role: "Per-page work planning", files: [
+    ["PageWorkPlan.kt", 4, ""],
+    ["PageWorkPlanner.kt", 22, ""],
+  ]},
+  { name: "util", role: "Small helpers", files: [
+    ["ChapterPages.kt", 4, "downloaded-chapter page listing"],
+    ["Sha256.kt", 1, ""],
+    ["ShortHash.kt", 1, ""],
+    ["TaskExtensions.kt", 1, ""],
+  ]},
+];
+
+const BADGE_FOR = (note) => {
+  if (note.includes("EDITED TODAY")) return '<span class="badge">colorize-bug logging</span>';
+  if (note.includes("AUDIT EDIT")) return '<span class="badge ok">dead code removed</span>';
+  if (note.includes("DEAD SUBSYSTEM") || note.includes("BUG FILE")) return '<span class="badge warn">' + note.split("—").pop().trim() + "</span>";
+  return "";
+};
+
+const tree = document.getElementById("tree");
+let total = 0;
+for (const f of FOLDERS) {
+  total += f.files.length;
+  const d = document.createElement("details");
+  d.className = "folder";
+  d.dataset.name = f.name;
+  const isRoot = f.name === "(root)";
+  if (isRoot) d.open = true;
+  const summary = document.createElement("summary");
+  summary.innerHTML =
+    '<span class="dname">' + f.name + '</span>' +
+    '<span class="badge">' + f.files.length + " files</span>" +
+    '<span class="drole">' + f.role + "</span>";
+  d.appendChild(summary);
+  const ul = document.createElement("ul");
+  ul.className = "files";
+  for (const [name, kb, note] of f.files) {
+    const li = document.createElement("li");
+    li.dataset.file = name.toLowerCase();
+    if (note.includes("BUG FILE") || note.includes("DEAD SUBSYSTEM")) li.className = "hit";
+    li.innerHTML =
+      '<span class="fname">' + name + '</span>' +
+      '<span class="kb">' + kb + " KB</span>" +
+      (note.includes("AUDIT EDIT") || note.includes("EDITED TODAY") ? BADGE_FOR(note) : "") +
+      '<span class="note">' + (note.startsWith("AUDIT EDIT") || note.startsWith("EDITED TODAY") ? note.split("—").slice(1).join("—").trim() || note : note) + "</span>";
+    ul.appendChild(li);
+  }
+  d.appendChild(ul);
+  tree.appendChild(d);
+}
+
+const input = document.getElementById("search");
+const count = document.getElementById("count");
+count.textContent = total + " files in " + FOLDERS.length + " groups";
+input.addEventListener("input", () => {
+  const q = input.value.trim().toLowerCase();
+  let visible = 0;
+  for (const d of tree.querySelectorAll("details.folder")) {
+    let any = false;
+    for (const li of d.querySelectorAll("li")) {
+      const match = !q || li.dataset.file.includes(q) || d.dataset.name.toLowerCase().includes(q);
+      li.classList.toggle("hidden", !match);
+      if (match) { any = true; visible++; }
+    }
+    d.classList.toggle("hidden", !any);
+    if (q) d.open = any;
+  }
+  count.textContent = q ? (visible + " of " + total + " files match “" + input.value.trim() + "”") : (total + " files in " + FOLDERS.length + " groups");
+});
+</script>
+</body>
+</html>
