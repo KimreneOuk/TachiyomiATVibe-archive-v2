@@ -36,7 +36,7 @@ class OnnxMangaColorizationEngine(context: Context) : PageColorizationEngine {
         val output = runtime.run(input, workHeight, workWidth)
         val coloredWork = MangaColorizationImageProcessing.planarRgb01ToBitmap(output, workWidth, workHeight)
         val colored = try {
-            MangaColorizationImageProcessing.combineColoredWithSource(source, coloredWork)
+            MangaColorizationImageProcessing.combineColoredWithSource(source, coloredWork, INK_SHADING_STRENGTH)
         } finally {
             coloredWork.recycle()
         }

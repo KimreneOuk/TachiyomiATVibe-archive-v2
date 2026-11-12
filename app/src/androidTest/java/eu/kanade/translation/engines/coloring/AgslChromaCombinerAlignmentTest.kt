@@ -64,7 +64,7 @@ class AgslChromaCombinerAlignmentTest {
         val source = buildSource(case.sw, case.sh)
         val work = buildWork(case.ww, case.wh)
         try {
-            val published = MangaColorizationImageProcessing.combineColoredWithSource(source, work)
+            val published = MangaColorizationImageProcessing.combineColoredWithSource(source, work, INK_SHADING_STRENGTH)
             try {
                 assertEquals("${case.label} published width", case.sw, published.width)
                 assertEquals("${case.label} published height", case.sh, published.height)
@@ -94,7 +94,7 @@ class AgslChromaCombinerAlignmentTest {
         val work = buildWork(case.ww, case.wh)
         try {
             val started = System.nanoTime()
-            val agsl = AgslChromaCombiner.combine(source, work, mw, mh)
+            val agsl = AgslChromaCombiner.combine(source, work, mw, mh, INK_SHADING_STRENGTH)
             val agslMs = (System.nanoTime() - started) / 1_000_000.0
             try {
                 assertEquals("${case.label} combine dims", mw to mh, agsl.width to agsl.height)

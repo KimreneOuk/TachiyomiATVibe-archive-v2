@@ -49,6 +49,7 @@ import eu.kanade.presentation.components.designsystem.DesignTokens
 import eu.kanade.presentation.components.designsystem.SegmentedPillBar
 import eu.kanade.tachiyomi.ui.reader.TranslationSettingsState
 import tachiyomi.domain.translation.AiEngine
+import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
@@ -83,6 +84,7 @@ fun ReaderTranslationSheet(
     onColorizationEnabledChange: (Boolean) -> Unit,
     onAutoColorizeChange: (Boolean) -> Unit = {},
     onColorizationModelChange: (ColorizationModel) -> Unit,
+    onColorCombineModeChange: (ColorCombineMode) -> Unit,
     onUpscalingEnabledChange: (Boolean) -> Unit = {},
     onColorizeChapterClick: () -> Unit,
     onColorizePageClick: () -> Unit,
@@ -102,6 +104,12 @@ fun ReaderTranslationSheet(
         stringResource(ATMR.strings.reader_tab_translation),
         stringResource(ATMR.strings.reader_tab_display),
         stringResource(ATMR.strings.reader_tab_data),
+    )
+    // The translation tab is split so no single pane stacks more than two sections.
+    var selectedTranslationSubTab by remember { mutableIntStateOf(0) }
+    val translationSubTabs = listOf(
+        stringResource(ATMR.strings.reader_subtab_language_engines),
+        stringResource(ATMR.strings.reader_subtab_vision_color),
     )
 
     Dialog(
@@ -130,9 +138,9 @@ fun ReaderTranslationSheet(
         ) {
             Surface(
                 modifier = modifier
-                    .widthIn(max = 580.dp)
-                    .fillMaxWidth(0.92f)
-                    .fillMaxHeight(0.85f)
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth(0.96f)
+                    .fillMaxHeight(0.92f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -240,6 +248,17 @@ fun ReaderTranslationSheet(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Translation tab: two lighter panes instead of one crowded stack.
+                    if (selectedTabIndex == 0) {
+                        SegmentedPillBar(
+                            tabs = translationSubTabs,
+                            selectedIndex = selectedTranslationSubTab,
+                            onTabSelected = { selectedTranslationSubTab = it },
+                            modifier = Modifier.padding(horizontal = 0.dp),
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
                     // Tab Content
                     Column(
                         modifier = Modifier
@@ -249,37 +268,42 @@ fun ReaderTranslationSheet(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         when (selectedTabIndex) {
-                            0 -> {
-                                TranslationLanguageSection(
-                                    state = state,
-                                    onTranslateFromLanguageChange = onTranslateFromLanguageChange,
-                                    onTranslateToLanguageChange = onTranslateToLanguageChange,
-                                )
-                                TranslationEngineSection(
-                                    state = state,
-                                    onTranslationEngineCategoryChange = onTranslationEngineCategoryChange,
-                                    onTranslationStandardEngineChange = onTranslationStandardEngineChange,
-                                    onTranslationDeeplApiKeyChange = onTranslationDeeplApiKeyChange,
-                                    onTranslationAiEngineChange = onTranslationAiEngineChange,
-                                    onTranslationAiApiKeyChange = onTranslationAiApiKeyChange,
-                                    onTranslationAiBaseUrlChange = onTranslationAiBaseUrlChange,
-                                    onTranslationAiModelChange = onTranslationAiModelChange,
-                                    onFetchAiModels = onFetchAiModels,
-                                )
-                                TranslationOcrInpaintSection(
-                                    state = state,
-                                    onOcrModelChange = onOcrModelChange,
-                                    onTranslationInpaintingModeChange = onTranslationInpaintingModeChange,
-                                    onTranslationInpaintingNeuralModelChange = onTranslationInpaintingNeuralModelChange,
-                                )
-                                TranslationColorizationSection(
-                                    state = state,
-                                    onColorizationEnabledChange = onColorizationEnabledChange,
-                                    onColorizationModelChange = onColorizationModelChange,
-                                    onUpscalingEnabledChange = onUpscalingEnabledChange,
-                                    onColorizeChapterClick = onColorizeChapterClick,
-                                    onColorizePageClick = onColorizePageClick,
-                                )
+                            0 -> when (selectedTranslationSubTab) {
+                                0 -> {
+                                    TranslationLanguageSection(
+                                        state = state,
+                                        onTranslateFromLanguageChange = onTranslateFromLanguageChange,
+                                        onTranslateToLanguageChange = onTranslateToLanguageChange,
+                                    )
+                                    TranslationEngineSection(
+                                        state = state,
+                                        onTranslationEngineCategoryChange = onTranslationEngineCategoryChange,
+                                        onTranslationStandardEngineChange = onTranslationStandardEngineChange,
+                                        onTranslationDeeplApiKeyChange = onTranslationDeeplApiKeyChange,
+                                        onTranslationAiEngineChange = onTranslationAiEngineChange,
+                                        onTranslationAiApiKeyChange = onTranslationAiApiKeyChange,
+                                        onTranslationAiBaseUrlChange = onTranslationAiBaseUrlChange,
+                                        onTranslationAiModelChange = onTranslationAiModelChange,
+                                        onFetchAiModels = onFetchAiModels,
+                                    )
+                                }
+                                else -> {
+                                    TranslationOcrInpaintSection(
+                                        state = state,
+                                        onOcrModelChange = onOcrModelChange,
+                                        onTranslationInpaintingModeChange = onTranslationInpaintingModeChange,
+                                        onTranslationInpaintingNeuralModelChange = onTranslationInpaintingNeuralModelChange,
+                                    )
+                                    TranslationColorizationSection(
+                                        state = state,
+                                        onColorizationEnabledChange = onColorizationEnabledChange,
+                                        onColorizationModelChange = onColorizationModelChange,
+                                        onColorCombineModeChange = onColorCombineModeChange,
+                                        onUpscalingEnabledChange = onUpscalingEnabledChange,
+                                        onColorizeChapterClick = onColorizeChapterClick,
+                                        onColorizePageClick = onColorizePageClick,
+                                    )
+                                }
                             }
                             1 -> {
                                 TranslationActivationSection(

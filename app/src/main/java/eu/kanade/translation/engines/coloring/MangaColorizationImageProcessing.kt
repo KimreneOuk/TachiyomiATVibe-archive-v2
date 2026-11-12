@@ -3,6 +3,7 @@ package eu.kanade.translation.engines.coloring
 import android.graphics.Bitmap
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.translation.ColorCombineMode
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -122,12 +123,12 @@ internal object MangaColorizationImageProcessing {
     }
 
     /** Ink-aware combine on API 33+ (AGSL) or the CPU twin otherwise/on GPU failure — never a backend fallback. */
-    fun combineColoredWithSource(source: Bitmap, coloredWork: Bitmap): Bitmap {
+    fun combineColoredWithSource(source: Bitmap, coloredWork: Bitmap, shadingStrength: Float): Bitmap {
         val (mergeWidth, mergeHeight) = mergeDimensions(source.width, source.height)
         if (AgslChromaCombiner.supported) {
             try {
                 return scaleBackToSource(
-                    AgslChromaCombiner.combine(source, coloredWork, mergeWidth, mergeHeight),
+                    AgslChromaCombiner.combine(source, coloredWork, mergeWidth, mergeHeight, shadingStrength),
                     source,
                 )
             } catch (failure: Throwable) {
@@ -135,7 +136,7 @@ internal object MangaColorizationImageProcessing {
                 logcat(LogPriority.WARN, failure) { "AGSL chroma combine failed; using CPU ink-aware merge" }
             }
         }
-        return scaleBackToSource(mergeWithInkAwareCpu(source, coloredWork, mergeWidth, mergeHeight), source)
+        return scaleBackToSource(mergeWithInkAwareCpu(source, coloredWork, mergeWidth, mergeHeight, shadingStrength), source)
     }
 
     /** Capped merge dimensions preserving aspect; [MAX_MERGE_PIXELS] bounds work size on both paths. */
@@ -156,7 +157,13 @@ internal object MangaColorizationImageProcessing {
         }
     }
 
-    private fun mergeWithInkAwareCpu(source: Bitmap, coloredWork: Bitmap, mergeWidth: Int, mergeHeight: Int): Bitmap {
+    private fun mergeWithInkAwareCpu(
+        source: Bitmap,
+        coloredWork: Bitmap,
+        mergeWidth: Int,
+        mergeHeight: Int,
+        shadingStrength: Float,
+    ): Bitmap {
         val origBitmap: Bitmap
         if (source.width == mergeWidth && source.height == mergeHeight) {
             origBitmap = source
@@ -167,7 +174,7 @@ internal object MangaColorizationImageProcessing {
         try {
             val origRgb = bitmapToRgb01(origBitmap)
             val coloredRgb = bitmapToRgb01(colored)
-            val merged = CpuChromaCombiner.merge(origRgb, coloredRgb, INK_SHADING_STRENGTH)
+            val merged = CpuChromaCombiner.merge(origRgb, coloredRgb, shadingStrength)
             return interleavedRgb01ToBitmap(merged, mergeWidth, mergeHeight)
         } finally {
             if (colored !== coloredWork) colored.recycle()
@@ -201,8 +208,18 @@ internal object MangaColorizationImageProcessing {
     private const val MAX_MERGE_PIXELS = 1_500_000L
 }
 
-/** Ink-aware combine shading strength from the user's Variant C prototype. */
+/** Ink-aware combine shading strength from the user's Variant C prototype (the VIBRANT look). */
 internal const val INK_SHADING_STRENGTH = 0.35f
+
+/** ORIGINAL look strength: full model lightness outside ink — each model renders faithfully. */
+internal const val ORIGINAL_SHADING_STRENGTH = 1f
+
+/** The combine strength each look mode runs at. */
+internal val ColorCombineMode.shadingStrength: Float
+    get() = when (this) {
+        ColorCombineMode.ORIGINAL -> ORIGINAL_SHADING_STRENGTH
+        ColorCombineMode.VIBRANT -> INK_SHADING_STRENGTH
+    }
 
 /** Errors that must never be swallowed by rendering fallbacks. */
 internal fun Throwable.isFatal(): Boolean = this is VirtualMachineError || this is ThreadDeath

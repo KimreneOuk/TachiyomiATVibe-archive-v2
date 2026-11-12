@@ -6,6 +6,8 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.model.onlinePageTranslationKey
 import kotlinx.coroutines.CancellationException
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.io.IOException
@@ -106,17 +108,48 @@ internal class OnlineColorizePageStreamResolver(
         source: HttpSource,
     ): Plan? = try {
         val pages = source.getPageList(chapter.toSChapter())
-        if (pages.isEmpty()) null else buildPlan(pages, source)
+        if (pages.isEmpty()) {
+            logcat(LogPriority.WARN) {
+                "[ColorizePlan] source '${source.name}' returned an empty page list for chapter '${chapter.name}'"
+            }
+            null
+        } else {
+            buildPlan(pages, source)
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        logcat(LogPriority.WARN) {
+            "[ColorizePlan] page list failed for source '${source.name}' chapter '${chapter.name}': ${e.message}"
+        }
         null
     }
 
     private fun buildPlan(pages: List<Page>, source: HttpSource): Plan {
+        val entries = onlineColorizePageEntries(pages)
         // A source can hand out duplicate keys (shared last path segment);
         // keep the first occurrence so ordering and identity stay stable.
-        val deduped = onlineColorizePageEntries(pages).distinctBy { it.first }
+        val deduped = entries.distinctBy { it.first }
+        val dropped = entries.size - deduped.size
+        logcat(LogPriority.INFO) {
+            "[ColorizePlan] source '${source.name}': ${entries.size} pages in page list -> " +
+                "${deduped.size} distinct page keys" +
+                (if (dropped > 0) " ($dropped dropped as duplicate keys)" else "")
+        }
+        if (dropped > 0) {
+            entries.groupBy({ it.first }) { it.second }
+                .filterValues { it.size > 1 }
+                .forEach { (key, planned) ->
+                    val urls = planned.take(3).joinToString(" | ") { page ->
+                        "img=${page.imageUrl ?: "?"} page=${page.sourcePage.url}"
+                    }
+                    logcat(LogPriority.WARN) {
+                        "[ColorizePlan] KEY COLLISION source '${source.name}' key '$key': " +
+                            "${planned.size} pages share one key (${planned.size - 1} dropped) — " +
+                            "every colliding page resolves to the FIRST page's colorization. urls: $urls"
+                    }
+                }
+        }
         return Plan(
             orderedPageKeys = deduped.map { it.first },
             source = source,

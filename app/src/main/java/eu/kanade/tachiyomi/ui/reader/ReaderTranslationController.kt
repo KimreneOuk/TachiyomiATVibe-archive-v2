@@ -50,6 +50,7 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.translation.AiEngine
+import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
@@ -853,6 +854,10 @@ internal class ReaderTranslationController(
 
     internal fun setTranslationColorizationModel(model: ColorizationModel) {
         translationPreferences.translationColorizationModel().set(model)
+    }
+
+    internal fun setTranslationColorCombineMode(mode: ColorCombineMode) {
+        translationPreferences.colorCombineMode().set(mode)
     }
 
     internal fun setTranslationUpscalingEnabled(enabled: Boolean) {

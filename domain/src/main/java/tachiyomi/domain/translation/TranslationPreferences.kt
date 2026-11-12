@@ -139,6 +139,10 @@ class TranslationPreferences(
      */
     fun preferFfdnetDenoising() = preferenceStore.getBoolean("prefer_ffdnet_denoising", false)
 
+    /** Chroma-combine look applied after colorization: faithful model render or vibrant prototype. */
+    fun colorCombineMode(): Preference<ColorCombineMode> =
+        preferenceStore.getEnum("color_combine_mode", ColorCombineMode.DEFAULT)
+
     /**
      * Master gate for on-device QuickSRNetLarge page upscaling. Default OFF.
      * While UpscalingModelCatalog.operational is false, enabling yields an

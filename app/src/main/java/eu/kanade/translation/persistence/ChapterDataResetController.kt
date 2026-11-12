@@ -250,12 +250,4 @@ internal class ChapterDataResetController(
         }
     }
 
-    private suspend fun reconcileBatchProgress(chapterId: Long) {
-        // Refresh the active-store summary after a stage reset so the chapter
-        // list can drop stale progress data. Only runs when the store is open
-        // (i.e. the reader is active for this chapter); persisted-only chapters
-        // are unaffected because their summary is rebuilt on the next open.
-        val store = activeStores.get(chapterId) ?: return
-        store.flush()
-    }
 }

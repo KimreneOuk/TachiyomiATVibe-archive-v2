@@ -28,6 +28,7 @@ import eu.kanade.presentation.translation.colorizationModelOptions
 import eu.kanade.presentation.translation.neuralInpaintOptions
 import eu.kanade.presentation.translation.ocrModelOptions
 import eu.kanade.tachiyomi.ui.reader.TranslationSettingsState
+import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
@@ -122,6 +123,7 @@ internal fun TranslationColorizationSection(
     state: TranslationSettingsState,
     onColorizationEnabledChange: (Boolean) -> Unit,
     onColorizationModelChange: (ColorizationModel) -> Unit,
+    onColorCombineModeChange: (ColorCombineMode) -> Unit,
     onUpscalingEnabledChange: (Boolean) -> Unit,
     onColorizeChapterClick: () -> Unit,
     onColorizePageClick: () -> Unit,
@@ -156,6 +158,23 @@ internal fun TranslationColorizationSection(
                     onSelect = onColorizationModelChange,
                     placeholder = stringResource(ATMR.strings.pref_colorization_model),
                 )
+                SectionHeading(title = stringResource(ATMR.strings.pref_color_combine_title))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SelectionTile(
+                        selected = state.colorCombineMode == ColorCombineMode.ORIGINAL,
+                        onClick = { onColorCombineModeChange(ColorCombineMode.ORIGINAL) },
+                        title = stringResource(ATMR.strings.pref_color_combine_original),
+                        subtitle = stringResource(ATMR.strings.pref_color_combine_original_summary),
+                        modifier = Modifier.weight(1f),
+                    )
+                    SelectionTile(
+                        selected = state.colorCombineMode == ColorCombineMode.VIBRANT,
+                        onClick = { onColorCombineModeChange(ColorCombineMode.VIBRANT) },
+                        title = stringResource(ATMR.strings.pref_color_combine_vibrant),
+                        subtitle = stringResource(ATMR.strings.pref_color_combine_vibrant_summary),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
 
@@ -189,36 +208,4 @@ internal fun TranslationColorizationSection(
             onCheckedChange = onUpscalingEnabledChange,
         )
     }
-}
-
-/**
- * Vision and inpainting sections of the reader translation sheet.
- */
-@Composable
-internal fun TranslationVisionSection(
-    state: TranslationSettingsState,
-    onOcrModelChange: (OcrModel) -> Unit,
-    onTranslationInpaintingModeChange: (String) -> Unit,
-    onTranslationInpaintingNeuralModelChange: (NeuralInpaintModel) -> Unit,
-    onColorizationEnabledChange: (Boolean) -> Unit,
-    onAutoColorizeChange: (Boolean) -> Unit = {},
-    onColorizationModelChange: (ColorizationModel) -> Unit,
-    onUpscalingEnabledChange: (Boolean) -> Unit,
-    onColorizeChapterClick: () -> Unit,
-    onColorizePageClick: () -> Unit,
-) {
-    TranslationOcrInpaintSection(
-        state = state,
-        onOcrModelChange = onOcrModelChange,
-        onTranslationInpaintingModeChange = onTranslationInpaintingModeChange,
-        onTranslationInpaintingNeuralModelChange = onTranslationInpaintingNeuralModelChange,
-    )
-    TranslationColorizationSection(
-        state = state,
-        onColorizationEnabledChange = onColorizationEnabledChange,
-        onColorizationModelChange = onColorizationModelChange,
-        onUpscalingEnabledChange = onUpscalingEnabledChange,
-        onColorizeChapterClick = onColorizeChapterClick,
-        onColorizePageClick = onColorizePageClick,
-    )
 }

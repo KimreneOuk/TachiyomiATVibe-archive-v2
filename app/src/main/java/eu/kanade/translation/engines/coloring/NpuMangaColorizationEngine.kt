@@ -9,6 +9,7 @@ import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.TranslationPreferences
 import java.io.File
 import java.io.FileNotFoundException
@@ -18,6 +19,7 @@ internal class NpuMangaColorizationEngine(
     private val deps: Dependencies,
     private val ffdnetEngine: FfdnetDenoiserEngine? = null,
     private val preferFfdnetDenoising: () -> Boolean = { false },
+    private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
 ) : PageColorizationEngine {
 
     /** Production wiring: the Android context drives artifact, pre-check, and LiteRT. */
@@ -29,6 +31,7 @@ internal class NpuMangaColorizationEngine(
         deps = Dependencies.from(context),
         ffdnetEngine = ffdnetEngine ?: FfdnetDenoiserEngine(context),
         preferFfdnetDenoising = { preferences?.preferFfdnetDenoising()?.get() == true },
+        colorCombineMode = { preferences?.colorCombineMode()?.get() ?: ColorCombineMode.DEFAULT },
     )
 
     constructor(context: Context) : this(context, null, null)
@@ -79,11 +82,7 @@ internal class NpuMangaColorizationEngine(
     @Synchronized
     override fun currentStamp(): String? {
         val base = stamp ?: return null
-        return base + if (preferFfdnetDenoising()) {
-            MangaColorizationPreprocessor.STAMP_FFDNET_SUFFIX
-        } else {
-            MangaColorizationPreprocessor.STAMP_SUFFIX
-        }
+        return base + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising())
     }
 
     @Synchronized
@@ -147,7 +146,11 @@ internal class NpuMangaColorizationEngine(
             letterbox.height,
         )
         return try {
-            MangaColorizationImageProcessing.combineColoredWithSource(source, coloredWork)
+            MangaColorizationImageProcessing.combineColoredWithSource(
+                source,
+                coloredWork,
+                colorCombineMode().shadingStrength,
+            )
         } finally {
             coloredWork.recycle()
         }
@@ -356,9 +359,9 @@ internal class NpuMangaColorizationEngine(
         const val KEY_EXTRACTED_SIZE = "extracted_size_"
         const val KEY_SHA256 = "sha256_"
 
-        // The recipe-calibrated W8A8 apply_plugin artifact (author FFDNet sigma=25
-        // calibration; 38.46 dB held-out).
-        const val EXPECTED_ARTIFACT_SHA256 = "d60e18b2c64a11c25256969b24532747c06d9cad10327ec68281cd1ac0e94b83"
+        // The bank-1111 recalibrated W8A8 apply_plugin artifact (17-chapter cross-series
+        // calibration; +1.15 dB held-out vs the prior recipe artifact, 970/970 ops on NPU).
+        const val EXPECTED_ARTIFACT_SHA256 = "bd44365fa699122d778e52bcd3c0eb6d61ec4ae0b3fc01079afaf8fc17fb2cc3"
 
         const val STAMP_PREFIX = "MC_V2_LITERT_NPU_W8A8_SM8650_832x576"
 

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Translation Module Refactoring Plan — Phase 3</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size: 15px; line-height: 1.55;
+  }
+  h1 { font-size: 1.45rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 32px 0 8px; border-bottom: 1px solid var(--color-border-secondary); padding-bottom: 4px; }
+  h3 { font-size: 1rem; margin: 20px 0 6px; }
+  p, li { color: var(--color-text-primary); }
+  .muted { color: var(--color-text-secondary); }
+  .small { font-size: 0.85rem; }
+  code, .mono { font-family: var(--font-mono, monospace); font-size: 0.86em; background: var(--color-background-tertiary); border-radius: var(--border-radius-sm); padding: 1px 5px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--color-border-secondary); vertical-align: top; }
+  th { color: var(--color-text-secondary); font-weight: 600; white-space: nowrap; }
+  .wrap { overflow-x: auto; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+  .b-low { background: var(--color-background-success); color: var(--color-text-success); }
+  .b-med { background: var(--color-background-warning); color: var(--color-text-warning); }
+  .b-high { background: var(--color-background-danger); color: var(--color-text-danger); }
+  .b-info { background: var(--color-background-info); color: var(--color-text-info); }
+  .b-gate { background: var(--color-background-inverse); color: var(--color-text-inverse); }
+  .card { border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 12px 14px; margin: 10px 0; background: var(--color-background-secondary); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .stat { font-size: 1.5rem; font-weight: 700; }
+  details { border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 8px 12px; margin: 8px 0; background: var(--color-background-secondary); }
+  summary { cursor: pointer; font-weight: 600; }
+  a { color: var(--color-text-info); }
+  .toc { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; padding: 0; list-style: none; }
+  section { margin-bottom: 8px; }
+  ul { padding-left: 20px; }
+  .k { color: var(--color-text-secondary); }
+</style>
+</head>
+<body>
+
+<h1>Translation Module — Consolidated Refactoring Plan</h1>
+<p class="muted">Phase-3 deliverable · built from the six-way cross-reviewed <a href="../audit-ledger/index.md">audit ledger</a> · 278 files / ~61k lines audited by 5 zone agents + 1 whole-module sweep, every finding exact-symbol verified, 5 contradictions resolved by code evidence. Read-only until you approve implementation batches.</p>
+
+<ul class="toc">
+  <li><a href="#method">Method</a></li>
+  <li><a href="#current">Current architecture</a></li>
+  <li><a href="#findings">Findings</a></li>
+  <li><a href="#target">Target architecture</a></li>
+  <li><a href="#stages">Implementation stages</a></li>
+  <li><a href="#decisions">Settled decisions</a></li>
+  <li><a href="#notdoing">Explicitly not doing</a></li>
+  <li><a href="#risks">Risks &amp; verification</a></li>
+  <li><a href="#gates">Your gates</a></li>
+</ul>
+
+<section id="method">
+<h2>Method — why this plan is trustworthy</h2>
+<div class="grid2">
+  <div class="card"><div class="stat">6</div><b>independent reviewers</b><br><span class="muted small">5 zone auditors (Gemini 3.8 Flash ×2, GLM-5.3 Flash ×3) + 1 whole-module sweep; overlapping zones by design</span></div>
+  <div class="card"><div class="stat">5</div><b>contradictions resolved by code</b><br><span class="muted small">AiChunkAdaptiveRetry, OcrCorpusManifest, ChapterStageMerges, BubbleMaskRleEncoding, planner-liveness — each settled by exact-symbol grep, not votes</span></div>
+  <div class="card"><div class="stat">3</div><b>never-wired systems found</b><br><span class="muted small">batch-v2 planning layer, AI semantic-retry engine, envelope/chunk planning stack — coherent, tested, never called from production</span></div>
+  <div class="card"><div class="stat">2</div><b>proposal reversals</b><br><span class="muted small">Bridge merge (4 live clients, Δ≈0) and QNN "duplication" (superficial-to-partial) — cross-review killed bad consolidations before they shipped</span></div>
+</div>
+<p class="small muted">Binding evidence rules: every dead <em>and</em> live claim needs exact-symbol caller file:line across main+test+androidTest; filename-greps forbidden (they miss extension functions); zone-local path inference is not caller evidence.</p>
+</section>
+
+<section id="current">
+<h2>Current architecture — five execution paths, one fragmented module</h2>
+<p>All five pipelines funnel through <code>TranslationProcessor</code> and commit via <code>ChapterTranslationStore.updatePageGuarded</code> (CAS under store mutex). The fragmentation is <em>around</em> these spines, not in them.</p>
+<div class="wrap"><table>
+<tr><th>Path</th><th>Route (verified)</th><th>State</th></tr>
+<tr><td>Single-page translate</td><td class="mono">UI → ReaderTranslationCoordinator → processor.processSinglePage → decode/analyze/translate/inpaint/colorize/upscale → updatePageGuarded</td><td><span class="badge b-low">healthy</span></td></tr>
+<tr><td>Batch translate</td><td class="mono">MangaTranslationCoordinator → admission probe → TRC generation fence → BTC wave select → BatchPageOperation.executeBatch → reconciler → tracker.finish</td><td><span class="badge b-low">healthy</span> <span class="badge b-med">1,138L coordinator</span></td></tr>
+<tr><td>Single-page colorize</td><td class="mono">ReaderViewModel → manager.colorizeCurrentPage → processor.colorizeOriginalPage → combine (AGSL/CPU) → ColoredBitmapHandoff</td><td><span class="badge b-low">healthy</span></td></tr>
+<tr><td>Batch colorize (streamed)</td><td class="mono">… → OnlineColorizePageStreamResolver <b>(key-collision drop :132)</b> → executeColorizeOnly</td><td><span class="badge b-high">known bug D2</span></td></tr>
+<tr><td>Download→rekey handoff</td><td class="mono">DownloadTranslationHandoff → CompletedDownloadRekeyCoordinator → TRC.startTranslationAfterDownloadIfRequested</td><td><span class="badge b-low">healthy</span></td></tr>
+</table></div>
+<p class="small muted">Live AI translate truth (corrected by cross-review): processor → <code>AiTranslator.translate</code> (LEGACY chunk, built inline) → provider <code>translateContextual(Structured)</code> → RequestBuilder → HTTP → Parser → applyBatchToChunk; retry = <code>TranslationRetry</code> + governor. <em>No envelope planner, no chunk planner, no adaptive retry runs in production.</em></p>
+</section>
+
+<section id="findings">
+<h2>Findings — confirmed totals</h2>
+<div class="grid2">
+  <div class="card"><div class="stat">~5,700</div><b>production-dead lines</b><br><span class="muted small">3 never-wired systems + dead coloring chain + persistence/UI dead code — every unit grep-verified, test surgery mapped</span></div>
+  <div class="card"><div class="stat">14</div><b>god files with verified split seams</b><br><span class="muted small">NeuralInpaintingCoordinator 2,033L · RoiPageRecognitionEngine 1,457L · two ~1,100L coordinators · TextLayoutPlanner 1,332L · TranslationTrace pair 2,625L …</span></div>
+  <div class="card"><div class="stat">14</div><b>verified merge/dedupe groups</b><br><span class="muted small">byte-identical QNN precheck, dual-runner vision boilerplate ×3, pixel primitives, Chapter* family (6 merges, 1 reversal), asset-IO rehome…</span></div>
+  <div class="card"><div class="stat">7</div><b>settled architectural decisions</b><br><span class="muted small">incl. two reversals of Phase-1 assumptions — routing bypass is intentional, chunk-planner stack is unwired</span></div>
+</div>
+<p class="small muted">Full per-file verdicts, evidence chains and the do-not-touch list live in the <a href="../audit-ledger/index.md">audit ledger</a> (sections A–G). Nothing below is a hypothesis unless marked.</p>
+</section>
+
+<section id="target">
+<h2>Target architecture</h2>
+<p>The spines stay; the noise around them goes. After all stages:</p>
+<ul>
+  <li><b>Engines</b> — one authoritative implementation per capability: OCR (PageRecognitionEngine→RoiPageRecognitionEngine, split into pipeline/factory/grouping stages), inpaint (PageInpaintingEngine + split Coordinator), colorize (2 live engines, shared preprocessor/combine — already unified), translate (Base/AiTranslator hierarchy, verified clean), render (FontFittingAlgorithms as the only fit/wrap authority, cycle broken).</li>
+  <li><b>Pipeline</b> — coordinators slimmed with a shared join protocol; batch executor named honestly (<code>ChapterBatchExecutor</code>); progress has exactly one live representation; no unwired planners.</li>
+  <li><b>Persistence</b> — ChapterArtifactEngine as the hub with its candidate/rekey/retention collaborators; PublicationBridge kept (4 clients); verified-write lives in persistence; store facade without dead forwarders.</li>
+  <li><b>Runtime</b> — ModelDeployment owns asset integrity+copy; QnnContextCacheManager owns the staged protocol behind one generalized Plan; one memory-facts owner (EngineMemoryBudget).</li>
+  <li><b>Diagnostics</b> — one light spine (TelemetryTrace) + one condensed structured emitter (~500L) with the privacy pseudonymizer preserved verbatim; legacy facades kept for 23 UI call sites.</li>
+  <li><b>Domain</b> — enums/prefs/state only; pools moved to app <code>processing/memory/</code>; dead credential/validator files gone.</li>
+</ul>
+<p><b>Estimated net effect (transparent math, per critical review):</b> S1 −420 · S2 −4,900…−5,300 · S3 −900 · S4 −2,215 (diagnostics condense −2,125 + memory facts −90; splits themselves Δ0) · S5 −150…−200 ⇒ <b>net ≈ −8,000 ± 500 production lines (~13%)</b>, of which ~2,100 is the condense — if the condense is deferred, the remainder is ≈ −5,900. <b>Files: −32 to −42</b> (26 deletions + ~14 merge absorptions, minus a handful of new seam files). Target ≈ 52–53k lines in ~240 files with every file's purpose defensible in one sentence. Zero behavior change except the gated D2 fix.</p>
+</section>
+
+<section id="stages">
+<h2>Implementation stages — dependency-ordered batches</h2>
+<p class="small muted">Each batch: pre-grep re-verify → implement → <code>:app:compileStandardDebugKotlin</code> + <code>:app:compileStandardDebugUnitTestKotlin</code> + <code>:app:compileStandardDebugAndroidTestKotlin</code> (main alone does NOT catch test-surgery breakage — critical-review finding #10) → full translation+reader unit-test suites → logcat format spot-checks where pinned. APK + on-device smoke test at stage milestones (parent-only, per house rules). All work stays uncommitted; every git action asks you first (AGENTS.md §8).</p>
+
+<h3>Stage 0 — Baseline <span class="badge b-info">no code change</span></h3>
+<p class="small">Run current test suites for translation + reader packages; record green baseline and test counts. Any pre-existing red = stop, report, re-plan.</p>
+
+<h3>Stage 1 — Zero-coupling deletions <span class="badge b-low">risk: low</span> <span class="badge b-info">≈ −420L, −9 files</span></h3>
+<div class="wrap"><table>
+<tr><th>Delete</th><th>Evidence</th></tr>
+<tr><td class="mono">util/TaskExtensions, coordinator/TranslationStoreResolver, domain/KeystoreApiKeyManager, domain/validation/PreferenceValidator, CheckNnapi.java, CheckXnnpack.java</td><td class="small">self-reference-only greps (✓ orchestrator + agents)</td></tr>
+<tr><td class="mono">DeferredPagePublications, BatchPersistenceRejectedException, PreparedPageBoundary, PostOcrStageSemantics (+ paired tests)</td><td class="small">zero refs anywhere; ledger A3</td></tr>
+</table></div>
+
+<h3>Stage 2 — Never-wired systems + dead chains <span class="badge b-med">risk: low-med (test surgery)</span> <span class="badge b-info">≈ −4,900L</span></h3>
+<p class="small">Order inside the stage matters; each unit is independent of the others.</p>
+<div class="wrap"><table>
+<tr><th>Unit</th><th>Contents</th><th>Test surgery</th></tr>
+<tr><td>Batch-v2 planning layer</td><td class="mono">PageWorkPlanner + PageWorkPlan + AttemptAuthority + PageStoreWriter (toPrecondition → store) + context\ (2 files) + PageDecode dead fns + BatchAdmissionRouting + MemoryGovernance dead gates + PermitGate promotion + micro-dead set</td><td class="small">delete planner tests; update TranslationStageContracts:23 comment <b>+ README.md:46 doc drift (blind-sweep)</b>; TranslationTrace:884 comment rides the diagnostics condense</td></tr>
+<tr><td>AI semantic-retry engine</td><td class="mono">AiChunkAdaptiveRetry + AiTranslationRetryPlanner</td><td class="small">delete AiChunkAdaptiveRetryTest + retry-planner tests; ContextualRequestBuilderTest: delete test 2, KEEP test 1 (namespace invariant independently pinned)</td></tr>
+<tr><td>Envelope/chunk planning stack</td><td class="mono">GlobalEnvelopePlanner + EnvelopePlan.kt + StageFingerprints envelope fns + StreamingChunkPlanner + TCCP planning surface (<b>keep estimateTokens</b>) + OcrCorpusManifest + ChapterContextService + BatchContextFrontier</td><td class="small">delete respective tests; InputAccountingContract/providers keep compiling (estimateTokens stays)</td></tr>
+<tr><td>EnvelopePlan sidecar stack</td><td class="mono">manifest.envelopePlan field + ChapterArtifactLayout envelopes/ dir + engine sidecarName + <b>co-edit ALL read sites: CompletedDownloadRekeyCoordinator:226 + ArtifactRetention:223 (compile-breaker if missed — ArtifactRetention doesn't merge until Stage 3) + ChapterStageMerges:196 (dies with its own unit)</b></td><td class="small">manifest tests referencing the field</td></tr>
+<tr><td>Dead coloring chain</td><td class="mono">OnnxMangaColorizationEngine + MangaColorizationOnnxSession (+Requirement enum) + ColorizationBackendRouter + UnprovisionedColorizationEngine + OnnxModelStore.ensureMangaColorization/…Int8</td><td class="small">delete 2 tests; nothing else touches the chain</td></tr>
+<tr><td>Persistence/UI dead</td><td class="mono">ChapterStageMerges + store forwarders (:517-527) + CleanedImagePublisher (class only — the FILE stays, it houses the live identity types) + PageStoreWriter + BatchPass1Outcome bound unit (with tracker.pause surface + reconciler dead paths + PagePhase/AiPageProgress events) + write-only Progress plumbing</td><td class="small">repoint 2 merge-test calls; ChapterStageMerges test deleted; tracker format tests update</td></tr>
+<tr><td>Vision/domain micro</td><td class="mono">TranslationBlockSorter, BubbleMaskRleEncoding (→ test scope), TaskExtensions already in S1</td><td class="small">move encode() into BubbleSegmentationDecoderTest</td></tr>
+</table></div>
+
+<h3>Stage 3 — Merge &amp; dedupe batch <span class="badge b-med">risk: low-med</span> <span class="badge b-info">≈ −900L, −14 files</span></h3>
+<div class="wrap"><table>
+<tr><th>Action</th><th>Detail</th></tr>
+<tr><td>Asset-IO rehome</td><td class="mono">copyAssetWithDigest + sha256Of → runtime/ModelDeployment; upscaler→coloring import severed (C4 step 1)</td></tr>
+<tr><td>QNN precheck dedup</td><td class="mono">dispatchPrecheck + REQUIRED_LIBRARIES byte-identical ×2 engines → shared helper (−30L)</td></tr>
+<tr><td>QNN staged protocol</td><td class="mono">generalized Plan(options, validator) on QnnContextCacheManager; 3 consumers (PanelDetector:84, BubbleSegmenter:67, Coordinator:251-298); −60-90L; <b>before</b> Coordinator split</td></tr>
+<tr><td>Coloring/render smalls</td><td class="mono">LineArtMerger→CpuChromaCombiner; GeminiTranslator.translate dup; pixel primitives (histogramMedian/avg4/maskValue/reflect); isFatal() → shared util</td></tr>
+<tr><td>Translator smalls</td><td class="mono">DeepLApi→DeepLTranslator; TranslationBlockFilters→Parser; normalizeCandidateTarget→OutputSemantics; InputAccountingContract parameterized</td></tr>
+<tr><td>Vision smalls</td><td class="mono">OcrBlockDeduper→Deduplication; MlKit cascade (TextRecognizer+Preprocessor→MlKitRoiOcrEngine); DetProviderSelection→Factory; BatchCtcDecoder→CtcDecoder; ActivationPolicy→DevicePolicy; DeviceProfile→DeviceCapability; VisionModelRunner extraction (×3 boilerplate, verified identical)</td></tr>
+<tr><td>Chapter* merges</td><td class="mono">CandidateTransactions+Rekey+Retention→ArtifactEngine; DisplayPublication→Store (12 trampolines die); TestSeams→Store internal (2 test repoints); WriteDiagnostics→PageMutations. Bridge STAYS (4 clients — reversal accepted)</td></tr>
+<tr><td>CleanedPublication relocation</td><td class="mono">verified-write → persistence/CleanedImagePublication; processor repoints (stamp passed in, per pipeline wrinkle)</td></tr>
+</table></div>
+
+<h3>Stage 4 — Structural splits <span class="badge b-med">risk: med (test-covered moves)</span> <span class="badge b-info">splits Δ0; condense −2,215L</span></h3>
+<div class="wrap"><table>
+<tr><th>File</th><th>Split</th><th>Sequence note</th></tr>
+<tr><td class="mono">NeuralInpaintingCoordinator (2,033)</td><td>6-way: Provisioner / RegionRouter / BubbleStage (erode→BubbleMaskBuilder) / FixedExecutor / DynamicPipeline / facade</td><td class="small">after QNN dedup (Provisioner ~310L)</td></tr>
+<tr><td class="mono">RoiPageRecognitionEngine (1,457)</td><td>Pipeline / VisionEngineFactory / SpatialGroupingStage</td><td class="small">independent</td></tr>
+<tr><td class="mono">BTC (1,138)</td><td>queue-persist / worker-loop / lifecycle + shared SessionSwitchJoinProtocol (−120L dup)</td><td class="small"><b>join-protocol extraction AFTER Stage 3 persistence merges land</b> (Risks-table rule governs; symbol-level analysis says order-free, concurrency caution wins)</td></tr>
+<tr><td class="mono">RTC (1,118)</td><td>extract TranslationStageSignalBoard (1091-1118) + outcome registry (757-802) + viewport auto-scheduler (540-625) — blind-sweep verified boundaries exact</td><td class="small">after BTC join protocol exists; its own seams, not BTC's</td></tr>
+<tr><td class="mono">ChapterBulkMutator (728)</td><td>extract rekey logic (5 multi-page transactions) — restored from ledger B (was dropped from earlier draft)</td><td class="small">after ChapterCandidateTransactions/Rekey merges (Stage 3) to avoid re-moving code</td></tr>
+<tr><td class="mono">TranslationProcessor (971)</td><td>stage primitives vs single-page orchestrators; executeColorizeOnly delegates (−60L dup)</td><td class="small">with ChapterBatchExecutor rename</td></tr>
+<tr><td class="mono">ProviderRequestGovernor (945)</td><td>failure vocab → ProviderFailureModel; sub-limit gates → own file; core stays</td><td class="small">52 test files cover</td></tr>
+<tr><td class="mono">TextLayoutPlanner (1,332)</td><td>~300L contract types out; CollisionRelaxation calls FontFittingAlgorithms directly (cycle −35L)</td><td class="small">92 rendering tests cover</td></tr>
+<tr><td class="mono">TranslationUiTruth (999)</td><td>status-line chain → BatchStatusLineProjection; <b>keep the facade object</b> (5 external consumers untouched)</td><td class="small">i18n migration is separate debt, not this stage</td></tr>
+<tr><td class="mono">TranslationManager (764)</td><td>ColorizationEngineOwner out; Initialization+Coordinators merged (dead processor branch deleted)</td><td class="small">exposes TM.admitReaderSession for Stage 5</td></tr>
+<tr><td class="mono">Vision god files</td><td>MangaOcrEngine, PaddleOcrV6 Small/Det, VerticalLineOcr, OnnxRuntimeProvider</td><td class="small">per ledger B rows</td></tr>
+<tr><td class="mono">QnnDiagnostics (978)</td><td><b>CONDENSE IN PLACE — only viable path</b>: Gradle forbids src/main referencing src/debug symbols, and App.kt (main) registers the receiver (:181-189, action const :317); moving anything to debug breaks all variants unless the Application entry point is refactored (out of scope)</td><td class="small">978L → target ~200-300L; runOnce() + receiver keep working</td></tr>
+<tr><td class="mono">Diagnostics condense</td><td>TranslationTrace+PipelineDiagnostics → ~500L emitter; <b>preserve verbatim: TranslationIdentityKeys.token() privacy scrubber, exception whitelist, detailedTracingEnabled property (App.kt:197 sets it from main — compile-breaker if dropped), event=budget_summary + arrival_wait_recorded byte formats (scripts/analyze_latency_budget.py:27,69 consumes them)</b>; legacy telemetry facades kept (23 UI sites)</td><td class="small">privacy + script constraints binding; −2,125L</td></tr>
+<tr><td class="mono">Memory facts</td><td>TMB.snapshot→EngineMemoryBudget.heapSnapshot; ActivityManager ×6 → 1; MemoryGovernance slimmed</td><td class="small">−90L, decode hot path — measure after</td></tr>
+</table></div>
+
+<h3>Stage 5 — UI &amp; facade seams <span class="badge b-med">risk: med</span> <span class="badge b-info">ordered PRs</span></h3>
+<ol class="small">
+<li><b>Combine-collapse</b> — ReaderViewModel L146-251: 30 pref flows → ~5 named intermediate flows. Independent, zero manager coupling.</li>
+<li><b>Manager-seam (structural part lands in Stage 4)</b> — this step adds ONLY the new <code>TM.admitReaderSession()</code> facade entry point. <b>Steps 2+3 are ONE ATOMIC PR</b> (entry point without consumers = dead code; consumers without entry point = no compile).</li>
+<li><b>UI-seam (same atomic PR as step 2)</b> — admission dance (~8 sites) consolidates onto the facade entry; ReaderTranslationController split rides the same PR (moves the dance once, not twice). Auto-translate guard (11 sites) → one predicate.</li>
+<li><b>TranslationPreferences split</b> — facade-first phasing (33 consumer files): AiEngineCredentials / PipelinePrefs / ReaderUiPrefs groups.</li>
+<li><b>Domain pools move</b> — BitmapPool + DirectBufferPool → app processing/memory/ (10+ engine consumers, imports only).</li>
+</ol>
+
+<h3>Stage 6 — Documentation pass <span class="badge b-low">risk: none</span></h3>
+<p class="small">PaddleOcrSessionFactory KDoc: per-engine scoped provider resolver, <i>intentional</i> (D1); naming-debt notes (Contract(s) family, Store/Registry/Resolver suffixes); the Frankenstein-map resolutions recorded in ledger D5.</p>
+</section>
+
+<section id="decisions">
+<h2>Settled decisions (cross-review record)</h2>
+<div class="wrap"><table>
+<tr><th>#</th><th>Decision</th><th>Evidence</th></tr>
+<tr><td>D1</td><td><b>Routing: KEEP-SEPARATE-BUT-DOCUMENT</b> — the PaddleOcrSessionFactory bypass is intentional scoped resolution; unifying would let one OCR QNN failure latch CPU globally (circuit-breaker contamination across models)</td><td class="small">vision Phase-2: resolvePaddleOcrRoute (HDE:106), probeFailureCache, global @Volatile latch</td></tr>
+<tr><td>D2</td><td><b>PageTranslationKey collision bug: FIX — gated on your approval</b> (behavior + persisted-key migration). Blast radius (blind-sweep): stamping must change in lockstep across reader AND download paths — <code>DownloadTranslationHandoff.kt:12</code> + <code>ReaderPageWorkResolver.kt:8</code> also consume the key — or download-persisted artifacts re-introduce the collision</td><td class="small">resolver :132 distinctBy; fix shape agreed; NOT in stages 0-6</td></tr>
+<tr><td>D3</td><td><b>Never-wired scaffolding: DELETE</b> (git preserves designs; wire-in = +200-300L glue on the most incident-dense path; planner needs data live scans never load)</td><td class="small">pipeline FINAL + engines-ml corroboration + orchestrator grep</td></tr>
+<tr><td>D4</td><td><b>Pools move out of domain</b> (android.graphics in domain today; convention-only layering)</td><td class="small">domain-ui; 10+ engine consumers verified</td></tr>
+<tr><td>D5</td><td><b>Misplacement homes fixed</b> — deletion-protection policy → coordinator (beside its twin), lease manager → persistence lifecycle, isFatal → shared util, BatchPageOperation → ChapterBatchExecutor + colorize-only extraction</td><td class="small">domain-ui + pipeline + engines-ml</td></tr>
+<tr><td>D6</td><td><b>Asset-IO → ModelDeployment</b> (upscaler import severed)</td><td class="small">vision Phase-2 final graph</td></tr>
+<tr><td>D7</td><td><b>manifest.json per-page rewrite in batch mode: documented, not redesigned</b> (O(ch²) worst case, reader bounded by 250ms debounce; no measured problem)</td><td class="small">persistence Q2 — confirmed-but-bounded</td></tr>
+</table></div>
+</section>
+
+<section id="notdoing">
+<h2>Explicitly not doing (and why)</h2>
+<ul class="small">
+  <li><b>No file-count Olympics</b> — PublicationBridge stays a file despite "merge it" pressure (4 clients); PaddleOcrV6BatchBufferPool stays separate from DirectBufferPool (different semantics, No-Flag rule); fumeto stays its own package (live feature).</li>
+  <li><b>No abstraction theater</b> — no new layers beyond the two extracted seams the evidence demanded (VisionModelRunner, ModelArtifactProvisioner-step-2 optional); TextLayoutCoordinator stays (genuine, not a forwarder).</li>
+  <li><b>No observability deletion</b> — logcat stays the sink; privacy pseudonymizer preserved byte-for-byte; ReaderEntryTrace untouched (external consumers).</li>
+  <li><b>No behavior changes</b> outside the gated D2 fix — every stage compiles + passes the same suites as baseline.</li>
+  <li><b>Deferred debt (separate efforts, not this plan)</b> — TranslationUiTruth i18n migration (blind-sweep corrected count: 126 hardcoded English strings, not 19), domain-as-JVM-module enforcement, ModelArtifactProvisioner step 2, envelope/chunk planning <i>feature</i> revival (designs live in git history), bitmap-recycle pass for WebtoonSlidingDetector/VerticalLineOcr per-window allocations (low, speculative impact).</li>
+</ul>
+</section>
+
+<section id="risks">
+<h2>Risks &amp; verification strategy</h2>
+<div class="wrap"><table>
+<tr><th>Risk</th><th>Mitigation</th></tr>
+<tr><td>Test-only machinery is secretly load-bearing</td><td class="small">Each deletion unit re-grepped immediately before removal; ContextualRequestBuilderTest test-1 kept; BatchPass1Outcome bound-unit rule</td></tr>
+<tr><td>Concurrency regressions (coordinators, store)</td><td class="small">Join-protocol extraction after persistence merges; concurrency suites run per-batch; lock-order invariants cited in ledger (bridge contract)</td></tr>
+<tr><td>Log-format drift breaks pinned tests</td><td class="small">NativeVisionTelemetry byte-identical line formats; TARGET_MS preserved; logcat spot-checks at milestones</td></tr>
+<tr><td>Release-compile breakers</td><td class="small">QnnDiagnostics moves receiver+file together; androidTest compile checked for touched test files</td></tr>
+<tr><td>Agent-introduced duplication (the Frankenstein risk repeating)</td><td class="small">Single implementation of each batch per agent; ledger is the shared architecture reference; orchestrator reviews each batch diff before the next</td></tr>
+<tr><td>Model/harness failures</td><td class="small">Rotation protocol: 2 failures → switch preferred model (already exercised once: blind-sweep Gemini→GLM)</td></tr>
+</table></div>
+</section>
+
+<section id="gates">
+<h2>Your gates</h2>
+<ul class="small">
+  <li><b>Approve this plan</b> (or amend) → Stage 0 baseline begins immediately after.</li>
+  <li><b>D2 fix</b> — the only behavior-changing item (online colorize key collision). Say the word and it becomes Stage 7 with its own migration notes.</li>
+  <li><b>Git</b> — everything stays uncommitted per AGENTS.md §8; you decide local commits / pushes per action, as before.</li>
+</ul>
+</section>
+
+</body>
+</html>

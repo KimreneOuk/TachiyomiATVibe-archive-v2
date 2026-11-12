@@ -36,7 +36,9 @@ AGENT*.md
 AGENT_*.md
 
 # Local development and scraping tools (not APK build dependencies)
-tools/
+tools/**/output/
+tools/**/.settings.json
+tools/**/__pycache__/
 __pycache__/
 *.pyc
 
@@ -82,3 +84,7 @@ kilo.json
 /models_local/
 saved_models/
 shader-test-app/
+
+# Local eval/audit working sets (regenerable; excluded from archive push)
+scratch/
+err.txt

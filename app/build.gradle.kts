@@ -629,7 +629,7 @@ val mcv2NpuJniLibsDirectory = layout.buildDirectory.dir("generated/mcv2-npu-jniL
 android.sourceSets.getByName("debug").assets.srcDir(mcv2NpuAssetDirectory)
 android.sourceSets.getByName("debug").jniLibs.srcDir(mcv2NpuJniLibsDirectory)
 
-val mcv2NpuW8a8ArtifactSha256 = "d60e18b2c64a11c25256969b24532747c06d9cad10327ec68281cd1ac0e94b83"
+val mcv2NpuW8a8ArtifactSha256 = "bd44365fa699122d778e52bcd3c0eb6d61ec4ae0b3fc01079afaf8fc17fb2cc3"
 val mcv2NpuW8a8ArtifactBytes = 55_628_120L
 val mcv2NpuW8a8AssetRelativePath = "models/coloring/manga_colorize_npu_sm8650_w8a8.tflite"
 
