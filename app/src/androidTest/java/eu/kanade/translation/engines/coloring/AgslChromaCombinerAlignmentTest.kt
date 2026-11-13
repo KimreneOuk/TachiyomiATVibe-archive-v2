@@ -358,8 +358,8 @@ class AgslChromaCombinerAlignmentTest {
 
     /** Pinned formula expectation: a/b from work, L mixed from orig by the shading strength. */
     private fun expectedCombine(origGray01: FloatArray, workColor01: FloatArray): FloatArray {
-        val origLab = LineArtMerger.rgbToLab(origGray01)
-        val workLab = LineArtMerger.rgbToLab(workColor01)
+        val origLab = CpuChromaCombiner.rgbToLab(origGray01)
+        val workLab = CpuChromaCombiner.rgbToLab(workColor01)
         val gray = 0.299f * origGray01[0] + 0.587f * origGray01[1] + 0.114f * origGray01[2]
         val weight = INK_SHADING_STRENGTH * inkWeight(gray)
         val lab = floatArrayOf(
@@ -367,7 +367,7 @@ class AgslChromaCombinerAlignmentTest {
             workLab[1],
             workLab[2],
         )
-        return LineArtMerger.labToRgb(lab)
+        return CpuChromaCombiner.labToRgb(lab)
     }
 
     private fun inkWeight(gray: Float): Float {
