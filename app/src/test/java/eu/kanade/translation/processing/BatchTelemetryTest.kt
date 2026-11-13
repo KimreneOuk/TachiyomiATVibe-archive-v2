@@ -1,8 +1,8 @@
 package eu.kanade.translation.processing
 
 import eu.kanade.translation.diagnostics.TelemetryTrace
-import eu.kanade.translation.engines.translator.GeminiInputAccountingContract
-import eu.kanade.translation.engines.translator.OpenRouterInputAccountingContract
+import eu.kanade.translation.engines.translator.CertifiedAccountingProfile
+import eu.kanade.translation.engines.translator.CertifiedBoundInputAccountingContract
 import eu.kanade.translation.engines.translator.ProviderHttpResult
 import eu.kanade.translation.engines.translator.ProviderRequestGovernor
 import eu.kanade.translation.engines.translator.contextual.ContextualRequestProtocol
@@ -93,7 +93,7 @@ class BatchTelemetryTest {
             maxOutputToken = 100,
             temperature = 0.2f,
             requestGovernor = governor,
-            customAccountingContract = OpenRouterInputAccountingContract("anthropic/claude-3.5-sonnet"),
+            customAccountingContract = CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.OPENROUTER, model = "anthropic/claude-3.5-sonnet"),
         )
 
         translator.translateContextualStructured(testChunk())
@@ -141,7 +141,7 @@ class BatchTelemetryTest {
             temp = 0.2f,
             thinkingMode = GeminiThinkingMode.DISABLED,
             requestGovernor = governor,
-            customAccountingContract = GeminiInputAccountingContract("gemini-1.5-flash"),
+            customAccountingContract = CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.GEMINI, model = "gemini-1.5-flash"),
         )
 
         translator.translateContextualStructured(testChunk())

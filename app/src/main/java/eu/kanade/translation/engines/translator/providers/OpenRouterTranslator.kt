@@ -1,6 +1,7 @@
 package eu.kanade.translation.engines.translator.providers
 import eu.kanade.translation.engines.translator.InputAccountingContract
-import eu.kanade.translation.engines.translator.OpenRouterInputAccountingContract
+import eu.kanade.translation.engines.translator.CertifiedAccountingProfile
+import eu.kanade.translation.engines.translator.CertifiedBoundInputAccountingContract
 import eu.kanade.translation.engines.translator.ProviderRequestGovernor
 import eu.kanade.translation.engines.translator.SharedProviderRequestGovernor
 import eu.kanade.translation.engines.translator.contextual.ContextualRequestProtocol
@@ -29,7 +30,7 @@ open class OpenRouterTranslator(
 ) : OpenAiCompatibleTranslator(requestGovernor, customAccountingContract) {
 
     override fun defaultAccountingContract(): InputAccountingContract =
-        OpenRouterInputAccountingContract(modelName)
+        CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.OPENROUTER, model = modelName)
 
     override val providerBackend: String = "openrouter"
     override val providerModel: String get() = modelName

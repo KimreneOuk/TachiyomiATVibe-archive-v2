@@ -1,5 +1,6 @@
 package eu.kanade.translation.engines.translator.providers
-import eu.kanade.translation.engines.translator.DeepSeekInputAccountingContract
+import eu.kanade.translation.engines.translator.CertifiedAccountingProfile
+import eu.kanade.translation.engines.translator.CertifiedBoundInputAccountingContract
 import eu.kanade.translation.engines.translator.InputAccountingContract
 import eu.kanade.translation.engines.translator.ProviderRequestGovernor
 import eu.kanade.translation.engines.translator.SharedProviderRequestGovernor
@@ -29,7 +30,7 @@ open class DeepSeekTranslator(
 ) : OpenAiCompatibleTranslator(requestGovernor, customAccountingContract) {
 
     override fun defaultAccountingContract(): InputAccountingContract =
-        DeepSeekInputAccountingContract(providerModel)
+        CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.DEEPSEEK, model = providerModel)
 
     override val providerBackend: String = "deepseek"
     override val providerModel: String get() = modelName.ifBlank { "deepseek-chat" }
