@@ -1,4 +1,4 @@
-﻿package eu.kanade.translation.coordinator
+package eu.kanade.translation.coordinator
 
 import android.content.Context
 import io.kotest.matchers.collections.shouldContainExactly
@@ -32,6 +32,27 @@ class TranslationQueueStoreTest {
     }
 
     @Test
+    fun `save and loadColorizeOnlyIds round trip preserves colorizeOnly membership`() {
+        val store = newStore()
+
+        store.save(listOf(7L, 3L, 9L), colorizeOnlyIds = setOf(3L, 9L))
+
+        store.load() shouldContainExactly listOf(7L, 3L, 9L)
+        store.loadColorizeOnlyIds() shouldContainExactly setOf(3L, 9L)
+    }
+
+    @Test
+    fun `save without colorizeOnlyIds resets colorize-only set to empty`() {
+        val store = newStore()
+
+        store.save(listOf(7L, 3L), colorizeOnlyIds = setOf(3L))
+        store.loadColorizeOnlyIds() shouldContainExactly setOf(3L)
+
+        store.save(listOf(7L, 3L))
+        store.loadColorizeOnlyIds() shouldContainExactly emptySet()
+    }
+
+    @Test
     fun `load returns an empty list when nothing is persisted`() {
         val store = newStore()
 
@@ -51,11 +72,12 @@ class TranslationQueueStoreTest {
     @Test
     fun `clear removes every persisted entry`() {
         val store = newStore()
-        store.save(listOf(7L, 3L, 9L))
+        store.save(listOf(7L, 3L, 9L), colorizeOnlyIds = setOf(3L))
 
         store.clear()
 
         store.load() shouldContainExactly emptyList()
+        store.loadColorizeOnlyIds() shouldContainExactly emptySet()
     }
 
     @Test
