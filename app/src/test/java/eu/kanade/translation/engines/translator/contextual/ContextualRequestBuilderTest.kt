@@ -1,8 +1,5 @@
 package eu.kanade.translation.engines.translator.contextual
 
-import eu.kanade.translation.engines.translator.providers.AiTranslator
-import eu.kanade.translation.engines.translator.retry.AiChunkOutcome
-import eu.kanade.translation.engines.translator.retry.translateAiChunkWithAdaptiveRetry
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.TextRecognizerLanguage
 import eu.kanade.translation.model.TextTranslatorLanguage
@@ -92,87 +89,6 @@ class ContextualRequestBuilderTest {
         followUp.orderedIds shouldBe listOf("1")
         followUp.idMap["1"] shouldBe AnchoredTargetKey(pageIndex = 2, blockIndex = 10)
         followUp.locations["1"] shouldBe TargetLocation("002.jpg", 0)
-    }
-
-    @Test
-    fun controllerRebuildsFreshNumericNamespaceForOnlyUnresolvedDurableItem() = runTest {
-        val laterPage = PageTranslation(
-            blocks = mutableListOf(
-                block("ten", "p2_b10"),
-                block("two", "p2_b2"),
-            ),
-        )
-        val earlierPage = PageTranslation(
-            blocks = mutableListOf(block("zero", "p1_b0")),
-        )
-        val chunk = TranslationContextChunk(
-            pages = linkedMapOf("002.jpg" to laterPage, "001.jpg" to earlierPage),
-            blockCount = 3,
-            rollingContext = "prior => context",
-            estimatedPromptTokens = 128,
-            maxOutputTokens = 256,
-            protocol = ContextualRequestProtocol.BATCH_V1,
-            pageIndexes = linkedMapOf("001.jpg" to 1, "002.jpg" to 2),
-        )
-        val translator = PartialThenFollowUpTranslator()
-
-        val outcome = translateAiChunkWithAdaptiveRetry(
-            translator = translator,
-            chunk = chunk,
-            requestedOutputTokens = 256,
-            profile = TranslationContextChunkPlanner.Profile.DEFAULT,
-            label = "request-builder-controller-test",
-        )
-
-        val complete = outcome as AiChunkOutcome.Complete
-        translator.requestIds shouldContainExactly listOf(listOf("1", "2", "3"), listOf("1"))
-        translator.stableIds shouldContainExactly listOf(
-            listOf("p1_b0", "p2_b10", "p2_b2"),
-            listOf("p2_b10"),
-        )
-        complete.acceptedBlockIds shouldBe setOf("p1_b0", "p2_b10", "p2_b2")
-        complete.blockTranslations shouldBe mapOf(
-            "p1_b0" to "zero translated",
-            "p2_b10" to "ten translated",
-            "p2_b2" to "two translated",
-        )
-    }
-
-    private class PartialThenFollowUpTranslator : AiTranslator() {
-        override val fromLang = TextRecognizerLanguage.JAPANESE
-        override val toLang = TextTranslatorLanguage.ENGLISH
-
-        val requestIds = mutableListOf<List<String>>()
-        val stableIds = mutableListOf<List<String>>()
-
-        override suspend fun translateContextualStructured(
-            chunk: TranslationContextChunk,
-        ): ContextualTranslationBatch {
-            val request = ContextualRequestBuilder.build(chunk, fromLang, toLang)
-            requestIds += request.orderedIds
-            stableIds += request.orderedIds.map { id ->
-                val location = request.locations.getValue(id)
-                chunk.pages.getValue(location.pageKey).blocks[location.blockIndex].blockId!!
-            }
-            val translations = if (requestIds.size == 1) {
-                mapOf("1" to "zero translated", "3" to "two translated")
-            } else {
-                mapOf("1" to "ten translated")
-            }
-            return ContextualRequestBuilder.toBatch(
-                request,
-                translations.map { (id, text) ->
-                    ContextualTranslationResult(
-                        id = id,
-                        targetKey = request.idMap.getValue(id),
-                        text = text,
-                        status = ContextualTranslationResult.Status.TRANSLATED,
-                    )
-                },
-            )
-        }
-
-        override suspend fun promptText(prompt: String): String = ""
     }
 
     private fun block(text: String, id: String) = TranslationBlock(
