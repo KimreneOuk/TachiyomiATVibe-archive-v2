@@ -175,7 +175,15 @@ internal class ChapterTranslationAccessController(
     ): ChapterTranslationStore? {
         activeStores.get(chapterId)?.let { registered ->
             registered.enableLazyPersistence()
-            scheduleRetiredCleanedImageCleanup(registered, chapterId, chapterName, scanlator, mangaTitle, source, mangaId)
+            cleanedImageLifecycle.scheduleRetiredCleanedImageCleanup(
+                registered,
+                chapterId,
+                chapterName,
+                scanlator,
+                mangaTitle,
+                source,
+                mangaId,
+            )
             return registered
         }
         val document = findTranslationDocument(chapterName, scanlator, mangaTitle, source)
@@ -200,7 +208,15 @@ internal class ChapterTranslationAccessController(
             // manifest; cached durable statuses must not outlive that repair.
             durableStatusResolver.clearDurableStatusCache()
         }
-        scheduleRetiredCleanedImageCleanup(registered, chapterId, chapterName, scanlator, mangaTitle, source, mangaId)
+        cleanedImageLifecycle.scheduleRetiredCleanedImageCleanup(
+            registered,
+            chapterId,
+            chapterName,
+            scanlator,
+            mangaTitle,
+            source,
+            mangaId,
+        )
         return registered
     }
 
@@ -208,22 +224,4 @@ internal class ChapterTranslationAccessController(
         activeStores.remove(chapterId)?.markDefunct()
         durableStatusResolver.clearDurableStatusCache()
     }
-
-    private fun scheduleRetiredCleanedImageCleanup(
-        store: ChapterTranslationStore,
-        chapterId: Long,
-        chapterName: String,
-        scanlator: String?,
-        mangaTitle: String,
-        source: Source,
-        mangaId: Long?,
-    ) = cleanedImageLifecycle.scheduleRetiredCleanedImageCleanup(
-        store,
-        chapterId,
-        chapterName,
-        scanlator,
-        mangaTitle,
-        source,
-        mangaId,
-    )
 }
