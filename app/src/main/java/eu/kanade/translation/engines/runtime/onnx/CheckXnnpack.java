@@ -1,1 +1,0 @@
-import ai.onnxruntime.OrtSession; public class CheckXnnpack { public static void test() { try { OrtSession.SessionOptions opts = new OrtSession.SessionOptions(); opts.addXnnpack(new java.util.HashMap<>()); } catch (Exception e) {} } }
