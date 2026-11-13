@@ -4,22 +4,14 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
-import eu.kanade.translation.model.PageTranslation
-import eu.kanade.translation.model.StageFingerprints
-import eu.kanade.translation.model.TextRecognizerLanguage
-import eu.kanade.translation.model.TextTranslatorLanguage
-import eu.kanade.translation.persistence.ArtifactStage
 import eu.kanade.translation.processing.memory.MemoryGovernance
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecision
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecisionKind
-import eu.kanade.translation.processing.planning.BatchExpectedFingerprints
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.OcrModel
 import java.io.InputStream
 import java.security.MessageDigest
 
@@ -115,67 +107,6 @@ internal object PageDecode {
             decodeDecision = decision,
             sourceBytesSize = buffered.size.toLong(),
             sourceFingerprint = sourceFingerprint,
-        )
-    }
-
-    suspend fun computeSourceFingerprint(streamFn: () -> InputStream): String? = withContext(Dispatchers.IO) {
-        try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            streamFn().use { input ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    if (read > 0) digest.update(buffer, 0, read)
-                }
-            }
-            digest.digest().joinToString("") { byte -> "%02x".format(byte) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            logcat(LogPriority.WARN, e) { "Failed hashing translation source bytes" }
-            null
-        }
-    }
-
-    fun batchExpectedFingerprints(
-        currentTranslatorSignature: Any,
-        currentOcrModel: OcrModel,
-        currentReadingOrder: tachiyomi.domain.translation.TranslationReadingOrder,
-        currentInpaintingMode: eu.kanade.translation.engines.inpainting.InpaintingMode,
-        fromLang: TextRecognizerLanguage,
-        toLang: TextTranslatorLanguage,
-    ): BatchExpectedFingerprints {
-        val translationInput = currentTranslatorSignature.toString()
-        return BatchExpectedFingerprints(
-            detection = StageFingerprints.configuration(
-                ArtifactStage.DETECTION,
-                currentOcrModel.name,
-                currentReadingOrder.name,
-            ),
-            ocr = StageFingerprints.configuration(
-                ArtifactStage.OCR,
-                currentOcrModel.name,
-                fromLang.name,
-            ),
-            // Configuration identity only: degradation/recovery is handled by the
-            // inpaintingModeUsed stamp predicate (see InpaintStampDecision), not here.
-            // Folding the degraded suffix in would re-inpaint degraded pages every run.
-            inpaint = StageFingerprints.configuration(
-                ArtifactStage.INPAINT,
-                currentInpaintingMode.name,
-                PageTranslation.CURRENT_INPAINT_REVISION,
-            ),
-            translation = StageFingerprints.configuration(
-                ArtifactStage.TRANSLATION,
-                translationInput,
-                fromLang.name,
-                toLang.name,
-            ),
-            layout = StageFingerprints.configuration(
-                ArtifactStage.LAYOUT,
-                currentReadingOrder.name,
-            ),
         )
     }
 }

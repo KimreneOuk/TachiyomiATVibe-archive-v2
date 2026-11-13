@@ -138,9 +138,8 @@ class StageFingerprintsTest {
 
     @Test
     fun `configuration fingerprint golden pins the stage-tagged encoding`() {
-        // The exact production OCR/detection identity input set
-        // (`PageDecode.batchExpectedFingerprints`): stage tag + model +
-        // language/reading-order basis, length-prefixed, UTF-8 digested.
+        // The production OCR/detection identity input set shape: stage tag +
+        // model + language/reading-order basis, length-prefixed, UTF-8 digested.
         StageFingerprints.configuration(ArtifactStage.OCR, "manga-ocr", "ja") shouldBe
             "26b96ba2e04f666fa69fbb2f39a83f16c633c392c49b8c03bf1b4de1e9021241"
         StageFingerprints.configuration(ArtifactStage.DETECTION, "manga-ocr", "NATURAL") shouldBe
