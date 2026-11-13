@@ -8,7 +8,7 @@ import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
 import eu.kanade.translation.engines.coloring.MangaColorizationModelStore
-import eu.kanade.translation.engines.coloring.isFatal
+import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import java.io.File

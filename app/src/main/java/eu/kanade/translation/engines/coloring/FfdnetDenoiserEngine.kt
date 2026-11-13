@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import eu.kanade.translation.engines.runtime.onnx.OnnxModelStore
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
+import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import java.io.File

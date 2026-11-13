@@ -1,5 +1,7 @@
 package eu.kanade.translation.engines.coloring
 
+import eu.kanade.translation.util.isFatal
+
 /** Minimal contract used to select a primary colorizer and its CPU fallback. */
 internal interface ColorizationBackend<T> : AutoCloseable {
     val name: String
