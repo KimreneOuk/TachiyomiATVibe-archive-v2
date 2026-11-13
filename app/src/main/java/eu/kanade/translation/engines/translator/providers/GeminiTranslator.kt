@@ -1,7 +1,8 @@
 package eu.kanade.translation.engines.translator.providers
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.translation.diagnostics.TelemetryTrace
-import eu.kanade.translation.engines.translator.GeminiInputAccountingContract
+import eu.kanade.translation.engines.translator.CertifiedAccountingProfile
+import eu.kanade.translation.engines.translator.CertifiedBoundInputAccountingContract
 import eu.kanade.translation.engines.translator.InputAccountingContract
 import eu.kanade.translation.engines.translator.ProviderFailure
 import eu.kanade.translation.engines.translator.ProviderFailureException
@@ -62,7 +63,7 @@ open class GeminiTranslator(
 ) : AiTranslator() {
 
     open override val inputAccountingContract: InputAccountingContract?
-        get() = customAccountingContract ?: GeminiInputAccountingContract(modelName)
+        get() = customAccountingContract ?: CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.GEMINI, model = modelName)
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)

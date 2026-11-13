@@ -85,7 +85,7 @@ class InputAccountingContractTest {
 
     @Test
     fun `LM Studio contract calculates certified conservative bound ceil(base x 1_40) + 64`() {
-        val contract = LmStudioInputAccountingContract(model = "llama-3-8b")
+        val contract = CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.LM_STUDIO, model = "llama-3-8b")
         contract.providerBackend shouldBe "lm_studio"
         contract.model shouldBe "llama-3-8b"
         contract.isCertified shouldBe true
@@ -107,7 +107,7 @@ class InputAccountingContractTest {
 
     @Test
     fun `DeepSeek contract calculates certified conservative bound ceil(base x 1_15) + 32`() {
-        val contract = DeepSeekInputAccountingContract(model = "deepseek-chat")
+        val contract = CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.DEEPSEEK, model = "deepseek-chat")
         contract.providerBackend shouldBe "deepseek"
         contract.model shouldBe "deepseek-chat"
         contract.isCertified shouldBe true
@@ -129,7 +129,7 @@ class InputAccountingContractTest {
 
     @Test
     fun `OpenRouter contract calculates certified conservative bound ceil(base x 1_35) + 64`() {
-        val contract = OpenRouterInputAccountingContract(model = "anthropic/claude-3.5-sonnet")
+        val contract = CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.OPENROUTER, model = "anthropic/claude-3.5-sonnet")
         contract.providerBackend shouldBe "openrouter"
         contract.model shouldBe "anthropic/claude-3.5-sonnet"
         contract.isCertified shouldBe true
@@ -151,7 +151,7 @@ class InputAccountingContractTest {
 
     @Test
     fun `Gemini contract calculates certified conservative bound ceil(base x 1_10) + 32`() {
-        val contract = GeminiInputAccountingContract(model = "gemini-1.5-flash")
+        val contract = CertifiedBoundInputAccountingContract.certified(CertifiedAccountingProfile.GEMINI, model = "gemini-1.5-flash")
         contract.providerBackend shouldBe "gemini"
         contract.model shouldBe "gemini-1.5-flash"
         contract.isCertified shouldBe true
@@ -181,6 +181,138 @@ class InputAccountingContractTest {
 
         val payload = "Some arbitrary text payload"
         contract.countFinalTokens(payload) shouldBe TranslationContextChunkPlanner.estimateTokens(payload)
+    }
+
+    // =========================================================================
+    // 1b. Production Provider Default Accounting Contract Tests
+    // =========================================================================
+
+    @Test
+    fun `LM Studio production provider default accounting contract matches certified conservative bound`() {
+        val translator = LmStudioTranslator(
+            fromLang = TextRecognizerLanguage.JAPANESE,
+            toLang = TextTranslatorLanguage.ENGLISH,
+            baseUrl = "http://localhost:1234/v1",
+            modelName = "llama-3-8b",
+            maxOutputToken = 1024,
+            temperature = 0.2f,
+        )
+        val contract = checkNotNull(translator.inputAccountingContract)
+        contract.providerBackend shouldBe "lm_studio"
+        contract.model shouldBe "llama-3-8b"
+        contract.isCertified shouldBe true
+        contract.accountingMode shouldBe AccountingMode.CERTIFIED_BOUND
+
+        // TranslationContextChunkPlanner.estimateTokens("") returns 1 (empty payload base token = 1).
+        // Independent expected calculation: ceil(1 * 1.40).toInt() + 64 = 2 + 64 = 66
+        contract.countFinalTokens("") shouldBe 66
+
+        val testPayloads = listOf(
+            "Hello, world!",
+            "ダンジョンに出会いを求めるのは間違っているだろうか",
+            "This is a longer translation context payload with multiple sentences and dialogue lines.",
+        )
+        for (payload in testPayloads) {
+            val base = TranslationContextChunkPlanner.estimateTokens(payload)
+            val expected = ceil(base * 1.40).toInt() + 64
+            contract.countFinalTokens(payload) shouldBe expected
+        }
+    }
+
+    @Test
+    fun `DeepSeek production provider default accounting contract matches certified conservative bound`() {
+        val translator = DeepSeekTranslator(
+            fromLang = TextRecognizerLanguage.JAPANESE,
+            toLang = TextTranslatorLanguage.ENGLISH,
+            apiKey = "sk-test",
+            modelName = "deepseek-chat",
+            maxOutputToken = 1024,
+            temperature = 0.2f,
+        )
+        val contract = checkNotNull(translator.inputAccountingContract)
+        contract.providerBackend shouldBe "deepseek"
+        contract.model shouldBe "deepseek-chat"
+        contract.isCertified shouldBe true
+        contract.accountingMode shouldBe AccountingMode.CERTIFIED_BOUND
+
+        // TranslationContextChunkPlanner.estimateTokens("") returns 1 (empty payload base token = 1).
+        // Independent expected calculation: ceil(1 * 1.15).toInt() + 32 = 2 + 32 = 34
+        contract.countFinalTokens("") shouldBe 34
+
+        val testPayloads = listOf(
+            "Hello, world!",
+            "魔剣アルステラは神社の地下に眠っている",
+            "Complex structured prompt with JSON delimiters and system instructions.",
+        )
+        for (payload in testPayloads) {
+            val base = TranslationContextChunkPlanner.estimateTokens(payload)
+            val expected = ceil(base * 1.15).toInt() + 32
+            contract.countFinalTokens(payload) shouldBe expected
+        }
+    }
+
+    @Test
+    fun `OpenRouter production provider default accounting contract matches certified conservative bound`() {
+        val translator = OpenRouterTranslator(
+            fromLang = TextRecognizerLanguage.JAPANESE,
+            toLang = TextTranslatorLanguage.ENGLISH,
+            apiKey = "sk-or-test",
+            modelName = "anthropic/claude-3.5-sonnet",
+            maxOutputToken = 1024,
+            temperature = 0.2f,
+        )
+        val contract = checkNotNull(translator.inputAccountingContract)
+        contract.providerBackend shouldBe "openrouter"
+        contract.model shouldBe "anthropic/claude-3.5-sonnet"
+        contract.isCertified shouldBe true
+        contract.accountingMode shouldBe AccountingMode.CERTIFIED_BOUND
+
+        // TranslationContextChunkPlanner.estimateTokens("") returns 1 (empty payload base token = 1).
+        // Independent expected calculation: ceil(1 * 1.35).toInt() + 64 = 2 + 64 = 66
+        contract.countFinalTokens("") shouldBe 66
+
+        val testPayloads = listOf(
+            "Hello, world!",
+            "俺の妹がこんなに可愛いわけがない",
+            "Multi-model routing prompt covering conservative envelope across architectures.",
+        )
+        for (payload in testPayloads) {
+            val base = TranslationContextChunkPlanner.estimateTokens(payload)
+            val expected = ceil(base * 1.35).toInt() + 64
+            contract.countFinalTokens(payload) shouldBe expected
+        }
+    }
+
+    @Test
+    fun `Gemini production provider default accounting contract matches certified conservative bound`() {
+        val translator = GeminiTranslator(
+            fromLang = TextRecognizerLanguage.JAPANESE,
+            toLang = TextTranslatorLanguage.ENGLISH,
+            apiKey = "test-gemini-key",
+            modelName = "gemini-1.5-flash",
+            maxOutputToken = 1024,
+            temp = 0.2f,
+        )
+        val contract = checkNotNull(translator.inputAccountingContract)
+        contract.providerBackend shouldBe "gemini"
+        contract.model shouldBe "gemini-1.5-flash"
+        contract.isCertified shouldBe true
+        contract.accountingMode shouldBe AccountingMode.CERTIFIED_BOUND
+
+        // TranslationContextChunkPlanner.estimateTokens("") returns 1 (empty payload base token = 1).
+        // Independent expected calculation: ceil(1 * 1.10).toInt() + 32 = 2 + 32 = 34
+        contract.countFinalTokens("") shouldBe 34
+
+        val testPayloads = listOf(
+            "Hello, world!",
+            "君の名は。新海誠監督のアニメーション映画作品",
+            "Gemini REST API payload containing contents, parts, generationConfig, and safetySettings.",
+        )
+        for (payload in testPayloads) {
+            val base = TranslationContextChunkPlanner.estimateTokens(payload)
+            val expected = ceil(base * 1.10).toInt() + 32
+            contract.countFinalTokens(payload) shouldBe expected
+        }
     }
 
     // =========================================================================
@@ -373,7 +505,7 @@ class InputAccountingContractTest {
     @Test
     fun `DeepSeek dispatch with uncertified contract is admitted and counted`() = runTest {
         val (governor, _) = interceptingGovernor()
-        val disabledContract = DeepSeekInputAccountingContract("deepseek-chat", isCertified = false)
+        val disabledContract = CertifiedBoundInputAccountingContract.uncertified(CertifiedAccountingProfile.DEEPSEEK, model = "deepseek-chat")
         val translator = DeepSeekTranslator(
             fromLang = TextRecognizerLanguage.JAPANESE,
             toLang = TextTranslatorLanguage.ENGLISH,
@@ -451,7 +583,7 @@ class InputAccountingContractTest {
     @Test
     fun `Gemini dispatch with uncertified contract is admitted and counted`() = runTest {
         val (governor, _) = interceptingGovernor()
-        val disabledContract = GeminiInputAccountingContract("gemini-1.5-flash", isCertified = false)
+        val disabledContract = CertifiedBoundInputAccountingContract.uncertified(CertifiedAccountingProfile.GEMINI, model = "gemini-1.5-flash")
         val translator = GeminiTranslator(
             fromLang = TextRecognizerLanguage.JAPANESE,
             toLang = TextTranslatorLanguage.ENGLISH,

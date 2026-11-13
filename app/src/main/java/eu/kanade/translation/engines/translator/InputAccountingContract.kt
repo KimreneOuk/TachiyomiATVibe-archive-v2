@@ -4,7 +4,7 @@ import eu.kanade.translation.engines.translator.contextual.TranslationContextChu
 import kotlin.math.ceil
 
 /**
- *  Accounting mode for final model request input tokens.
+ * Accounting mode for final model request input tokens.
  */
 enum class AccountingMode {
     EXACT,
@@ -12,10 +12,8 @@ enum class AccountingMode {
 }
 
 /**
- *  Transport-layer input accounting contract for AI dispatches.
- *  Dispatches are NOT gated on this contract: it only supplies the final
- *  model request input-token estimate consumed by the quota governor.
- *  [isCertified] marks estimator trustworthiness and is informational.
+ * Transport-layer input accounting contract for AI dispatches.
+ * Supplies the final model request input-token estimate for quota governance.
  */
 interface InputAccountingContract {
     val providerBackend: String
@@ -26,77 +24,64 @@ interface InputAccountingContract {
 }
 
 /**
- * Certified conservative bound for LM Studio local server hosting heterogeneous GGUF models.
- * Bound: ceil(CL100K_BASE(payload) * 1.40) + 64 (covers Mistral/Gemma CJK divergence and Jinja2 chat templates).
+ * Closed set of verified provider profiles and empirical conservative bounds.
  */
-class LmStudioInputAccountingContract(
-    override val model: String? = null,
-    override val isCertified: Boolean = true,
-) : InputAccountingContract {
-    override val providerBackend: String = "lm_studio"
-    override val accountingMode: AccountingMode = AccountingMode.CERTIFIED_BOUND
-
-    override fun countFinalTokens(payload: String): Int {
-        val base = TranslationContextChunkPlanner.estimateTokens(payload)
-        return ceil(base * 1.40).toInt() + 64
-    }
+internal enum class CertifiedAccountingProfile(
+    val backend: String,
+    val boundFactor: Double,
+    val boundConstant: Int,
+) {
+    LM_STUDIO("lm_studio", 1.40, 64),
+    DEEPSEEK("deepseek", 1.15, 32),
+    OPENROUTER("openrouter", 1.35, 64),
+    GEMINI("gemini", 1.10, 32);
 }
 
 /**
- * Certified conservative bound for DeepSeek-V3 / R1 (128k BPE vocabulary).
- * Bound: ceil(CL100K_BASE(payload) * 1.15) + 32 (ChatML template delimiters and CJK tokenization).
+ * Certified conservative bound: ceil(CL100K_BASE(payload) * factor) + constant.
+ * Private constructor restricts certification solely to closed profile factory.
  */
-class DeepSeekInputAccountingContract(
+class CertifiedBoundInputAccountingContract private constructor(
+    override val providerBackend: String,
+    private val boundFactor: Double,
+    private val boundConstant: Int,
     override val model: String? = null,
-    override val isCertified: Boolean = true,
+    override val isCertified: Boolean,
 ) : InputAccountingContract {
-    override val providerBackend: String = "deepseek"
     override val accountingMode: AccountingMode = AccountingMode.CERTIFIED_BOUND
 
     override fun countFinalTokens(payload: String): Int {
         val base = TranslationContextChunkPlanner.estimateTokens(payload)
-        return ceil(base * 1.15).toInt() + 32
+        return ceil(base * boundFactor).toInt() + boundConstant
     }
-}
 
-/**
- * Certified conservative bound for OpenRouter multi-model gateway.
- * Bound: ceil(CL100K_BASE(payload) * 1.35) + 64 (conservative across multi-model routing envelope).
- */
-class OpenRouterInputAccountingContract(
-    override val model: String? = null,
-    override val isCertified: Boolean = true,
-) : InputAccountingContract {
-    override val providerBackend: String = "openrouter"
-    override val accountingMode: AccountingMode = AccountingMode.CERTIFIED_BOUND
+    internal companion object {
+        fun certified(
+            profile: CertifiedAccountingProfile,
+            model: String? = null,
+        ): CertifiedBoundInputAccountingContract = CertifiedBoundInputAccountingContract(
+            providerBackend = profile.backend,
+            boundFactor = profile.boundFactor,
+            boundConstant = profile.boundConstant,
+            model = model,
+            isCertified = true,
+        )
 
-    override fun countFinalTokens(payload: String): Int {
-        val base = TranslationContextChunkPlanner.estimateTokens(payload)
-        return ceil(base * 1.35).toInt() + 64
-    }
-}
-
-/**
- * Certified conservative bound for Google Gemini (256k SentencePiece tokenizer).
- * Bound: ceil(CL100K_BASE(payload) * 1.10) + 32 (REST API JSON framing).
- */
-class GeminiInputAccountingContract(
-    override val model: String? = null,
-    override val isCertified: Boolean = true,
-) : InputAccountingContract {
-    override val providerBackend: String = "gemini"
-    override val accountingMode: AccountingMode = AccountingMode.CERTIFIED_BOUND
-
-    override fun countFinalTokens(payload: String): Int {
-        val base = TranslationContextChunkPlanner.estimateTokens(payload)
-        return ceil(base * 1.10).toInt() + 32
+        fun uncertified(
+            profile: CertifiedAccountingProfile,
+            model: String? = null,
+        ): CertifiedBoundInputAccountingContract = CertifiedBoundInputAccountingContract(
+            profile.backend,
+            profile.boundFactor,
+            profile.boundConstant,
+            model,
+            isCertified = false,
+        )
     }
 }
 
 /**
  * Uncertified placeholder contract for testing or unverified providers.
- * Dispatches under this contract are sent as-is; the estimate is still
- * forwarded to the quota governor.
  */
 class UncertifiedInputAccountingContract(
     override val providerBackend: String,
