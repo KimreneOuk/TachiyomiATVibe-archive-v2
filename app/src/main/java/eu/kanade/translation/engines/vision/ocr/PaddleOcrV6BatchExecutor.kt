@@ -236,7 +236,7 @@ internal class PaddleOcrV6BatchExecutor(
             }
             outputBytes = elements * Float.SIZE_BYTES
             try {
-                val decoded = PaddleOcrV6BatchCtcDecoder.decode(
+                val decoded = PaddleCtcDecoder.decode(
                     logits = output.logits(),
                     shape = shape,
                     dictionary = dictionary,
