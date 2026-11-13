@@ -29,7 +29,7 @@ class BatchPageOperationTest {
     private val recognitionEngine: PageRecognitionEngine = mockk(relaxed = true)
     private val translator: TextTranslator = mockk(relaxed = true)
 
-    private val coordinator = BatchPageOperation(
+    private val coordinator = ChapterBatchExecutor(
         processor = processor,
         recognitionEngineProvider = { recognitionEngine },
         translatorProvider = { translator },
@@ -64,7 +64,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
         )
 
         progress.isFinished shouldBe true
@@ -113,7 +112,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
         )
 
         progress.isFinished shouldBe true
@@ -162,7 +160,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
         )
 
         progress.isFinished shouldBe true
@@ -208,7 +205,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
         )
 
         progress.isFinished shouldBe true
@@ -254,7 +250,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
         )
 
         progress.isFinished shouldBe true
@@ -296,7 +291,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
             inpaintingEnabled = false,
         )
 
@@ -340,7 +334,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
             colorizeOnly = true,
         )
 
@@ -398,7 +391,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg", "p2.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 2, "INITIALIZING")),
             colorizeOnly = true,
         )
 
@@ -440,7 +432,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg", "p2.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 2, "INITIALIZING")),
             colorizeOnly = true,
         )
 
@@ -470,7 +461,6 @@ class BatchPageOperationTest {
             orderedPageKeys = listOf("p1.jpg"),
             streamProvider = { ByteArrayInputStream(ByteArray(0)) },
             store = store,
-            progress = MutableStateFlow(BatchPageOperation.Progress("ch1", 0, 1, "INITIALIZING")),
             colorizeOnly = true,
             prepareStream = { throw java.io.IOException("source offline") },
         )

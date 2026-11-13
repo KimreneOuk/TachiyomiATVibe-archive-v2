@@ -9,7 +9,7 @@ import eu.kanade.translation.model.Translation
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
 import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.persistence.TranslationFileProvider
-import eu.kanade.translation.processing.BatchPageOperation
+import eu.kanade.translation.processing.ChapterBatchExecutor
 import eu.kanade.translation.processing.TranslationProcessor
 import io.mockk.coEvery
 import io.mockk.every
@@ -323,7 +323,7 @@ class TranslationManagerReaderTeardownTest {
         translationPreferences = mockk(relaxed = true),
         queueStore = mockk<TranslationQueueStore>(relaxed = true),
         processor = processor,
-        pageOperation = mockk<BatchPageOperation>(relaxed = true),
+        pageOperation = mockk<ChapterBatchExecutor>(relaxed = true),
     )
 
     private fun setField(target: Any, fieldName: String, value: Any) {

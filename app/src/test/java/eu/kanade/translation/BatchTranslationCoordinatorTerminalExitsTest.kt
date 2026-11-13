@@ -10,7 +10,7 @@ import eu.kanade.translation.coordinator.TranslationQueueStore
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.persistence.TranslationFileProvider
-import eu.kanade.translation.processing.BatchPageOperation
+import eu.kanade.translation.processing.ChapterBatchExecutor
 import eu.kanade.translation.processing.TranslationProcessor
 import eu.kanade.translation.processing.batch.progress.TranslationBatchProgressTracker
 import eu.kanade.translation.processing.batch.progress.TranslationBatchTrackerRegistry
@@ -24,7 +24,10 @@ import io.mockk.unmockkStatic
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -35,8 +38,12 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.translation.TranslationPreferences
 import tachiyomi.domain.translation.pools.BitmapPool
+import kotlin.concurrent.thread
 import java.io.InputStream
 import java.lang.reflect.Field
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 
 /**
@@ -69,9 +76,15 @@ class BatchTranslationCoordinatorTerminalExitsTest {
     private val provider = mockk<TranslationFileProvider>(relaxed = true)
     private val downloadProvider = mockk<DownloadProvider>(relaxed = true)
     private val sourceManager = mockk<SourceManager>(relaxed = true)
-    private val preferences = mockk<TranslationPreferences>(relaxed = true)
+    private val preferences = mockk<TranslationPreferences>(relaxed = true).also {
+        // Relaxed mockk cannot synthesize the type-erased Preference<Boolean>.get();
+        // stub a real Boolean or queueChapter's charging check throws ClassCastException.
+        every { it.translationRequireCharging() } returns mockk {
+            every { get() } returns false
+        }
+    }
     private val processor = mockk<TranslationProcessor>(relaxed = true)
-    private val pageOperation = mockk<BatchPageOperation>(relaxed = true)
+    private val pageOperation = mockk<ChapterBatchExecutor>(relaxed = true)
 
     private val registry = TranslationBatchTrackerRegistry()
     private val trackerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -244,6 +257,234 @@ class BatchTranslationCoordinatorTerminalExitsTest {
             }
         }
         throw NoSuchFieldException("Field $fieldName not found on ${target.javaClass}")
+    }
+
+    private fun readField(target: Any, fieldName: String): Any? {
+        var cls: Class<*>? = target.javaClass
+        while (cls != null) {
+            try {
+                val field: Field = cls.getDeclaredField(fieldName)
+                field.isAccessible = true
+                return field.get(target)
+            } catch (_: NoSuchFieldException) {
+                cls = cls.superclass
+            }
+        }
+        throw NoSuchFieldException("Field $fieldName not found on ${target.javaClass}")
+    }
+
+    @Test
+    fun `requeueExisting while the translator is running does not relaunch it`() = runBlocking<Unit> {
+        val coordinator = translator()
+        every { sourceManager.get(any()) } returns source
+        coordinator.queueChapter(manga, chapter, colorizeOnly = true)
+        val state = readField(coordinator, "_queueState") as MutableStateFlow<List<Translation>>
+        state.value.single().status = Translation.State.PAUSED
+        val parked = CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { awaitCancellation() }
+        setField(coordinator, "translationJob", parked)
+
+        coordinator.requeueExisting(chapterId) shouldBe true
+
+        (readField(coordinator, "translationJob") as Job?) shouldBe parked
+        parked.isActive shouldBe true
+        parked.cancel()
+    }
+
+    @Test
+    fun `start is idempotent while a batch is already running`() = runBlocking<Unit> {
+        val coordinator = translator()
+        every { sourceManager.get(any()) } returns source
+        coordinator.queueChapter(manga, chapter, colorizeOnly = true)
+        val parked = CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { awaitCancellation() }
+        setField(coordinator, "translationJob", parked)
+
+        coordinator.start() shouldBe false
+
+        (readField(coordinator, "translationJob") as Job?) shouldBe parked
+        parked.cancel()
+    }
+
+    @Test
+    fun `simultaneous requeues leave a single translator parent and pause stays authoritative`() = runBlocking<Unit> {
+        val coordinator = translator()
+        every { sourceManager.get(any()) } returns source
+        val secondChapter = mockk<Chapter> {
+            every { id } returns 8L
+            every { name } returns "Chapter 2"
+            every { scanlator } returns null
+        }
+        coordinator.queueChapter(manga, chapter, colorizeOnly = true)
+        coordinator.queueChapter(manga, secondChapter, colorizeOnly = true)
+        val state = readField(coordinator, "_queueState") as MutableStateFlow<List<Translation>>
+        state.value.forEach { it.status = Translation.State.PAUSED }
+        val paused = AtomicBoolean(false)
+        val postPauseExecutions = AtomicInteger(0)
+        val successfulRequeues = AtomicInteger(0)
+        coEvery {
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            if (paused.get()) postPauseExecutions.incrementAndGet()
+            awaitCancellation()
+        }
+        activeStoreResolver = { ChapterTranslationStore() }
+        stubEnumeration()
+
+        try {
+            val go = CountDownLatch(1)
+            val first = thread(isDaemon = true) {
+                runBlocking { go.await(); if (coordinator.requeueExisting(chapterId)) successfulRequeues.incrementAndGet() }
+            }
+            val second = thread(isDaemon = true) {
+                runBlocking { go.await(); if (coordinator.requeueExisting(8L)) successfulRequeues.incrementAndGet() }
+            }
+            go.countDown()
+            withTimeout(TimeUnit.SECONDS.toMillis(10)) {
+                first.join()
+                second.join()
+            }
+            successfulRequeues.get() shouldBe 2
+            val parent = checkNotNull(readField(coordinator, "translationJob") as Job?) {
+                "concurrent requeues must leave a single live translator parent"
+            }
+            parent.isActive shouldBe true
+
+            // Pause must stay authoritative over any interleaved relaunch: the
+            // parent is dropped and no queued entry may resume work on its own.
+            paused.set(true)
+            coordinator.pause()
+            readField(coordinator, "translationJob") shouldBe null
+            parent.isActive shouldBe false
+            delay(300)
+            postPauseExecutions.get() shouldBe 0
+        } finally {
+            coordinator.pause()
+            activeStoreResolver = null
+            unstubEnumeration()
+        }
+    }
+
+    @Test
+    fun `pause stops launches and a later start resumes cleanly`() = runBlocking<Unit> {
+        val coordinator = translator()
+        every { sourceManager.get(any()) } returns source
+        val executions = AtomicInteger(0)
+        coEvery {
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            executions.incrementAndGet()
+            awaitCancellation()
+        }
+        coordinator.queueChapter(manga, chapter, colorizeOnly = true)
+        activeStoreResolver = { ChapterTranslationStore() }
+        stubEnumeration()
+
+        try {
+            coordinator.start() shouldBe true
+            withTimeout(TimeUnit.SECONDS.toMillis(10)) {
+                while (executions.get() == 0) delay(25)
+            }
+            coordinator.pause()
+            readField(coordinator, "translationJob") shouldBe null
+            delay(300)
+            executions.get() shouldBe 1
+
+            coordinator.start() shouldBe true
+            withTimeout(TimeUnit.SECONDS.toMillis(10)) {
+                while (executions.get() < 2) delay(25)
+            }
+            coordinator.pause()
+            readField(coordinator, "translationJob") shouldBe null
+            delay(300)
+            executions.get() shouldBe 2
+        } finally {
+            coordinator.pause()
+            activeStoreResolver = null
+            unstubEnumeration()
+        }
+    }
+
+    @Test
+    fun `status flip to paused cancels the selected running job and rearm resumes it`() = runBlocking<Unit> {
+        val coordinator = translator()
+        every { sourceManager.get(any()) } returns source
+        val executions = AtomicInteger(0)
+        coEvery {
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            executions.incrementAndGet()
+            awaitCancellation()
+        }
+        coordinator.queueChapter(manga, chapter, colorizeOnly = true)
+        activeStoreResolver = { ChapterTranslationStore() }
+        stubEnumeration()
+
+        try {
+            coordinator.start() shouldBe true
+            withTimeout(TimeUnit.SECONDS.toMillis(10)) {
+                while (executions.get() == 0) delay(25)
+            }
+            // The exact production pattern of TRC's autoStart=false park: the
+            // same Translation object, written through the same status setter.
+            val state = readField(coordinator, "_queueState") as MutableStateFlow<List<Translation>>
+            state.value.single().status = Translation.State.PAUSED
+            withTimeout(TimeUnit.SECONDS.toMillis(5)) {
+                while (coordinator.isChapterTranslationInFlight(chapterId)) delay(25)
+            }
+            executions.get() shouldBe 1
+            state.value.single().status shouldBe Translation.State.PAUSED
+            coordinator.isRunning shouldBe true
+
+            coordinator.rearmQueuedChapter(chapterId) shouldBe true
+            withTimeout(TimeUnit.SECONDS.toMillis(10)) {
+                while (executions.get() < 2) delay(25)
+            }
+        } finally {
+            coordinator.pause()
+            activeStoreResolver = null
+            unstubEnumeration()
+        }
+    }
+
+    @Test
+    fun `parking one running chapter leaves its sibling running without churn`() = runBlocking<Unit> {
+        val coordinator = translator()
+        every { sourceManager.get(any()) } returns source
+        val secondChapter = mockk<Chapter> {
+            every { id } returns 8L
+            every { name } returns "Chapter 2"
+            every { scanlator } returns null
+        }
+        val executions = AtomicInteger(0)
+        coEvery {
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            executions.incrementAndGet()
+            awaitCancellation()
+        }
+        coordinator.queueChapter(manga, chapter, colorizeOnly = true)
+        coordinator.queueChapter(manga, secondChapter, colorizeOnly = true)
+        activeStoreResolver = { ChapterTranslationStore() }
+        stubEnumeration()
+
+        try {
+            coordinator.start() shouldBe true
+            withTimeout(TimeUnit.SECONDS.toMillis(10)) {
+                while (executions.get() < 2) delay(25)
+            }
+            val state = readField(coordinator, "_queueState") as MutableStateFlow<List<Translation>>
+            state.value.first { it.chapter.id == 8L }.status = Translation.State.PAUSED
+            withTimeout(TimeUnit.SECONDS.toMillis(5)) {
+                while (coordinator.isChapterTranslationInFlight(8L)) delay(25)
+            }
+            delay(300)
+            executions.get() shouldBe 2
+            coordinator.isChapterTranslationInFlight(chapterId) shouldBe true
+            coordinator.isRunning shouldBe true
+        } finally {
+            coordinator.pause()
+            activeStoreResolver = null
+            unstubEnumeration()
+        }
     }
 
     private companion object {
