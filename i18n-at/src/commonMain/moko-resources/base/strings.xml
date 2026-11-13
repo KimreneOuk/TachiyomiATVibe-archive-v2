@@ -16,6 +16,7 @@
     <string name="reader_colorize_page_busy">A translation is already running on this page — colorize will stay off until it finishes</string>
     <string name="reader_colorize_queued">Colorization queued for this chapter</string>
     <string name="reader_colorize_queue_failed">Couldn\'t queue colorization for this chapter</string>
+    <string name="reader_colorize_chapter_failed">Couldn\'t colorize this chapter</string>
     <string name="translation_reset_chapter">Reset Chapter</string>
     <string name="translation_reset_chapter_summary">Deletes all OCR data, cleaned images and translations for this chapter. Manual edits are removed.</string>
     <string name="manga_translation_progress">Translation progress</string>

@@ -1,9 +1,11 @@
 package eu.kanade.tachiyomi.ui.reader
 
+import android.app.Application
 import androidx.lifecycle.viewModelScope
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.diagnostics.NativeVisionTelemetry
 import eu.kanade.translation.diagnostics.ReaderEntryTrace
 import eu.kanade.translation.diagnostics.TranslationPipelineDiagnostics
@@ -43,8 +45,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchIO
+import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.i18n.at.ATMR
+import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 internal class ReaderTranslationObservationController(private val controller: ReaderTranslationController) {
@@ -113,11 +118,23 @@ internal class ReaderTranslationObservationController(private val controller: Re
             .filterNotNull()
             .onEach { translation ->
                 if (translation.chapter.id == chapterId) {
-                    val wasActive = batchTranslationState == Translation.State.TRANSLATING
-                    batchTranslationState = translation.status
+                    val previousBatchState = batchTranslationState
+                    val currentBatchState = translation.status
+                    val wasActive = previousBatchState == Translation.State.TRANSLATING
+                    val notifyColorizeFailure = shouldNotifyColorizeOnlyChapterFailure(
+                        previousState = previousBatchState,
+                        currentState = currentBatchState,
+                        colorizeOnly = translation.colorizeOnly,
+                    )
+                    batchTranslationState = currentBatchState
                     recomputeTranslationState()
-                    val isComplete = translation.status == Translation.State.TRANSLATED ||
-                        (wasActive && translation.status != Translation.State.TRANSLATING)
+                    if (notifyColorizeFailure) {
+                        withUIContext {
+                            Injekt.get<Application>().toast(ATMR.strings.reader_colorize_chapter_failed)
+                        }
+                    }
+                    val isComplete = currentBatchState == Translation.State.TRANSLATED ||
+                        (wasActive && currentBatchState != Translation.State.TRANSLATING)
                     if (isComplete) {
                         state.value.viewerChapters?.currChapter?.let { current ->
                             val targetIndex = if (chapterPageIndex >= 0) chapterPageIndex else current.requestedPage
@@ -532,3 +549,12 @@ internal class ReaderTranslationObservationController(private val controller: Re
             .distinctUntilChanged()
     }
 }
+
+// Restored ERROR entries may be the first emission, so only an observed run can notify.
+internal fun shouldNotifyColorizeOnlyChapterFailure(
+    previousState: Translation.State,
+    currentState: Translation.State,
+    colorizeOnly: Boolean,
+): Boolean = colorizeOnly &&
+    currentState == Translation.State.ERROR &&
+    (previousState == Translation.State.QUEUE || previousState == Translation.State.TRANSLATING)
