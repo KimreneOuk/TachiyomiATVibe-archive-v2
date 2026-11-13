@@ -469,7 +469,7 @@ object StageFingerprints {
 
     /**
      * Envelope policy composite (schemas contract §1.5): identity of the
-     * measured-experiment [eu.kanade.translation.engines.translator.contextual.EnvelopePlannerPolicy]
+     * measured-experiment envelope-planner policy
      * constants only. A policy-only change changes this value (and the plan
      * input identity) while deliberately NOT invalidating compatible
      * translations (invalidation matrix row 7 — policy is never an input of
