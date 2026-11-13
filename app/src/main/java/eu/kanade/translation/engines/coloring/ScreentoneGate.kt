@@ -1,5 +1,6 @@
 package eu.kanade.translation.engines.coloring
 
+import eu.kanade.translation.processing.image.ImageBorderOps
 import kotlin.math.exp
 import kotlin.math.round
 
@@ -52,7 +53,7 @@ internal object ScreentoneGate {
             for (x in 0 until width) {
                 var acc = 0.0
                 for (i in kernel.indices) {
-                    acc += kernel[i] * plane[rowOffset + reflect(x + i - 3, width)]
+                    acc += kernel[i] * plane[rowOffset + ImageBorderOps.reflect101(x + i - 3, width)]
                 }
                 horizontal[rowOffset + x] = acc.toFloat()
             }
@@ -61,7 +62,7 @@ internal object ScreentoneGate {
         val reflectedRows = IntArray(7)
         for (y in 0 until height) {
             for (i in 0 until 7) {
-                reflectedRows[i] = reflect(y + i - 3, height) * width
+                reflectedRows[i] = ImageBorderOps.reflect101(y + i - 3, height) * width
             }
             val rowOffset = y * width
             for (x in 0 until width) {
@@ -73,14 +74,5 @@ internal object ScreentoneGate {
             }
         }
         return result
-    }
-
-    /** cv2 BORDER_REFLECT_101: the edge pixel is mirrored without repeating it. */
-    private fun reflect(index: Int, size: Int): Int {
-        if (index >= 0 && index < size) return index
-        if (size == 1) return 0
-        val period = 2 * size - 2
-        val value = Math.floorMod(index, period)
-        return if (value >= size) period - value else value
     }
 }

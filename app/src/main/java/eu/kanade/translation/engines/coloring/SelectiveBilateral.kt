@@ -1,5 +1,7 @@
 package eu.kanade.translation.engines.coloring
 
+import eu.kanade.translation.processing.image.ImageBorderOps
+
 /** Selective midtone smoothing: cv2.bilateralFilter(uint8 gray, d=5, sigmaColor=35, sigmaSpace=35)
  *  with reflect-101 borders, then prototype ink protection — original restored where the value is < 35
  *  (the prototype's uint8 form of "luma < 0.14"; pixel value 35 itself is NOT protected). */
@@ -33,7 +35,7 @@ internal object SelectiveBilateral {
         val reflectedRows = IntArray(DIAMETER)
         for (y in 0 until height) {
             for (dyIdx in 0 until DIAMETER) {
-                reflectedRows[dyIdx] = reflect(y + dyIdx - RADIUS, height) * width
+                reflectedRows[dyIdx] = ImageBorderOps.reflect101(y + dyIdx - RADIUS, height) * width
             }
             val rowOffset = y * width
             for (x in 0 until width) {
@@ -44,7 +46,7 @@ internal object SelectiveBilateral {
                 for (dyIdx in 0 until DIAMETER) {
                     val syRow = reflectedRows[dyIdx]
                     for (dx in -RADIUS..RADIUS) {
-                        val sx = reflect(x + dx, width)
+                        val sx = ImageBorderOps.reflect101(x + dx, width)
                         val neighbor = gray[syRow + sx].toInt() and 0xFF
                         val diff = kotlin.math.abs(neighbor - center)
                         val weight = KERNEL_WEIGHTS[k++][diff]
@@ -59,14 +61,5 @@ internal object SelectiveBilateral {
             if ((gray[i].toInt() and 0xFF) < INK_THRESHOLD) filtered[i] = gray[i]
         }
         return filtered
-    }
-
-    /** cv2 BORDER_REFLECT_101: the edge pixel is mirrored without repeating it. */
-    private fun reflect(index: Int, size: Int): Int {
-        if (index >= 0 && index < size) return index
-        if (size == 1) return 0
-        val period = 2 * size - 2
-        val value = Math.floorMod(index, period)
-        return if (value >= size) period - value else value
     }
 }
