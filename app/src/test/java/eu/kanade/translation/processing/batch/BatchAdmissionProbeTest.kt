@@ -17,17 +17,4 @@ class BatchAdmissionProbeTest {
         BatchAdmissionProbe.evaluate(1, null) shouldBe BatchAdmissionDecision.UnknownCount
         BatchAdmissionProbe.evaluate(1, emptyList()) shouldBe BatchAdmissionDecision.UnknownCount
     }
-
-    @Test
-    fun `routing preserves explicit partial download choices`() {
-        val partial = BatchAdmissionDecision.Partial(expectedSourcePageCount = 2, downloadedPageCount = 1)
-
-        BatchAdmissionRouting.route(partial, null) shouldBe BatchAdmissionRouting.Route.AskUser
-        BatchAdmissionRouting.route(partial, PartialDownloadChoice.FINISH_DOWNLOAD_FIRST) shouldBe
-            BatchAdmissionRouting.Route.WaitForDownload
-        BatchAdmissionRouting.route(partial, PartialDownloadChoice.TRANSLATE_WHAT_EXISTS) shouldBe
-            BatchAdmissionRouting.Route.AdmitSubset
-        BatchAdmissionRouting.route(BatchAdmissionDecision.Complete, null) shouldBe
-            BatchAdmissionRouting.Route.AdmitBatch
-    }
 }

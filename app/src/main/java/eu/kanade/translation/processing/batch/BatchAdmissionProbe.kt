@@ -53,9 +53,9 @@ internal object BatchAdmissionProbe {
 }
 
 /**
- * The partial-download choice is typed so the screen model's dialog and
- * admission routing cannot drift apart. The dialog's copy is defined in the
- * screen model.
+ * The partial-download choice is typed so the screen model's dialog and the
+ * queued admission stamp cannot drift apart. The dialog's copy is defined in
+ * the screen model.
  */
 enum class PartialDownloadChoice { FINISH_DOWNLOAD_FIRST, TRANSLATE_WHAT_EXISTS }
 
@@ -69,38 +69,3 @@ data class BatchAdmissionContext(
     val probedSourcePageCount: Int?,
     val sourceCountKnown: Boolean,
 )
-
-internal object BatchAdmissionRouting {
-
-    /** Where a probed chapter goes instead of a silent admission. */
-    sealed class Route {
-        /** Cross-check proved complete (or the probe was never needed): admit unchanged. */
-        data object AdmitBatch : Route()
-
-        /** Admit the found subset; the batch records its partial truth. */
-        data object AdmitSubset : Route()
-
-        /** The EXISTING fenced WAITING_FOR_DOWNLOAD path — zero batch work starts. */
-        data object WaitForDownload : Route()
-
-        /** Present the PLAN-mandated finish/translate choice for this chapter. */
-        data object AskUser : Route()
-    }
-
-    fun route(
-        decision: BatchAdmissionDecision,
-        choice: PartialDownloadChoice?,
-    ): Route = when (decision) {
-        BatchAdmissionDecision.Complete -> Route.AdmitBatch
-        is BatchAdmissionDecision.Partial -> when (choice) {
-            PartialDownloadChoice.FINISH_DOWNLOAD_FIRST -> Route.WaitForDownload
-            PartialDownloadChoice.TRANSLATE_WHAT_EXISTS -> Route.AdmitSubset
-            null -> Route.AskUser
-        }
-        BatchAdmissionDecision.UnknownCount -> when (choice) {
-            PartialDownloadChoice.FINISH_DOWNLOAD_FIRST -> Route.WaitForDownload
-            PartialDownloadChoice.TRANSLATE_WHAT_EXISTS -> Route.AdmitSubset
-            null -> Route.AskUser
-        }
-    }
-}
