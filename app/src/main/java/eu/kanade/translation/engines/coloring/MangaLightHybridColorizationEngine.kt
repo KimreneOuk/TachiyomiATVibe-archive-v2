@@ -52,6 +52,7 @@ internal class MangaLightHybridColorizationEngine(
         } catch (failure: Throwable) {
             if (failure.isFatal()) throw failure
             error = failure.message ?: "Manga Light initialization failed"
+            logcat(LogPriority.ERROR, failure) { "Manga Light colorization initialization failed" }
             false
         }
     }
