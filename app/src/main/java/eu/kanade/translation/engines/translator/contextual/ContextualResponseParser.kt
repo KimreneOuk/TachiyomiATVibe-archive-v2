@@ -1,5 +1,8 @@
 package eu.kanade.translation.engines.translator.contextual
+
+import eu.kanade.translation.engines.translator.TranslationOutputSemantics
 import eu.kanade.translation.engines.translator.providers.OcrArtifactSanitizer
+import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.util.ShortHash
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -207,7 +210,7 @@ object ContextualResponseParser {
             val uniqueTargetsByNormalizedText = linkedMapOf<String, String>()
             candidates.forEach { candidateText ->
                 val target = candidateText.trim()
-                val normalized = normalizeCandidateTarget(target)
+                val normalized = TranslationOutputSemantics.normalizedForComparison(target)
                 if (normalized.isNotEmpty() && normalized !in uniqueTargetsByNormalizedText) {
                     uniqueTargetsByNormalizedText[normalized] = target
                 }
@@ -283,10 +286,15 @@ object ContextualResponseParser {
         val salvaged: Boolean,
     )
 
-    private fun normalizeCandidateTarget(target: String): String = java.text.Normalizer.normalize(
-        target.replace("\r\n", "\n").replace('\r', '\n').trim(),
-        java.text.Normalizer.Form.NFC,
-    )
+    private const val WATERMARK_TOKEN = "RTMTH"
+
+    internal fun removeWatermarkBlocks(pages: MutableMap<String, PageTranslation>) {
+        pages.values.forEach { page ->
+            page.blocks = page.blocks
+                .filterNot { block -> block.translation.contains(WATERMARK_TOKEN, ignoreCase = true) }
+                .toMutableList()
+        }
+    }
 
     private fun parseBatchCandidate(line: String): ParsedBatchCandidate? {
         val match = batchCandidateLineRegex.matchEntire(line) ?: return null
@@ -323,5 +331,5 @@ fun applyBatchToChunk(
         if (block.userEditedAt != null) continue
         block.translation = OcrArtifactSanitizer.sanitize(result.text)
     }
-    TranslationBlockFilters.removeWatermarkBlocks(chunk.pages)
+    ContextualResponseParser.removeWatermarkBlocks(chunk.pages)
 }
