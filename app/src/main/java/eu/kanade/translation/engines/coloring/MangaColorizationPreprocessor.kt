@@ -1,6 +1,7 @@
 package eu.kanade.translation.engines.coloring
 
 import android.graphics.Bitmap
+import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 

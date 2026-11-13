@@ -7,6 +7,7 @@ import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
+import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.ColorCombineMode

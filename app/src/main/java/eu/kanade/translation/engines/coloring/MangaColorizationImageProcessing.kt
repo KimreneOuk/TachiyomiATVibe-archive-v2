@@ -1,6 +1,7 @@
 package eu.kanade.translation.engines.coloring
 
 import android.graphics.Bitmap
+import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.ColorCombineMode
@@ -220,6 +221,3 @@ internal val ColorCombineMode.shadingStrength: Float
         ColorCombineMode.ORIGINAL -> ORIGINAL_SHADING_STRENGTH
         ColorCombineMode.VIBRANT -> INK_SHADING_STRENGTH
     }
-
-/** Errors that must never be swallowed by rendering fallbacks. */
-internal fun Throwable.isFatal(): Boolean = this is VirtualMachineError || this is ThreadDeath
