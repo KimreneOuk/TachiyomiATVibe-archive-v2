@@ -1,4 +1,5 @@
 package eu.kanade.translation.engines.translator.providers
+
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.translation.engines.translator.ProviderFailure
 import eu.kanade.translation.engines.translator.ProviderFailureException
@@ -24,14 +25,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import tachiyomi.core.common.util.system.logcat
 
-/**
- * DeepL Standard translator.
- *
- * Sends the page set's text blocks to DeepL's v2 `translate` endpoint in a
- * single batched request (DeepL accepts repeated `text` params and returns the
- * translations in order). Endpoint + auth are resolved by [DeepLApi]; source/
- * target language codes are uppercased to DeepL's format (e.g. `zh` -> `ZH`).
- */
+/** Sends page text blocks in a single DeepL v2 request and preserves response order. */
 class DeepLTranslator(
     override val fromLang: TextRecognizerLanguage,
     override val toLang: TextTranslatorLanguage,
@@ -44,6 +38,12 @@ class DeepLTranslator(
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .build()
+
+    private fun translateUrl(apiKey: String): String =
+        (if (apiKey.endsWith(":fx", ignoreCase = true)) "https://api-free.deepl.com" else "https://api.deepl.com") +
+            "/v2/translate"
+
+    private fun authHeader(apiKey: String): String = "DeepL-Auth-Key $apiKey"
 
     override suspend fun translate(pages: MutableMap<String, PageTranslation>) {
         if (apiKey.isBlank()) {
@@ -64,8 +64,8 @@ class DeepLTranslator(
         flatBlocks.forEach { formBuilder.add("text", it.text) }
 
         val request = Request.Builder()
-            .url(DeepLApi.translateUrl(apiKey))
-            .header("Authorization", DeepLApi.authHeader(apiKey))
+            .url(translateUrl(apiKey))
+            .header("Authorization", authHeader(apiKey))
             .post(formBuilder.build())
             .build()
 
