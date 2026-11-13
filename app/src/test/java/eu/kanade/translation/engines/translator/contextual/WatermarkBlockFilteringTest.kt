@@ -5,13 +5,8 @@ import eu.kanade.translation.model.TranslationBlock
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 
-/**
- * Guards the watermark-removal filter shared by every translator. Translators
- * are prompted to replace site-link/watermark text (e.g. "colamanga.com") with
- * the sentinel "RTMTH"; this filter then drops any block whose translation
- * still carries that sentinel so the watermark never renders.
- */
-class TranslationBlockFiltersTest {
+/** Checks that sentinel-marked translations are removed before rendering. */
+class WatermarkBlockFilteringTest {
 
     private fun block(translation: String, text: String = "src") = TranslationBlock(
         text = text,
@@ -35,7 +30,7 @@ class TranslationBlockFiltersTest {
             ),
         )
 
-        TranslationBlockFilters.removeWatermarkBlocks(mutableMapOf("001.jpg" to page))
+        ContextualResponseParser.removeWatermarkBlocks(mutableMapOf("001.jpg" to page))
 
         page.blocks.map { it.translation } shouldBe listOf("keep me", "also keep")
     }
@@ -44,7 +39,7 @@ class TranslationBlockFiltersTest {
     fun `watermark sentinel matching is case-insensitive`() {
         val page = PageTranslation(blocks = mutableListOf(block("rtmth trailing")))
 
-        TranslationBlockFilters.removeWatermarkBlocks(mutableMapOf("001.jpg" to page))
+        ContextualResponseParser.removeWatermarkBlocks(mutableMapOf("001.jpg" to page))
 
         page.blocks shouldBe emptyList()
     }
@@ -53,7 +48,7 @@ class TranslationBlockFiltersTest {
     fun `sentinel embedded in larger translation is still treated as a watermark`() {
         val page = PageTranslation(blocks = mutableListOf(block("visit RTMTH now")))
 
-        TranslationBlockFilters.removeWatermarkBlocks(mutableMapOf("001.jpg" to page))
+        ContextualResponseParser.removeWatermarkBlocks(mutableMapOf("001.jpg" to page))
 
         page.blocks shouldBe emptyList()
     }
@@ -63,7 +58,7 @@ class TranslationBlockFiltersTest {
         val page1 = PageTranslation(blocks = mutableListOf(block("a"), block("b")))
         val page2 = PageTranslation(blocks = mutableListOf(block("RTMTH"), block("c")))
 
-        TranslationBlockFilters.removeWatermarkBlocks(
+        ContextualResponseParser.removeWatermarkBlocks(
             mutableMapOf("001.jpg" to page1, "002.jpg" to page2),
         )
 
@@ -75,7 +70,7 @@ class TranslationBlockFiltersTest {
     fun `pages with no blocks are a no-op`() {
         val pages = mutableMapOf("001.jpg" to PageTranslation(blocks = mutableListOf()))
 
-        TranslationBlockFilters.removeWatermarkBlocks(pages)
+        ContextualResponseParser.removeWatermarkBlocks(pages)
 
         pages["001.jpg"]?.blocks shouldBe emptyList()
     }
