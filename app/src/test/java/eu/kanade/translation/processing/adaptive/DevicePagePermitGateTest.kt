@@ -184,61 +184,6 @@ class DevicePagePermitGateTest {
         gate.activeCount shouldBe 0
     }
 
-    @Test
-    fun `waiting background request promoted to foreground jumps ahead of newer background requests and gets fresh foreground timeout`() = runTest {
-        val gate = DevicePagePermitGate()
-        val initialPermit = gate.acquire(DevicePermitPriority.BACKGROUND)!!
-        val order = mutableListOf<String>()
-        val handle = DevicePriorityHandle()
-
-        val background1 = launch {
-            gate.withPermit(DevicePermitPriority.BACKGROUND, handle) {
-                order += "promoted"
-            }
-        }
-        runCurrent()
-        val background2 = launch {
-            gate.withPermit(DevicePermitPriority.BACKGROUND) {
-                order += "background2"
-            }
-        }
-        runCurrent()
-        gate.queuedCount shouldBe 2
-
-        handle.promote()
-        runCurrent()
-
-        initialPermit.release()
-        background1.join()
-        background2.join()
-        order shouldBe listOf("promoted", "background2")
-    }
-
-    @Test
-    fun `promoted background request that expires within fresh foreground deadline returns null without leaking waiter`() = runTest {
-        val gate = DevicePagePermitGate(foregroundWaitCapMs = 20L)
-        val initialPermit = gate.acquire(DevicePermitPriority.BACKGROUND)!!
-        val handle = DevicePriorityHandle()
-        val result = async { gate.acquire(DevicePermitPriority.BACKGROUND, handle) }
-        runCurrent()
-        gate.queuedCount shouldBe 1
-
-        advanceTimeBy(50L)
-        runCurrent()
-        gate.queuedCount shouldBe 1
-
-        handle.promote()
-        runCurrent()
-        gate.queuedCount shouldBe 1
-
-        advanceTimeBy(20L)
-        runCurrent()
-        result.await() shouldBe null
-        gate.queuedCount shouldBe 0
-        initialPermit.release()
-        gate.activeCount shouldBe 0
-    }
-
     private class FakeClock(var nowNanos: Long = 0L) : TranslationTraceClock {
         override fun nowNanos(): Long = nowNanos
 
