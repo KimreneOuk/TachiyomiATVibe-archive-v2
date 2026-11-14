@@ -135,7 +135,7 @@ internal class ReaderTranslationObservationController(private val controller: Re
                     }
                     val isComplete = currentBatchState == Translation.State.TRANSLATED ||
                         (wasActive && currentBatchState != Translation.State.TRANSLATING)
-                    if (isComplete) {
+                    if (isComplete && state.value.viewerChapters?.currChapter?.chapter?.id == chapterId) {
                         state.value.viewerChapters?.currChapter?.let { current ->
                             val targetIndex = if (chapterPageIndex >= 0) chapterPageIndex else current.requestedPage
                             controller.refreshWorkingSetOnBatchComplete(current, targetIndex)
@@ -257,6 +257,11 @@ internal class ReaderTranslationObservationController(private val controller: Re
         // needs to be visible in the reader and survive an enter/exit cycle.
         translationBatchProgressJob = viewModelScope.launchIO {
             translationManager.observeBatchProgress(chapterId).collect { progress ->
+                // Same transition-window gate as the store collector below:
+                // this chapter's progress must not overwrite the pill (or
+                // trigger a working-set refresh) once another chapter is
+                // current but this collector is not yet cancelled.
+                if (state.value.viewerChapters?.currChapter?.chapter?.id != chapterId) return@collect
                 val wasActive = state.value.translationBatchProgress?.state == Translation.State.TRANSLATING
                 mutableState.update { it.copy(translationBatchProgress = progress) }
                 val isComplete = progress.state == Translation.State.TRANSLATED ||
@@ -308,7 +313,14 @@ internal class ReaderTranslationObservationController(private val controller: Re
             // reached FAILED.
             sweepStrandedPageStatus(store, chapterId)
             storeState.collect { pageMap ->
-                val pages = state.value.viewerChapters?.currChapter?.pages ?: return@collect
+                // A collector belongs to one chapter, but it reads currChapter
+                // live: during a chapter transition this chapter's collector
+                // briefly outlives the chapter swap, and per-chapter file-name
+                // keys collide — applying the old snapshot would stamp the
+                // departed chapter's artifacts onto the new chapter's pages.
+                val boundChapter = state.value.viewerChapters?.currChapter ?: return@collect
+                if (boundChapter.chapter.id != chapterId) return@collect
+                val pages = boundChapter.pages ?: return@collect
                 var translatedCount = 0
                 val totalPages = pages.size
                 // Track whether ANY page currently has a RUNNING stage or a
@@ -374,7 +386,7 @@ internal class ReaderTranslationObservationController(private val controller: Re
                     if (isFailed && !display.displayReady && !display.isTextless) translatedCount++
                     readerPage.translation = resolvedDisplay
                 }
-                state.value.viewerChapters?.currChapter?.let { current ->
+                boundChapter.let { current ->
                     val targetIndex = if (chapterPageIndex >= 0) chapterPageIndex else current.requestedPage
                     updateTranslationWorkingSet(current, targetIndex, dispatchRefresh = true)
                 }
