@@ -77,13 +77,9 @@ internal class BatchTranslationCoordinator(
         get() = onlineColorizeStreams ?: OnlineColorizePageStreamResolver(Injekt.get())
 
     companion object {
-        // Bound the join during chapter deletion.
-        // The batch worker can be mid-uncancellable native ONNX (OrtSession.run)
-        // when cancel() is requested; coroutine cancellation only lands at the
-        // next suspension point. Bounding the join prevents a delete from hanging
-        // on a job that won't unwind promptly (matches the reader drain policy).
-        // On timeout the file delete proceeds and the defunct-store guard
-        // (ChapterTranslationStore.markDefunct) neutralizes any late write.
+        // Bound the delete-path join: the worker may be mid-uncancellable native ONNX (OrtSession.run);
+        // coroutine cancellation lands only at the next suspension point, so an unbounded join could hang
+        // deletion. On timeout the delete proceeds; the defunct-store guard neutralizes any late write.
         const val BATCH_JOIN_TIMEOUT_MS = 2_000L
 
         // Retry the chapter claim while the previous job finishes unwinding.
@@ -245,10 +241,9 @@ internal class BatchTranslationCoordinator(
     // idle translator and launch duplicate work for the queue head.
     private val translatorLaunchLock = Any()
 
-    // Keep a claim while a chapter job is running or unwinding native work
-    // after cancellation. New admissions wait for that claim to release rather
-    // than starting a second run that would advance the store generation and
-    // fence the first run.
+    // Claim held while a chapter job runs or unwinds native work after cancellation. New admissions
+    // wait for the claim to release instead of starting a second run that would advance the store
+    // generation and fence the first run.
     private val inFlightChapterIds: MutableSet<Long> = ConcurrentHashMap.newKeySet()
     private val inFlightClaimReleasedSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
@@ -319,11 +314,7 @@ internal class BatchTranslationCoordinator(
         isPaused = true
     }
 
-    /**
-     * Non-blocking pause used before a session switch. The cancelled parent
-     * job is retained by [cancelTranslatorJobAndJoinForSession] when native
-     * work needs more than one bounded join attempt to unwind.
-     */
+    /** Non-blocking pause; [cancelTranslatorJobAndJoinForSession] retains the job if unwinding exceeds one join. */
     fun pauseForSessionSwitch() {
         val job = translationJob
         if (job != null) {
