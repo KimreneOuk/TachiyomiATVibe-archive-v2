@@ -1,14 +1,11 @@
 package eu.kanade.translation.coordinator
 
 import eu.kanade.tachiyomi.source.Source
-import eu.kanade.translation.model.PageTranslationView
-import eu.kanade.translation.model.PageView
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationBatchPhase
 import eu.kanade.translation.model.TranslationProgressSnapshot
 import eu.kanade.translation.model.TranslationRequestState
 import eu.kanade.translation.model.toPageDisplayProjection
-import eu.kanade.translation.model.toPageView
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
 import eu.kanade.translation.persistence.ArtifactStageStatus
 import eu.kanade.translation.persistence.ChapterTranslationStore
@@ -240,7 +237,6 @@ internal class TranslationProgressProjection(
         source: Source,
         mangaId: Long?,
     ) -> ChapterTranslationStore?,
-    private val observeActiveDisplayStore: (Long) -> StateFlow<Map<String, PageTranslationView>>?,
     /** Read-only terminal reconstruction after registry eviction/process death; it never opens or caches a store. */
     private val reconstructDurableTerminalSnapshot: suspend (chapterId: Long) -> TranslationProgressSnapshot? = { null },
 ) {
@@ -467,10 +463,4 @@ internal class TranslationProgressProjection(
         orchestrationState = state,
         permitHolderPageKey = permitHolderPageKeyProvider(),
     )
-
-    fun observePageView(chapterId: Long, pageKey: String): Flow<PageView>? {
-        return observeActiveDisplayStore(chapterId)
-            ?.map { pages -> pages[pageKey].toPageView() }
-            ?.distinctUntilChanged()
-    }
 }

@@ -368,13 +368,15 @@ internal class ReaderTranslationController(
      * user-intent dispatch (toggle on, reader entry) cannot be dropped by the
      * viewport's stale-revision guard when a newer scroll dispatch lands first.
      */
+    /** Single unified predicate for whether auto-translation is active and allowed. */
+    internal fun isAutoTranslateEnabled(): Boolean =
+        translationPreferences.autoTranslate().get() && translationPreferences.translationEnabled().get()
+
     internal fun handleAutoTranslation(
         currentPage: ReaderPage,
         kickCurrentPage: Boolean = false,
     ) {
-        if (!translationPreferences.autoTranslate().get() ||
-            !translationPreferences.translationEnabled().get()
-        ) {
+        if (!isAutoTranslateEnabled()) {
             return
         }
         if (inpaintModelMissing()) {
@@ -389,15 +391,11 @@ internal class ReaderTranslationController(
         readerCoordinator.beginSessionPreparation()
         viewModelScope.launchIO {
             try {
-                if (!translationPreferences.autoTranslate().get() ||
-                    !translationPreferences.translationEnabled().get()
-                ) {
+                if (!isAutoTranslateEnabled()) {
                     return@launchIO
                 }
                 val token = ensureQueueSession(currentPage.chapter) ?: return@launchIO
-                if (!translationPreferences.autoTranslate().get() ||
-                    !translationPreferences.translationEnabled().get()
-                ) {
+                if (!isAutoTranslateEnabled()) {
                     return@launchIO
                 }
                 val latestPage = owner.currentPageReaderPage()
@@ -616,7 +614,7 @@ internal class ReaderTranslationController(
         }
         val hadAutomaticDemand = readerCoordinator.setAutoEnabled(chapterKey, enabled)
         if (enabled) {
-            if (translationPreferences.translationEnabled().get()) {
+            if (isAutoTranslateEnabled()) {
                 translateCurrentPageForAuto()
             }
             return
@@ -634,22 +632,16 @@ internal class ReaderTranslationController(
      * current page through the same viewport path.
      */
     internal fun rebindForComputeEpochChange() {
-        if (!translationPreferences.autoTranslate().get() ||
-            !translationPreferences.translationEnabled().get()
-        ) {
+        if (!isAutoTranslateEnabled()) {
             return
         }
         readerCoordinator.beginSessionPreparation()
         viewModelScope.launchIO {
             try {
-                if (translationPreferences.autoTranslate().get() &&
-                    translationPreferences.translationEnabled().get()
-                ) {
+                if (isAutoTranslateEnabled()) {
                     val chapter = getCurrentChapter() ?: return@launchIO
                     val token = ensureQueueSession(chapter) ?: return@launchIO
-                    if (!translationPreferences.autoTranslate().get() ||
-                        !translationPreferences.translationEnabled().get()
-                    ) {
+                    if (!isAutoTranslateEnabled()) {
                         return@launchIO
                     }
                     val currentPage = owner.currentPageReaderPage() ?: return@launchIO
@@ -673,6 +665,7 @@ internal class ReaderTranslationController(
 
     private val actions by lazy { ReaderTranslationActions(this) }
     private val observation by lazy { ReaderTranslationObservationController(this) }
+    private val settingsWriter by lazy { ReaderTranslationSettingsWriter(this) }
 
     internal suspend fun cancelTranslationForChapter(chapter: ReaderChapter) = actions.cancelTranslationForChapter(chapter)
     internal fun deleteCurrentChapterTranslation() = actions.deleteCurrentChapterTranslation()
@@ -686,13 +679,8 @@ internal class ReaderTranslationController(
     internal fun cancelSinglePageTranslation(page: ReaderPage) = actions.cancelSinglePageTranslation(page)
     internal fun stopAllTranslation() = actions.stopAllTranslation()
     internal fun retryCurrentBatch(force: Boolean = false) = actions.retryCurrentBatch(force)
-    internal fun setTranslationEnabled(enabled: Boolean) {
-        translationPreferences.translationEnabled().set(enabled)
-    }
-
-    internal fun setAutoTranslate(auto: Boolean) {
-        translationPreferences.autoTranslate().set(auto)
-    }
+    internal fun setTranslationEnabled(enabled: Boolean) = settingsWriter.setTranslationEnabled(enabled)
+    internal fun setAutoTranslate(auto: Boolean) = settingsWriter.setAutoTranslate(auto)
 
     internal fun handleAutoColorize(currentPage: ReaderPage) {
         if (!translationPreferences.translationColorizationEnabled().get() ||
@@ -808,125 +796,26 @@ internal class ReaderTranslationController(
         handleAutoColorize(page)
     }
 
-    internal fun setAutoColorize(auto: Boolean) {
-        translationPreferences.autoColorize().set(auto)
-        if (auto && translationPreferences.translationColorizationEnabled().get()) {
-            colorizeCurrentPageForAuto()
-        }
-    }
+    internal fun setAutoColorize(auto: Boolean) = settingsWriter.setAutoColorize(auto)
+    internal fun setTranslateButtonWithControls(withControls: Boolean) = settingsWriter.setTranslateButtonWithControls(withControls)
+    internal fun setTranslateFromLanguage(language: String) = settingsWriter.setTranslateFromLanguage(language)
+    internal fun setTranslateToLanguage(language: String) = settingsWriter.setTranslateToLanguage(language)
+    internal fun setOcrModel(model: OcrModel) = settingsWriter.setOcrModel(model)
+    internal fun setTranslationInpaintingMode(mode: String) = settingsWriter.setTranslationInpaintingMode(mode)
+    internal fun setTranslationInpaintingNeuralModel(model: NeuralInpaintModel) = settingsWriter.setTranslationInpaintingNeuralModel(model)
+    internal fun setTranslationColorizationEnabled(enabled: Boolean) = settingsWriter.setTranslationColorizationEnabled(enabled)
+    internal fun setTranslationColorizationModel(model: ColorizationModel) = settingsWriter.setTranslationColorizationModel(model)
+    internal fun setTranslationColorCombineMode(mode: ColorCombineMode) = settingsWriter.setTranslationColorCombineMode(mode)
+    internal fun setTranslationUpscalingEnabled(enabled: Boolean) = settingsWriter.setTranslationUpscalingEnabled(enabled)
+    internal fun setTranslationEngineCategory(category: TranslationEngineCategory) = settingsWriter.setTranslationEngineCategory(category)
+    internal fun setTranslationStandardEngine(engine: StandardEngine) = settingsWriter.setTranslationStandardEngine(engine)
+    internal fun setTranslationDeeplApiKey(key: String) = settingsWriter.setTranslationDeeplApiKey(key)
+    internal fun setTranslationAiEngine(engine: AiEngine) = settingsWriter.setTranslationAiEngine(engine)
+    internal fun setTranslationAiApiKey(key: String) = settingsWriter.setTranslationAiApiKey(key)
+    internal fun setTranslationAiBaseUrl(url: String) = settingsWriter.setTranslationAiBaseUrl(url)
+    internal fun setTranslationAiModel(model: String) = settingsWriter.setTranslationAiModel(model)
+    internal fun fetchAiModels() = settingsWriter.fetchAiModels()
 
-    /** TachiyomiAT: idle translate button ghost vs. show-only-with-controls. */
-    internal fun setTranslateButtonWithControls(withControls: Boolean) {
-        translationPreferences.translateButtonWithControls().set(withControls)
-    }
-
-    internal fun setTranslateFromLanguage(language: String) {
-        translationPreferences.translateFromLanguage().set(language)
-        val recent = TranslationPreferences.decodeRecentLanguages(translationPreferences.translationRecentLanguagesFrom().get())
-        val updated = TranslationPreferences.encodeRecentLanguages(listOf(language) + recent)
-        translationPreferences.translationRecentLanguagesFrom().set(updated)
-    }
-
-    internal fun setTranslateToLanguage(language: String) {
-        translationPreferences.translateToLanguage().set(language)
-        val recent = TranslationPreferences.decodeRecentLanguages(translationPreferences.translationRecentLanguagesTo().get())
-        val updated = TranslationPreferences.encodeRecentLanguages(listOf(language) + recent)
-        translationPreferences.translationRecentLanguagesTo().set(updated)
-    }
-
-    internal fun setOcrModel(model: OcrModel) {
-        val fromValue = translationPreferences.translateFromLanguage().get()
-        val language = TextRecognizerLanguage.entries.firstOrNull { it.name == fromValue } ?: TextRecognizerLanguage.CHINESE
-        OcrModelCatalog.preferenceFor(translationPreferences, language).set(model)
-    }
-
-    internal fun setTranslationInpaintingMode(mode: String) {
-        translationPreferences.translationInpaintingMode().set(mode)
-    }
-
-    internal fun setTranslationInpaintingNeuralModel(model: NeuralInpaintModel) {
-        translationPreferences.translationInpaintingNeuralModel().set(model)
-    }
-
-    internal fun setTranslationColorizationEnabled(enabled: Boolean) {
-        translationPreferences.translationColorizationEnabled().set(enabled)
-    }
-
-    internal fun setTranslationColorizationModel(model: ColorizationModel) {
-        translationPreferences.translationColorizationModel().set(model)
-    }
-
-    internal fun setTranslationColorCombineMode(mode: ColorCombineMode) {
-        translationPreferences.colorCombineMode().set(mode)
-    }
-
-    internal fun setTranslationUpscalingEnabled(enabled: Boolean) {
-        translationPreferences.translationUpscalingEnabled().set(enabled)
-    }
-
-    internal fun setTranslationEngineCategory(category: TranslationEngineCategory) {
-        translationPreferences.translationEngineCategory().set(category)
-    }
-
-    internal fun setTranslationStandardEngine(engine: StandardEngine) {
-        translationPreferences.translationStandardEngine().set(engine)
-    }
-
-    internal fun setTranslationDeeplApiKey(key: String) {
-        translationPreferences.translationDeeplApiKey().set(key)
-    }
-
-    internal fun setTranslationAiEngine(engine: AiEngine) {
-        translationPreferences.translationAiEngine().set(engine)
-    }
-
-    internal fun setTranslationAiApiKey(key: String) {
-        val engine = translationPreferences.translationAiEngine().get()
-        translationPreferences.translationAiApiKey(engine).set(key)
-    }
-
-    internal fun setTranslationAiBaseUrl(url: String) {
-        val engine = translationPreferences.translationAiEngine().get()
-        translationPreferences.translationAiBaseUrl(engine)?.set(url)
-    }
-
-    internal fun setTranslationAiModel(model: String) {
-        val engine = translationPreferences.translationAiEngine().get()
-        translationPreferences.translationAiModel(engine).set(model)
-        val recentPref = translationPreferences.translationAiRecentModels(engine)
-        val recentModels = TranslationPreferences.decodeRecentModels(recentPref.get())
-        recentPref.set(TranslationPreferences.encodeRecentModels(listOf(model) + recentModels))
-    }
-
-    internal fun fetchAiModels() {
-        val aiEngine = translationPreferences.translationAiEngine().get()
-        val key = translationPreferences.translationAiApiKey(aiEngine).get()
-        val url = translationPreferences.translationAiBaseUrl(aiEngine)?.get().orEmpty()
-
-        aiModelFetchState.value = AiModelListState.Loading(if (aiEngine == AiEngine.LMSTUDIO) url else key)
-        viewModelScope.launch {
-            try {
-                val result = AiModelFetcher.fetch(aiEngine, key, url)
-                aiModelFetchState.value = when (result) {
-                    is AiModelFetcher.Result.Success -> AiModelListState.Loaded(result.models)
-                    is AiModelFetcher.Result.InvalidKey -> AiModelListState.Failed("Invalid or expired API key")
-                    is AiModelFetcher.Result.NoModels -> AiModelListState.Loaded(emptyList())
-                    is AiModelFetcher.Result.Error -> AiModelListState.Failed(result.message)
-                }
-            } catch (e: Exception) {
-                aiModelFetchState.value = AiModelListState.Failed(e.message ?: "Unknown error")
-            }
-        }
-    }
-
-    /**
-     * TachiyomiAT: cancel all translation work when the reader
-     * is backgrounded or the activity is finishing. Previously, only onCleared()
-     * (ViewModel destruction) cancelled translation work, which meant background
-     * translation kept consuming battery, bandwidth, and the single translator
-     * permit for minutes after the user switched apps. Called from onPause()
-     * and finish() in ReaderActivity.
-     */
     internal fun cancelTranslationsOnBackground() {
         resetAutoTranslationState()
         translationManager.stopReaderTranslations("reader backgrounded")
@@ -957,8 +846,7 @@ internal class ReaderTranslationController(
         // deferred demands (memory/source); it must not wait for a page change
         // before re-driving the captured session's queued work.
         reconcileCapturedSession()
-        if (!translationPreferences.translationEnabled().get()) return
-        if (!translationPreferences.autoTranslate().get()) return
+        if (!isAutoTranslateEnabled()) return
         val chapter = getCurrentChapter() ?: return
         if (chapterPageIndex < 0) return
         viewModelScope.launch {

@@ -80,7 +80,6 @@ class TranslationProgressProjectionDurableReconstructionTest {
             openOrCreateInvocations.add(id)
             null
         },
-        observeActiveDisplayStore = { null },
         reconstructDurableTerminalSnapshot = durableSnapshot,
     )
 

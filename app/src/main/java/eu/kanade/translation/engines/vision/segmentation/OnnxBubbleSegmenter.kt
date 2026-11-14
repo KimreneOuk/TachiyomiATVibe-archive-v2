@@ -1,4 +1,4 @@
-package eu.kanade.translation.engines.vision.segmentation
+﻿package eu.kanade.translation.engines.vision.segmentation
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtException
@@ -13,12 +13,12 @@ import eu.kanade.translation.engines.runtime.litert.LiteRtVisionRunner
 import eu.kanade.translation.engines.runtime.onnx.HardwareDiscoveryEngine
 import eu.kanade.translation.engines.runtime.onnx.ModelRoutingEngine
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
-import eu.kanade.translation.engines.runtime.onnx.QnnVisionContextCache
+import eu.kanade.translation.engines.runtime.onnx.QnnContextCacheManager
+import eu.kanade.translation.engines.vision.VisionModelRunner
 import eu.kanade.translation.model.BubbleMaskRle
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.pools.BitmapPool
-import tachiyomi.domain.translation.pools.DirectBufferPool
+import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.File
 import java.nio.FloatBuffer
 
@@ -64,7 +64,7 @@ class OnnxBubbleSegmenter(
             providerSink: (String) -> Unit,
             requestedHardwareRoute: HardwareDiscoveryEngine.HardwareRoute?,
         ): SegmenterSessionHandle {
-            val contextPlan = QnnVisionContextCache.plan(
+            val contextPlan = QnnContextCacheManager.plan(
                 modelFile = File(modelPath),
                 useAccelerator = useAccelerator,
                 requestedHardwareRoute = requestedHardwareRoute,
@@ -184,10 +184,7 @@ class OnnxBubbleSegmenter(
     // pooled DIRECT buffer for the fixed 1x3x640x640 tensor; ORT
     // consumes it in place so it MUST outlive the tensor. maxPoolSize=2 bounds
     // resident native memory. Same contract as OnnxPageTextDetector.
-    private val inputBufferPool = DirectBufferPool(
-        bufferCapacityBytes = SEGMENTER_INPUT_FLOATS * Float.SIZE_BYTES,
-        maxPoolSize = 2,
-    )
+    private val runner = VisionModelRunner("Bubble segmenter", inputFloatsCount = SEGMENTER_INPUT_FLOATS)
 
     fun initialize(
         modelFile: File,
@@ -228,11 +225,11 @@ class OnnxBubbleSegmenter(
         val env = try {
             Environment.create()
         } catch (failure: Throwable) {
-            runOrtFallbackAfterLiteRtFailure(fallbackToOnnx, failure)
+            runner.handleLiteRtFailure(fallbackToOnnx, failure)
             return
         }
         try {
-            val runner = LiteRtVisionRunner(
+            val liteRtRunner = LiteRtVisionRunner(
                 modelFile = modelFile,
                 inputCount = 1,
                 outputCount = 2,
@@ -241,21 +238,15 @@ class OnnxBubbleSegmenter(
                 onGpuFallback = { executionProviderLabel = "litert_xnnpack" },
                 env = env,
             )
-            val handle = LiteRtSegmenterHandle(runner, env)
+            val handle = LiteRtSegmenterHandle(liteRtRunner, env)
             session = handle
-            executionProviderLabel = runner.executionProviderLabel
+            executionProviderLabel = liteRtRunner.executionProviderLabel
             validateContract(handle)
             logcat(LogPriority.INFO) { "Bubble segmenter LiteRT initialized: provider=$executionProviderLabel" }
         } catch (failure: Throwable) {
             runCatching { env.close() }
-            runOrtFallbackAfterLiteRtFailure(fallbackToOnnx, failure)
+            runner.handleLiteRtFailure(fallbackToOnnx, failure)
         }
-    }
-
-    private fun runOrtFallbackAfterLiteRtFailure(fallbackToOnnx: (() -> Unit)?, failure: Throwable) {
-        if (fallbackToOnnx == null) throw failure
-        logcat(LogPriority.WARN, failure) { "Bubble segmenter LiteRT init failed; using ORT session" }
-        fallbackToOnnx.invoke()
     }
 
     // Size-based rather than name-based: the LiteRT handle exposes the same
@@ -290,7 +281,7 @@ class OnnxBubbleSegmenter(
             }
             // ORT consumes the direct buffer in place (no native copy),
             // so it MUST outlive the tensor — keep referenced until the finally.
-            inputBuffer = inputBufferPool.acquire()
+            inputBuffer = runner.acquireBuffer()
             val buffer = inputBuffer
             buffer.clear()
             val pixels = IntArray(BubbleSegmentationDecoder.INPUT_SIZE * BubbleSegmentationDecoder.INPUT_SIZE)
@@ -333,7 +324,7 @@ class OnnxBubbleSegmenter(
                 bitmap.height,
             )
         } finally {
-            inputBuffer?.let { inputBufferPool.release(it) }
+            inputBuffer?.let { runner.releaseBuffer(it) }
             BitmapPool.putARGB8888(input)
         }
     }
@@ -450,18 +441,18 @@ class OnnxBubbleSegmenter(
             session?.close()
             session = null
         }
-        inputBufferPool.clear()
+        runner.close()
     }
 
     // frees the pooled direct buffer without tearing down the ONNX
     // session; wired into per-page OOM relief. Registered in
     // RoiPageRecognitionEngine's reclaim fan-outs like the sibling engines.
     fun reclaimPooledMemory() {
-        inputBufferPool.clear()
+        runner.reclaimPooledMemory()
     }
 
     fun forceReleaseNativeBuffers() {
-        inputBufferPool.clear()
+        runner.forceReleaseNativeBuffers()
     }
 
     companion object {

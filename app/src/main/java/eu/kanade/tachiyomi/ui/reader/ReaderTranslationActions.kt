@@ -239,9 +239,7 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
         val tapTimeNs = System.nanoTime()
         readerCoordinator.beginSessionPreparation()
         when (
-            val admission = translationManager.sessionCoordinator.requestReaderSession(
-                ReaderSessionIntent(chapterId = page.chapter.chapter.id),
-            )
+            val admission = translationManager.admitReaderSession(page.chapter.chapter.id)
         ) {
             is SessionAdmission.Admitted,
             is SessionAdmission.Switched,

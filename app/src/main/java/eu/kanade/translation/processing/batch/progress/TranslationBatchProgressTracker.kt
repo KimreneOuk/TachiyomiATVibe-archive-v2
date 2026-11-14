@@ -17,7 +17,6 @@ import eu.kanade.translation.model.isStageFailed
 import eu.kanade.translation.model.isTextlessTerminal
 import eu.kanade.translation.model.toPageDisplayProjection
 import eu.kanade.translation.persistence.ChapterTranslationStore
-import eu.kanade.translation.processing.batch.BatchPass1Outcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -85,60 +84,6 @@ class TranslationBatchProgressTracker(
         if (finished || !events.trySend(event).isSuccess) return
     }
 
-    fun markOcrRunning(pageKey: String) = phase(pageKey, BatchPhase.OCR, PhaseStatus.RUNNING)
-    fun markOcrDone(pageKey: String) = phase(pageKey, BatchPhase.OCR, PhaseStatus.DONE)
-    fun markOcrFailed(pageKey: String, reason: String) = phase(pageKey, BatchPhase.OCR, PhaseStatus.FAILED, reason)
-    fun markTranslateRunning(pageKey: String) = phase(pageKey, BatchPhase.TRANSLATE, PhaseStatus.RUNNING)
-    fun markTranslateDone(pageKey: String) = phase(pageKey, BatchPhase.TRANSLATE, PhaseStatus.DONE)
-    fun markTranslateFailed(
-        pageKey: String,
-        reason: String,
-    ) = phase(pageKey, BatchPhase.TRANSLATE, PhaseStatus.FAILED, reason)
-    fun markTranslateSkipped(pageKey: String) = phase(pageKey, BatchPhase.TRANSLATE, PhaseStatus.SKIPPED)
-    fun markTranslatePaused(pageKey: String, reason: String) =
-        phase(pageKey, BatchPhase.TRANSLATE, PhaseStatus.PAUSED, reason)
-    fun markAiBuffered(pageKey: String) = aiProgress(pageKey, AiPageProgressState.BUFFERED)
-    fun markAiRunning(pageKey: String) = aiProgress(pageKey, AiPageProgressState.RUNNING)
-    fun markAiSucceeded(pageKey: String) = aiProgress(pageKey, AiPageProgressState.SUCCEEDED)
-    fun markAiFailed(pageKey: String, reason: String) = aiProgress(pageKey, AiPageProgressState.FAILED, reason)
-    fun markAiPaused(pageKey: String, reason: String) = aiProgress(pageKey, AiPageProgressState.PAUSED, reason)
-    fun markInpaintRunning(pageKey: String) = phase(pageKey, BatchPhase.INPAINT, PhaseStatus.RUNNING)
-    fun markInpaintDone(pageKey: String) = phase(pageKey, BatchPhase.INPAINT, PhaseStatus.DONE)
-    fun markInpaintFailed(
-        pageKey: String,
-        reason: String,
-    ) = phase(pageKey, BatchPhase.INPAINT, PhaseStatus.FAILED, reason)
-    fun markRenderRunning(pageKey: String) = phase(pageKey, BatchPhase.RENDER, PhaseStatus.RUNNING)
-    fun markRenderDone(pageKey: String) = phase(pageKey, BatchPhase.RENDER, PhaseStatus.DONE)
-    fun markRenderFailed(
-        pageKey: String,
-        reason: String,
-    ) = phase(pageKey, BatchPhase.RENDER, PhaseStatus.FAILED, reason)
-    fun markRenderSkipped(pageKey: String) = phase(pageKey, BatchPhase.RENDER, PhaseStatus.SKIPPED)
-
-    //   rebuild-window progress. The coordinator's envelope plan
-    // build (resume hydration) fires these through the schedule listener so
-    // the projection flips to REBUILDING while the window runs and returns to
-    // FIRST_PASS when the plan commits — the sheet's indeterminate bar and
-    // store-derived counters stay live instead of freezing for minutes.
-    fun markEnvelopePlanStarted(totalPages: Int) =
-        emit(TranslationBatchEvent.EnvelopePlanProgress(done = 0, total = totalPages))
-    fun markEnvelopePlanProgress(done: Int, total: Int) =
-        emit(TranslationBatchEvent.EnvelopePlanProgress(done = done, total = total))
-    fun markEnvelopePlanCommitted() = emit(TranslationBatchEvent.EnvelopePlanCommitted)
-
-    private fun phase(pageKey: String, phase: BatchPhase, status: PhaseStatus, reason: String? = null) = emit(
-        TranslationBatchEvent.PagePhase(pageKey, indexResolver[pageKey] ?: 0, phase, status, reason = reason),
-    )
-
-    private fun aiProgress(
-        pageKey: String,
-        state: AiPageProgressState,
-        reason: String? = null,
-    ) = emit(
-        TranslationBatchEvent.AiPageProgress(pageKey, indexResolver[pageKey] ?: 0, state, reason),
-    )
-
     fun finish(result: ReconciliationResult) {
         terminalEventQueued.set(true)
         emit(
@@ -158,24 +103,6 @@ class TranslationBatchProgressTracker(
         )
     }
 
-    fun pause(outcome: BatchPass1Outcome, totalPages: Int = orderedPageKeys.size) {
-        terminalEventQueued.set(true)
-        emit(
-            TranslationBatchEvent.BatchPaused(
-                anchorPageKey = outcome.anchorPageKey,
-                completedPages = outcome.completedPageKeys.size,
-                totalPages = totalPages,
-                retryableCount = outcome.retryablePageKeys.size.coerceAtLeast(1),
-                reason = outcome.reason ?: "Translation paused; retryable provider work remains",
-                nextEligibleRetryAtEpochMs = outcome.nextEligibleRetryAtEpochMs,
-                retryablePageKeys = outcome.retryablePageKeys,
-                // PERSISTENCE_REJECTED is not a
-                // durable pause — the snapshot must carry the not-saved warning.
-                nonDurableFailure = outcome.isPersistenceRejected,
-                nonDurableFailureReason = outcome.reason.takeIf { outcome.isPersistenceRejected },
-            ),
-        )
-    }
     fun abort(
         remainingPageKeys: Set<String>,
         reason: String,
@@ -202,8 +129,7 @@ class TranslationBatchProgressTracker(
             // inflate progress totals.
             pageMap = orderedPageKeys.distinct().associateWith { pageKey ->
                 val base: PageTranslationView = storePages[pageKey] ?: PageTranslation(sourceFileName = pageKey)
-                val statuses = state.pagePhases[pageKey].orEmpty()
-                if (statuses.isEmpty()) base else PagePhaseStatusView(base, statuses)
+                base
             },
             displayPageMap = store.display.value.let { displayPages ->
                 orderedPageKeys.distinct().mapNotNull { pageKey ->
@@ -215,7 +141,6 @@ class TranslationBatchProgressTracker(
             permitHolderPageKey = permitHolderResolver?.invoke(),
             batchPhase = state.batchPhase,
             chapterId = chapterId,
-            aiPageStates = state.aiPageStates,
             // The batch's registered work set is its
             // trusted total; its aborted remainder is cancelled terminal work.
             cancelledPageKeys = state.cancelledPageKeys,
@@ -239,8 +164,6 @@ class TranslationBatchProgressTracker(
     data class Projection(
         val chapterState: Translation.State = Translation.State.TRANSLATING,
         val batchPhase: TranslationBatchPhase = TranslationBatchPhase.FIRST_PASS,
-        val pagePhases: Map<String, Map<BatchPhase, String>> = emptyMap(),
-        val aiPageStates: Map<String, AiPageProgressState> = emptyMap(),
         val aborted: Boolean = false,
         val abortReason: String? = null,
         val pauseAnchorPageKey: String? = null,
@@ -258,18 +181,6 @@ class TranslationBatchProgressTracker(
     companion object {
         /** Pure reducer. This is the only mutation of progress projection state. */
         fun reduce(previous: Projection, event: TranslationBatchEvent): Projection = when (event) {
-            is TranslationBatchEvent.PagePhase -> previous.copy(
-                pagePhases = previous.pagePhases + (
-                    event.pageKey to (
-                        previous.pagePhases[event.pageKey].orEmpty() + (event.phase to event.status.toStageStatus())
-                        )
-                    ),
-            )
-            is TranslationBatchEvent.AiPageProgress -> previous.copy(
-                aiPageStates = previous.aiPageStates + (
-                    event.pageKey to nextAiState(previous.aiPageStates[event.pageKey], event.state)
-                    ),
-            )
             is TranslationBatchEvent.BatchFinished -> previous.copy(
                 chapterState = event.state,
                 batchPhase = TranslationBatchPhase.FINISHED,
@@ -316,14 +227,6 @@ class TranslationBatchProgressTracker(
             // again — a future event type must be reduced explicitly here.
         }
 
-        private fun PhaseStatus.toStageStatus(): String = when (this) {
-            PhaseStatus.RUNNING -> StageStatus.RUNNING
-            PhaseStatus.DONE -> StageStatus.READY
-            PhaseStatus.FAILED -> StageStatus.FAILED
-            PhaseStatus.SKIPPED -> StageStatus.SKIPPED
-            PhaseStatus.PARTIAL -> StageStatus.PARTIAL
-            PhaseStatus.PAUSED -> StageStatus.PENDING
-        }
 
         fun computeSnapshot(
             pageMap: Map<String, PageTranslationView>,
@@ -569,13 +472,3 @@ class TranslationBatchProgressTracker(
     }
 }
 
-/** A read-only progress overlay; the page and block payloads remain shared. */
-private class PagePhaseStatusView(
-    private val page: PageTranslationView,
-    private val statuses: Map<BatchPhase, String>,
-) : PageTranslationView by page {
-    override val ocrStatus: String get() = statuses[BatchPhase.OCR] ?: page.ocrStatus
-    override val translationStatus: String get() = statuses[BatchPhase.TRANSLATE] ?: page.translationStatus
-    override val inpaintStatus: String get() = statuses[BatchPhase.INPAINT] ?: page.inpaintStatus
-    override val renderStatus: String get() = statuses[BatchPhase.RENDER] ?: page.renderStatus
-}

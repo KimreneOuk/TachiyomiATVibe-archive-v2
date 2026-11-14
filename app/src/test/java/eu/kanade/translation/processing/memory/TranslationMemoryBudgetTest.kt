@@ -1,5 +1,6 @@
 package eu.kanade.translation.processing.memory
 
+import eu.kanade.translation.engines.runtime.EngineMemoryBudget
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecisionKind
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
@@ -62,8 +63,8 @@ class TranslationMemoryBudgetTest {
         decision.sampleSize shouldBe 2
     }
 
-    private fun snapshot(available: Long): TranslationMemoryBudget.Snapshot {
-        return TranslationMemoryBudget.Snapshot(
+    private fun snapshot(available: Long): EngineMemoryBudget.HeapSnapshot {
+        return EngineMemoryBudget.HeapSnapshot(
             maxHeapBytes = 512L * MIB,
             usedHeapBytes = 512L * MIB - available,
             freeHeapBytes = available,

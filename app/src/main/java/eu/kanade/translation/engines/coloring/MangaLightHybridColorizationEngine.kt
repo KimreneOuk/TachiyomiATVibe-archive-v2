@@ -18,7 +18,7 @@ import java.io.File
 
 /** Runs the static SAM encoder on the NPU and the live-conditioned generator on the GPU.
  *  Shares the colorization pipeline with MCV2: same gray prep (gate/bilateral or FFDNet) and the
- *  same ink-aware chroma combine; only work resolution and model invocation differ. */
+ *  same look dispatch (author resize for ORIGINAL, ink combine for VIBRANT); only work resolution and model invocation differ. */
 internal class MangaLightHybridColorizationEngine(
     private val context: Context,
     private val ffdnetEngine: FfdnetDenoiserEngine? = null,
@@ -104,11 +104,7 @@ internal class MangaLightHybridColorizationEngine(
             SIZE,
         )
         return try {
-            MangaColorizationImageProcessing.combineColoredWithSource(
-                source,
-                work,
-                colorCombineMode().shadingStrength,
-            )
+            MangaColorizationImageProcessing.applyLook(source, work, colorCombineMode())
         } finally {
             work.recycle()
             logcat(LogPriority.INFO) {

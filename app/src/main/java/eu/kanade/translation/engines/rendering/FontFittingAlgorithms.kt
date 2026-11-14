@@ -28,8 +28,8 @@ internal object FontFittingAlgorithms {
     private const val RESHAPE_TALL_RATIO = 2.0f
     private const val RESHAPE_MIN_WIDTH_FACTOR = 1.5f
     private const val RESHAPE_MAX_WIDTH_FACTOR = 3.5f
-    private const val VERTICAL_CHAR_STEP = 1.05f
-    private const val VERTICAL_COL_STEP = 1.25f
+    internal const val VERTICAL_CHAR_STEP = 1.05f
+    internal const val VERTICAL_COL_STEP = 1.25f
     private const val FIT_MAX_FONT_PX = 72f
     private const val FIT_MIN_FONT_PX = 8f
     private const val FIT_START_WIDTH_FACTOR = 1.5f
@@ -178,7 +178,8 @@ internal object FontFittingAlgorithms {
     ): Float {
         val startSize = max(max(containerW, safeH * 0.35f) * FIT_START_WIDTH_FACTOR, FIT_MIN_FONT_PX * scale * 4.5f).toInt()
         var high = min(max(startSize, (FIT_MIN_FONT_PX * scale * 4.5f).toInt()), (FIT_MAX_FONT_PX * scale).toInt())
-        var low = max(2, (FIT_MIN_FONT_PX * scale).toInt())
+        var low = max(2, (FIT_MIN_FONT_PX * scale).toInt()
+        )
         var best = low.toFloat()
         while (low <= high) {
             val mid = (low + high) / 2

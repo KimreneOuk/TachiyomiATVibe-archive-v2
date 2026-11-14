@@ -365,7 +365,7 @@ internal class ChapterPageMutations(
             // A retryable/terminal candidate is deliberately not promoted. The
             // prior committed display remains the reader authority.
             store.stateFlow.value = store.snapshotPages()
-            store.displayPublication.displaySnapshotLocked(listOf(pageKey))
+            store.displaySnapshotLocked(listOf(pageKey))
             PatchResult.Accepted(store.snapshotLocked(pageKey))
         }
     }
@@ -406,9 +406,9 @@ internal class ChapterPageMutations(
             true
         }
         if (!artifactAccepted) return false
-        store.displayPublication.promoteDisplayIfReadyLocked(pageKey, updated)
+        store.promoteDisplayIfReadyLocked(pageKey, updated)
         store.stateFlow.value = store.snapshotPages()
-        store.displayPublication.displaySnapshotLocked(listOf(pageKey))
+        store.displaySnapshotLocked(listOf(pageKey))
         return true
     }
 
@@ -438,9 +438,9 @@ internal class ChapterPageMutations(
                 generation = snapshot.generation,
             )
         }
-        store.displayPublication.promoteDisplayIfReadyLocked(pageKey, updated)
+        store.promoteDisplayIfReadyLocked(pageKey, updated)
         store.stateFlow.value = store.snapshotPages()
-        store.displayPublication.displaySnapshotLocked(listOf(pageKey))
+        store.displaySnapshotLocked(listOf(pageKey))
         if (shouldQueueArtifact) store.writeDrain.scheduleDrain()
         return true
     }
@@ -448,7 +448,7 @@ internal class ChapterPageMutations(
     internal fun restorePageLocked(pageKey: String, previous: PageTranslation?) {
         store.pages = if (previous == null) store.pages.remove(pageKey) else store.pages.put(pageKey, store.publishPage(previous))
         store.stateFlow.value = store.snapshotPages()
-        store.displayPublication.displaySnapshotLocked(listOf(pageKey))
+        store.displaySnapshotLocked(listOf(pageKey))
     }
 
     internal fun rejected(
@@ -575,4 +575,14 @@ internal class ChapterPageMutations(
         }
         updatePageGuarded(pageKey, expected, "updatePage", update)
     }
+}
+
+
+/** Formats the comma-separated write diagnostic fields shared by the store. */
+internal fun formatWriteDiagnostic(
+    pageKey: String,
+    vararg fields: Pair<String, Any?>,
+): String = buildString {
+    append("pageKey=").append(pageKey)
+    fields.forEach { (name, value) -> append(", ").append(name).append('=').append(value) }
 }

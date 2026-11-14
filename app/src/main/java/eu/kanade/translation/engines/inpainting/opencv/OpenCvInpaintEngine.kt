@@ -1,4 +1,4 @@
-package eu.kanade.translation.engines.inpainting.opencv
+﻿package eu.kanade.translation.engines.inpainting.opencv
 
 import android.graphics.Bitmap
 import eu.kanade.translation.engines.inpainting.PushPullGradient
@@ -8,7 +8,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.photo.Photo
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.pools.BitmapPool
+import eu.kanade.translation.processing.memory.BitmapPool
 
 /**
  * Native OpenCV C++ inpainting engine for TachiyomiAT.

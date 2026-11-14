@@ -9,8 +9,6 @@ import eu.kanade.translation.model.TranslationBatchPhase
 import eu.kanade.translation.model.TranslationBlock
 import eu.kanade.translation.model.TranslationProgressStage
 import eu.kanade.translation.persistence.ChapterTranslationStore
-import eu.kanade.translation.processing.batch.BatchPass1Outcome
-import eu.kanade.translation.processing.batch.BatchPass1Status
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -69,33 +67,7 @@ class TranslationBatchProgressTrackerTest {
         tracker.close()
     }
 
-    @Test
-    fun `phase events are projection only and never mutate store`() = runTest {
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(listOf("001.jpg"))
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("001.jpg"), this)
 
-        tracker.markOcrRunning("001.jpg")
-        runCurrent()
-
-        store.state.value.getValue("001.jpg").ocrStatus shouldBe StageStatus.PENDING
-        tracker.snapshot.value.pages.single().stage shouldBe TranslationProgressStage.OCR
-        tracker.close()
-    }
-
-    @Test
-    fun `terminal event retains failure in projection`() = runTest {
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(listOf("001.jpg"))
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("001.jpg"), this)
-
-        tracker.markOcrFailed("001.jpg", "test failure")
-        runCurrent()
-
-        tracker.snapshot.value.pages.single().stage shouldBe TranslationProgressStage.FAILED
-        tracker.snapshot.value.perStage.getValue(BatchPhase.OCR).failed shouldBe 1
-        tracker.close()
-    }
 
     @Test
     fun `failure groups carry the page's best reason, never a generic unknown`() = runTest {
@@ -132,82 +104,8 @@ class TranslationBatchProgressTrackerTest {
         tracker.close()
     }
 
-    @Test
-    fun `envelope plan events flip the phase to rebuilding and committed ends the window`() = runTest {
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(listOf("001.jpg", "002.jpg"))
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("001.jpg", "002.jpg"), this)
 
-        tracker.snapshot.value.batchPhase shouldBe TranslationBatchPhase.FIRST_PASS
 
-        //   the plan-build window is live work — the projection must
-        // leave FIRST_PASS while the coordinator re-adopts pages, and the
-        // adoption counter must track each event (the sheet recomputes its
-        // store-derived counters on every emission).
-        tracker.markEnvelopePlanStarted(2)
-        tracker.markEnvelopePlanProgress(1, 2)
-        runCurrent()
-
-        tracker.snapshot.value.batchPhase shouldBe TranslationBatchPhase.REBUILDING
-        tracker.snapshot.value.rebuildProgress.shouldNotBeNull()
-        tracker.snapshot.value.rebuildProgress!!.restoredPages shouldBe 1
-        tracker.snapshot.value.rebuildProgress!!.totalPages shouldBe 2
-
-        tracker.markEnvelopePlanProgress(2, 2)
-        runCurrent()
-        tracker.snapshot.value.rebuildProgress!!.restoredPages shouldBe 2
-
-        tracker.markEnvelopePlanCommitted()
-        runCurrent()
-
-        tracker.snapshot.value.batchPhase shouldBe TranslationBatchPhase.FIRST_PASS
-        tracker.snapshot.value.rebuildProgress.shouldBeNull()
-        tracker.close()
-    }
-
-    @Test
-    fun `envelope plan progress never mutates the store`() = runTest {
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(listOf("001.jpg"))
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("001.jpg"), this)
-
-        tracker.markEnvelopePlanStarted(1)
-        tracker.markEnvelopePlanProgress(1, 1)
-        tracker.markEnvelopePlanCommitted()
-        runCurrent()
-
-        store.state.value.getValue("001.jpg").ocrStatus shouldBe StageStatus.PENDING
-        tracker.close()
-    }
-
-    @Test
-    fun `AI progress distinguishes pending buffered running succeeded and failed pages`() = runTest {
-        val pageKeys = listOf("001.jpg", "002.jpg", "003.jpg", "004.jpg", "005.jpg")
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(pageKeys)
-        val tracker = TranslationBatchProgressTracker(1, store, pageKeys, this)
-
-        tracker.markAiBuffered("002.jpg")
-        tracker.markAiRunning("003.jpg")
-        tracker.markAiSucceeded("004.jpg")
-        tracker.markAiFailed("005.jpg", "provider refused")
-        runCurrent()
-
-        tracker.snapshot.value.aiProgress.pending shouldBe 1
-        tracker.snapshot.value.aiProgress.buffered shouldBe 1
-        tracker.snapshot.value.aiProgress.running shouldBe 1
-        tracker.snapshot.value.aiProgress.succeeded shouldBe 1
-        tracker.snapshot.value.aiProgress.failed shouldBe 1
-        tracker.snapshot.value.aiProgress.processed shouldBe 2
-        tracker.snapshot.value.pages.map { it.aiState } shouldBe listOf(
-            AiPageProgressState.PENDING,
-            AiPageProgressState.BUFFERED,
-            AiPageProgressState.RUNNING,
-            AiPageProgressState.SUCCEEDED,
-            AiPageProgressState.FAILED,
-        )
-        tracker.close()
-    }
 
     @Test
     fun `AI progress rebuild derives durable success and failure without claiming buffered work`() = runTest {
@@ -229,31 +127,6 @@ class TranslationBatchProgressTrackerTest {
         tracker.close()
     }
 
-    @Test
-    fun `retryable pause is a terminal projection with explicit anchor and cooldown`() = runTest {
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(listOf("001.jpg", "002.jpg"))
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("001.jpg", "002.jpg"), this)
-
-        tracker.pause(
-            BatchPass1Outcome(
-                needsTranslation = listOf("001.jpg", "002.jpg"),
-                status = BatchPass1Status.PAUSED,
-                anchorPageKey = "002.jpg",
-                completedPageKeys = setOf("001.jpg"),
-                retryablePageKeys = setOf("002.jpg"),
-                nextEligibleRetryAtEpochMs = 1234L,
-                reason = "provider quota exhausted",
-            ),
-        )
-        runCurrent()
-
-        tracker.snapshot.value.state shouldBe Translation.State.PAUSED
-        tracker.snapshot.value.batchPhase shouldBe TranslationBatchPhase.FINISHED
-        tracker.snapshot.value.pauseAnchorPageKey shouldBe "002.jpg"
-        tracker.snapshot.value.nextEligibleRetryAtEpochMs shouldBe 1234L
-        tracker.close()
-    }
 
     @Test
     fun `finish emits immutable terminal snapshot`() = runTest {

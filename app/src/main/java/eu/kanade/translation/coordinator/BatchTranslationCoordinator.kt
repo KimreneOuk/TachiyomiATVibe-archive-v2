@@ -1,4 +1,4 @@
-package eu.kanade.translation.coordinator
+﻿package eu.kanade.translation.coordinator
 
 import android.content.Context
 import eu.kanade.tachiyomi.data.download.DownloadProvider
@@ -44,7 +44,7 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.translation.TranslationPreferences
-import tachiyomi.domain.translation.pools.BitmapPool
+import eu.kanade.translation.processing.memory.BitmapPool
 import tachiyomi.i18n.at.ATMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get

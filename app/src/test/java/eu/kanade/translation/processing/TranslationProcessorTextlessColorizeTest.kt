@@ -1,5 +1,6 @@
 package eu.kanade.translation.processing
 
+import eu.kanade.translation.persistence.CleanedPublication
 import android.content.Context
 import android.graphics.Bitmap
 import com.hippo.unifile.UniFile

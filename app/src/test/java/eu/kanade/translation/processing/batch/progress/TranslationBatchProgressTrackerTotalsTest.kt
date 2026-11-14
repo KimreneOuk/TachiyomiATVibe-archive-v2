@@ -109,25 +109,6 @@ class TranslationBatchProgressTrackerTotalsTest {
         tracker.close()
     }
 
-    @Test
-    fun `phase events apply to placeholders so a rejected store still shows failures`() = runTest {
-        val store = ChapterTranslationStore()
-        val tracker = TranslationBatchProgressTracker(
-            1,
-            store,
-            listOf("001.jpg", "002.jpg"),
-            this,
-        )
-
-        tracker.markOcrFailed("001.jpg", "provider refused")
-        runCurrent()
-        val snapshot = tracker.snapshot.value
-
-        snapshot.totalPages shouldBe 2
-        snapshot.failedCount shouldBe 1
-        snapshot.pages.first { it.pageKey == "001.jpg" }.stage shouldBe TranslationProgressStage.FAILED
-        tracker.close()
-    }
 
     @Test
     fun `aborted terminal snapshot keeps the known totals with the typed reason`() = runTest {
@@ -152,59 +133,6 @@ class TranslationBatchProgressTrackerTotalsTest {
         tracker.awaitTerminalSnapshot().totalPages shouldBe 3
     }
 
-    /**
-     *  : no lane renders in-pass, so without the shell's
-     * COMPLETED-path settle the tracker's RENDER arm stays unprocessed forever
-     * and the processed/total fraction tops out at 4/5 per display-ready page.
-     * The shell emits [TranslationBatchProgressTracker.markRenderSkipped] per
-     * expected page before [TranslationBatchProgressTracker.finish]; this test
-     * pins that this sequence completes the 5/5 terminal fraction.
-     */
-    @Test
-    fun `completion render-skip settle completes the 5 of 5 terminal fraction`() = runTest {
-        val store = ChapterTranslationStore(
-            initialPages = mapOf("p0" to zeroLegacyTerminalPage("p0")),
-        )
-        // The reader re-derived the display: a committed display bundle exists
-        // (promoted from the render-ready update) while the live page keeps the
-        //  translation-terminal shape (render PENDING) — flipping the
-        // live page back never demotes the committed display.
-        store.updatePage("p0") { current -> current!!.apply { renderStatus = StageStatus.READY } }
-        store.updatePage("p0") { current -> current!!.apply { renderStatus = StageStatus.PENDING } }
-
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("p0"), this)
-        runCurrent()
-
-        // Pre-settle (the -observed gap): OCR/INPAINT/TRANSLATE/DISPLAY are
-        // processed, RENDER is the only arm left — the fraction tops out at 4/5.
-        tracker.snapshot.value.perStage.getValue(BatchPhase.RENDER).processed shouldBe 0
-        tracker.snapshot.value.doneStages shouldBe 4
-        tracker.snapshot.value.totalStages shouldBe 5
-        tracker.snapshot.value.fraction shouldBe 0.8f
-
-        // The  COMPLETED-path sequence: markRenderSkipped per
-        // expected page, then the terminal finish.
-        tracker.markRenderSkipped("p0")
-        tracker.finish(
-            ReconciliationResult(
-                chapterStatus = Translation.State.TRANSLATED,
-                strandedPages = emptyMap(),
-                unexpectedPageKeys = emptySet(),
-                doneCount = 1,
-                failedCount = 0,
-                partialCount = 0,
-            ),
-        )
-        runCurrent()
-
-        val terminal = tracker.awaitTerminalSnapshot()
-        terminal.perStage.getValue(BatchPhase.RENDER).processed shouldBe 1
-        terminal.perStage.getValue(BatchPhase.RENDER).skipped shouldBe 1
-        terminal.doneStages shouldBe 5
-        terminal.totalStages shouldBe 5
-        terminal.fraction shouldBe 1f
-        tracker.close()
-    }
 
     /**  terminal page: committed translation, NO in-pass render. */
     private fun zeroLegacyTerminalPage(key: String) = PageTranslation(

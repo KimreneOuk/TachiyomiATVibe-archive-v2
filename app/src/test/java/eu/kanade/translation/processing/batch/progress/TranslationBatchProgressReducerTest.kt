@@ -11,27 +11,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 
 class TranslationBatchProgressReducerTest {
-    @Test
-    fun `independent active page stages remain concurrent in reducer projection`() = runTest {
-        val store = ChapterTranslationStore()
-        store.preRegisterPages(listOf("001.jpg", "002.jpg"))
-        val tracker = TranslationBatchProgressTracker(1, store, listOf("001.jpg", "002.jpg"), this)
-
-        tracker.emit(TranslationBatchEvent.PagePhase("001.jpg", 1, BatchPhase.INPAINT, PhaseStatus.RUNNING))
-        tracker.emit(TranslationBatchEvent.PagePhase("002.jpg", 2, BatchPhase.TRANSLATE, PhaseStatus.RUNNING))
-        runCurrent()
-
-        tracker.snapshot.value.activeStages shouldBe setOf(
-            TranslationProgressStage.INPAINT,
-            TranslationProgressStage.TRANSLATE,
-        )
-        store.state.value.values.all {
-            it.inpaintStatus == StageStatus.PENDING &&
-                it.translationStatus == StageStatus.PENDING
-        } shouldBe
-            true
-        tracker.close()
-    }
 
     @Test
     fun `stage counts expose exact succeeded failed skipped processed total`() {

@@ -1,42 +1,29 @@
-package eu.kanade.translation.engines.vision.detection
+﻿package eu.kanade.translation.engines.vision.detection
+
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
-import com.google.ai.edge.litert.Environment
 import eu.kanade.translation.engines.runtime.litert.LiteRtVisionLayouts
 import eu.kanade.translation.engines.runtime.litert.LiteRtVisionRunner
 import eu.kanade.translation.engines.runtime.onnx.HardwareDiscoveryEngine
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
+import eu.kanade.translation.engines.vision.VisionModelRunner
 import eu.kanade.translation.engines.vision.ocr.BoxGeometry
 import eu.kanade.translation.model.Detection
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.pools.BitmapPool
-import tachiyomi.domain.translation.pools.DirectBufferPool
+import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.File
 import java.nio.FloatBuffer
 
 class OnnxPageTextDetector {
 
-    private var session: OrtSession? = null
-    private var liteRtRunner: LiteRtVisionRunner? = null
-    private var liteRtEnvironment: Environment? = null
+    private val runner = VisionModelRunner("Detector", inputFloatsCount = DETECTOR_INPUT_FLOATS)
 
     /** Provider that actually serves this detector ("qnn_htp"/"nnapi"/"cpu"/"litert_*"), for honest perf logging. */
-    var executionProviderLabel: String = "uninitialized"
-        private set
-
-    // pooled DIRECT buffer for the fixed 1x3x640x640 tensor (contract
-    // #12). Heap-backed buffers caused a per-call native-copy leak; maxPoolSize=2
-    // bounds resident memory to two ~4.8 MiB buffers regardless of chapter length.
-    private val inputBufferPool = DirectBufferPool(
-        bufferCapacityBytes = DETECTOR_INPUT_FLOATS * Float.SIZE_BYTES,
-        maxPoolSize = 2,
-    )
-
-    // interleaved NHWC scratch for the LiteRT path; allocated only when the
-    // LiteRT backend is initialized.
-    private var liteRtInputFloats: FloatArray? = null
+    var executionProviderLabel: String
+        get() = runner.executionProviderLabel
+        private set(value) { runner.executionProviderLabel = value }
 
     private val classNames = mapOf(
         0 to "bubble",
@@ -59,7 +46,7 @@ class OnnxPageTextDetector {
         // detector-v4: the accelerator graph-compile can fail on unsupported ops
         // (NNAPI rejects the Split op). The fallback wrapper creates a strict
         // accelerator session first and retries the model on CPU on failure.
-        session = OnnxRuntimeProvider.createSessionWithFallback(
+        runner.session = OnnxRuntimeProvider.createSessionWithFallback(
             modelFile.absolutePath,
             useAccelerator = useAcc,
             requestedHardwareRoute = requestedHardwareRoute,
@@ -67,7 +54,7 @@ class OnnxPageTextDetector {
         )
         logcat(LogPriority.INFO) {
             "Detector session created from ${modelFile.name} " +
-                "provider=$executionProviderLabel inputs=${session?.inputNames} outputs=${session?.outputNames}"
+                "provider=$executionProviderLabel inputs=${runner.session?.inputNames} outputs=${runner.session?.outputNames}"
         }
     }
 
@@ -82,49 +69,23 @@ class OnnxPageTextDetector {
         numThreads: Int = 4,
         fallbackToOnnx: (() -> Unit)? = null,
     ) {
-        logcat(LogPriority.INFO) {
-            "Detector LiteRT init: ${modelFile.name} (${modelFile.length()}B) preferGpu=$preferGpu"
-        }
-        val env = try {
-            Environment.create()
-        } catch (failure: Throwable) {
-            runOnnxFallbackAfterLiteRtFailure(fallbackToOnnx, failure)
-            return
-        }
-        try {
-            val runner = LiteRtVisionRunner(
-                modelFile = modelFile,
-                inputCount = 2,
-                outputCount = 3,
-                preferGpu = preferGpu,
-                numThreads = numThreads,
-                onGpuFallback = { executionProviderLabel = "litert_xnnpack" },
-                env = env,
-            )
-            liteRtRunner = runner
-            liteRtEnvironment = env
-            liteRtInputFloats = FloatArray(DETECTOR_INPUT_FLOATS)
-            executionProviderLabel = runner.executionProviderLabel
-            logcat(LogPriority.INFO) { "Detector LiteRT ready: provider=$executionProviderLabel" }
-        } catch (failure: Throwable) {
-            runCatching { env.close() }
-            runOnnxFallbackAfterLiteRtFailure(fallbackToOnnx, failure)
-        }
-    }
-
-    private fun runOnnxFallbackAfterLiteRtFailure(fallbackToOnnx: (() -> Unit)?, failure: Throwable) {
-        if (fallbackToOnnx == null) throw failure
-        logcat(LogPriority.WARN, failure) { "Detector LiteRT init failed; using ONNX session" }
-        fallbackToOnnx.invoke()
+        runner.initLiteRt(
+            modelFile = modelFile,
+            inputCount = 2,
+            outputCount = 3,
+            preferGpu = preferGpu,
+            numThreads = numThreads,
+            fallbackToOnnx = fallbackToOnnx,
+        )
     }
 
     fun detect(bitmap: Bitmap): List<Detection> {
-        val runner = liteRtRunner
-        return if (runner != null) detectLiteRt(runner, bitmap) else detectOnnx(bitmap)
+        val r = runner.liteRtRunner
+        return if (r != null) detectLiteRt(r, bitmap) else detectOnnx(bitmap)
     }
 
     private fun detectOnnx(bitmap: Bitmap): List<Detection> {
-        val localSession = session ?: throw IllegalStateException("Detector not initialized")
+        val localSession = runner.session ?: throw IllegalStateException("Detector not initialized")
 
         val t0 = System.nanoTime()
         val resized = BitmapPool.getARGB8888(640, 640)
@@ -139,7 +100,7 @@ class OnnxPageTextDetector {
         try {
             // ORT consumes the direct buffer in place (no native copy),
             // so it MUST outlive the tensor — keep referenced until the finally (#12).
-            inputBuffer = inputBufferPool.acquire()
+            inputBuffer = runner.acquireBuffer()
             inputTensor = preprocess(resized, inputBuffer)
             sizesTensor = createOriginalSizes(bitmap)
             val inputTensorValue = inputTensor!!
@@ -179,7 +140,7 @@ class OnnxPageTextDetector {
             results?.close()
             inputTensor?.close()
             sizesTensor?.close()
-            inputBuffer?.let { inputBufferPool.release(it) }
+            inputBuffer?.let { runner.releaseBuffer(it) }
             BitmapPool.putARGB8888(resized)
         }
     }
@@ -187,7 +148,7 @@ class OnnxPageTextDetector {
     // LiteRT fp32 export: NHWC images [1,640,640,3] + int64 orig_target_sizes
     // [1,2]; outputs in subgraph order labels INT32 [1,300], boxes FLOAT
     // [1,300,4], scores FLOAT [1,300] (index order pinned by the sha256 stamp).
-    private fun detectLiteRt(runner: LiteRtVisionRunner, bitmap: Bitmap): List<Detection> {
+    private fun detectLiteRt(runnerInstance: LiteRtVisionRunner, bitmap: Bitmap): List<Detection> {
         val t0 = System.nanoTime()
         val resized = BitmapPool.getARGB8888(640, 640)
         try {
@@ -196,7 +157,7 @@ class OnnxPageTextDetector {
             canvas.drawBitmap(bitmap, null, android.graphics.RectF(0f, 0f, 640f, 640f), paint)
             val pixels = IntArray(640 * 640)
             resized.getPixels(pixels, 0, 640, 0, 0, 640, 640)
-            val inputFloats = requireNotNull(liteRtInputFloats) { "LiteRT detector input scratch is not allocated" }
+            val inputFloats = requireNotNull(runner.liteRtInputFloats) { "LiteRT detector input scratch is not allocated" }
             val t1 = System.nanoTime()
 
             // Reads stay inside the retry closure: a GPU demotion swaps every
@@ -204,16 +165,16 @@ class OnnxPageTextDetector {
             var labels: IntArray? = null
             var boxes: FloatArray? = null
             var scores: FloatArray? = null
-            runner.runWithCpuRetry {
+            runnerInstance.runWithCpuRetry {
                 for (i in pixels.indices) {
                     LiteRtVisionLayouts.writeNhwcPixel(pixels[i], inputFloats, i)
                 }
-                runner.writeInputFloats(0, inputFloats)
-                runner.writeInputLongs(1, longArrayOf(bitmap.width.toLong(), bitmap.height.toLong()))
-                runner.runInference()
-                labels = runner.readOutputInts(0)
-                boxes = runner.readOutputFloats(1)
-                scores = runner.readOutputFloats(2)
+                runnerInstance.writeInputFloats(0, inputFloats)
+                runnerInstance.writeInputLongs(1, longArrayOf(bitmap.width.toLong(), bitmap.height.toLong()))
+                runnerInstance.runInference()
+                labels = runnerInstance.readOutputInts(0)
+                boxes = runnerInstance.readOutputFloats(1)
+                scores = runnerInstance.readOutputFloats(2)
             }
             val t2 = System.nanoTime()
 
@@ -234,7 +195,7 @@ class OnnxPageTextDetector {
             val t3 = System.nanoTime()
 
             logcat(LogPriority.INFO) {
-                "[detection_perf] model=detector provider=${runner.executionProviderLabel} total=${(t3 - t0) / 1_000_000.0}ms " +
+                "[detection_perf] model=detector provider=${runnerInstance.executionProviderLabel} total=${(t3 - t0) / 1_000_000.0}ms " +
                     "preprocess=${(t1 - t0) / 1_000_000.0}ms " +
                     "inference=${(t2 - t1) / 1_000_000.0}ms " +
                     "postprocess=${(t3 - t2) / 1_000_000.0}ms " +
@@ -248,24 +209,17 @@ class OnnxPageTextDetector {
     }
 
     fun close() {
-        liteRtRunner?.close()
-        liteRtRunner = null
-        liteRtEnvironment?.close()
-        liteRtEnvironment = null
-        liteRtInputFloats = null
-        session?.close()
-        session = null
-        inputBufferPool.clear()
+        runner.close()
     }
 
     // frees the pooled direct buffer without tearing down the ONNX
     // session; wired into per-page OOM relief (contracts #4/#10).
     fun reclaimPooledMemory() {
-        inputBufferPool.clear()
+        runner.reclaimPooledMemory()
     }
 
     fun forceReleaseNativeBuffers() {
-        inputBufferPool.clear()
+        runner.forceReleaseNativeBuffers()
     }
 
     // NCHW [1,3,640,640] written channel-first into a pooled DIRECT

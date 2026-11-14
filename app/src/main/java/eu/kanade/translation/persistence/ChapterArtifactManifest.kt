@@ -36,8 +36,6 @@ data class ChapterArtifactManifest(
     val durableFailures: Map<String, DurableFailureMetadata> = emptyMap(),
     val cutoverAtEpochMs: Long? = null,
     val updatedAtEpochMs: Long = 0L,
-    /** The durable whole-chapter envelope plan. */
-    val envelopePlan: SidecarPointer? = null,
 ) {
     companion object {
         /**

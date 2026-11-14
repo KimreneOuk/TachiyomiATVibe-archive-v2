@@ -1,4 +1,4 @@
-package eu.kanade.translation.engines.vision.detection
+﻿package eu.kanade.translation.engines.vision.detection
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtSession
@@ -6,16 +6,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import com.google.ai.edge.litert.Environment
 import eu.kanade.translation.engines.runtime.litert.LiteRtVisionLayouts
 import eu.kanade.translation.engines.runtime.litert.LiteRtVisionRunner
 import eu.kanade.translation.engines.runtime.onnx.HardwareDiscoveryEngine
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
-import eu.kanade.translation.engines.runtime.onnx.QnnVisionContextCache
+import eu.kanade.translation.engines.runtime.onnx.QnnContextCacheManager
+import eu.kanade.translation.engines.vision.VisionModelRunner
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.pools.BitmapPool
-import tachiyomi.domain.translation.pools.DirectBufferPool
+import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.File
 import java.nio.FloatBuffer
 
@@ -48,25 +47,12 @@ import java.nio.FloatBuffer
  */
 class OnnxPanelDetector {
 
-    private var session: OrtSession? = null
-    private var liteRtRunner: LiteRtVisionRunner? = null
-    private var liteRtEnvironment: Environment? = null
+    private val runner = VisionModelRunner("PanelDetector", inputFloatsCount = INPUT_FLOATS)
 
     /** Provider that actually serves this detector ("qnn_htp"/"nnapi"/"cpu"/"litert_*"), for honest perf logging. */
-    var executionProviderLabel: String = "uninitialized"
-        private set
-
-    // pooled DIRECT buffer for the fixed 1x3x640x640 tensor. ORT
-    // consumes it in place so it MUST outlive the tensor; maxPoolSize=2 bounds
-    // native memory. Same contract as OnnxPageTextDetector.
-    private val inputBufferPool = DirectBufferPool(
-        bufferCapacityBytes = INPUT_FLOATS * Float.SIZE_BYTES,
-        maxPoolSize = 2,
-    )
-
-    // interleaved NHWC scratch for the LiteRT path; allocated only when the
-    // LiteRT backend is initialized.
-    private var liteRtInputFloats: FloatArray? = null
+    var executionProviderLabel: String
+        get() = runner.executionProviderLabel
+        private set(value) { runner.executionProviderLabel = value }
 
     fun initialize(
         modelFile: File,
@@ -81,8 +67,8 @@ class OnnxPanelDetector {
         } else {
             true
         }
-        val contextPlan = QnnVisionContextCache.plan(modelFile, useAcc, requestedHardwareRoute)
-        session = OnnxRuntimeProvider.createSessionWithFallback(
+        val contextPlan = QnnContextCacheManager.plan(modelFile, useAcc, requestedHardwareRoute)
+        runner.session = OnnxRuntimeProvider.createSessionWithFallback(
             modelFile.absolutePath,
             useAccelerator = useAcc,
             requestedHardwareRoute = requestedHardwareRoute,
@@ -92,7 +78,7 @@ class OnnxPanelDetector {
         contextPlan?.onSessionCreated(executionProviderLabel)
         logcat(LogPriority.INFO) {
             "PanelDetector session created from ${modelFile.name} " +
-                "provider=$executionProviderLabel inputs=${session?.inputNames} outputs=${session?.outputNames}"
+                "provider=$executionProviderLabel inputs=${runner.session?.inputNames} outputs=${runner.session?.outputNames}"
         }
     }
 
@@ -107,43 +93,17 @@ class OnnxPanelDetector {
         numThreads: Int = 4,
         fallbackToOnnx: (() -> Unit)? = null,
     ) {
-        logcat(LogPriority.INFO) {
-            "PanelDetector LiteRT init: ${modelFile.name} (${modelFile.length()}B) preferGpu=$preferGpu"
-        }
-        val env = try {
-            Environment.create()
-        } catch (failure: Throwable) {
-            runOnnxFallbackAfterLiteRtFailure(fallbackToOnnx, failure)
-            return
-        }
-        try {
-            val runner = LiteRtVisionRunner(
-                modelFile = modelFile,
-                inputCount = 1,
-                outputCount = 1,
-                preferGpu = preferGpu,
-                numThreads = numThreads,
-                onGpuFallback = { executionProviderLabel = "litert_xnnpack" },
-                env = env,
-            )
-            liteRtRunner = runner
-            liteRtEnvironment = env
-            liteRtInputFloats = FloatArray(INPUT_FLOATS)
-            executionProviderLabel = runner.executionProviderLabel
-            logcat(LogPriority.INFO) { "PanelDetector LiteRT ready: provider=$executionProviderLabel" }
-        } catch (failure: Throwable) {
-            runCatching { env.close() }
-            runOnnxFallbackAfterLiteRtFailure(fallbackToOnnx, failure)
-        }
+        runner.initLiteRt(
+            modelFile = modelFile,
+            inputCount = 1,
+            outputCount = 1,
+            preferGpu = preferGpu,
+            numThreads = numThreads,
+            fallbackToOnnx = fallbackToOnnx,
+        )
     }
 
-    private fun runOnnxFallbackAfterLiteRtFailure(fallbackToOnnx: (() -> Unit)?, failure: Throwable) {
-        if (fallbackToOnnx == null) throw failure
-        logcat(LogPriority.WARN, failure) { "PanelDetector LiteRT init failed; using ONNX session" }
-        fallbackToOnnx.invoke()
-    }
-
-    fun isInitialized(): Boolean = session != null || liteRtRunner != null
+    fun isInitialized(): Boolean = runner.session != null || runner.liteRtRunner != null
 
     /**
      * Run panel detection on [bitmap]. Returns panel boxes
@@ -153,12 +113,12 @@ class OnnxPanelDetector {
      * a real signal (orphan page), not a fallback-to-stretch case.
      */
     fun detect(bitmap: Bitmap): List<FloatArray> {
-        val runner = liteRtRunner
-        return if (runner != null) detectLiteRt(runner, bitmap) else detectOnnx(bitmap)
+        val r = runner.liteRtRunner
+        return if (r != null) detectLiteRt(r, bitmap) else detectOnnx(bitmap)
     }
 
     private fun detectOnnx(bitmap: Bitmap): List<FloatArray> {
-        val localSession = session ?: throw IllegalStateException("PanelDetector not initialized")
+        val localSession = runner.session ?: throw IllegalStateException("PanelDetector not initialized")
 
         val t0 = System.nanoTime()
         val originalWidth = bitmap.width
@@ -169,7 +129,7 @@ class OnnxPanelDetector {
         var inputBuffer: FloatBuffer? = null
 
         try {
-            inputBuffer = inputBufferPool.acquire()
+            inputBuffer = runner.acquireBuffer()
             inputTensor = preprocess(letterbox.bitmap, inputBuffer)
             val t1 = System.nanoTime()
 
@@ -211,12 +171,12 @@ class OnnxPanelDetector {
         } finally {
             results?.close()
             inputTensor?.close()
-            inputBuffer?.let { inputBufferPool.release(it) }
+            inputBuffer?.let { runner.releaseBuffer(it) }
             BitmapPool.putARGB8888(letterbox.bitmap)
         }
     }
 
-    private fun detectLiteRt(runner: LiteRtVisionRunner, bitmap: Bitmap): List<FloatArray> {
+    private fun detectLiteRt(runnerInstance: LiteRtVisionRunner, bitmap: Bitmap): List<FloatArray> {
         val t0 = System.nanoTime()
         val originalWidth = bitmap.width
         val originalHeight = bitmap.height
@@ -224,19 +184,19 @@ class OnnxPanelDetector {
         try {
             val pixels = IntArray(IMG_SIZE * IMG_SIZE)
             letterbox.bitmap.getPixels(pixels, 0, IMG_SIZE, 0, 0, IMG_SIZE, IMG_SIZE)
-            val inputFloats = requireNotNull(liteRtInputFloats) { "LiteRT panel input scratch is not allocated" }
+            val inputFloats = requireNotNull(runner.liteRtInputFloats) { "LiteRT panel input scratch is not allocated" }
             val t1 = System.nanoTime()
 
             // Reads stay inside the retry closure: a GPU demotion swaps every
             // buffer, so the output must come from the backend that ran.
             var raw: FloatArray? = null
-            runner.runWithCpuRetry {
+            runnerInstance.runWithCpuRetry {
                 for (i in pixels.indices) {
                     LiteRtVisionLayouts.writeNhwcPixel(pixels[i], inputFloats, i)
                 }
-                runner.writeInputFloats(0, inputFloats)
-                runner.runInference()
-                raw = runner.readOutputFloats(0)
+                runnerInstance.writeInputFloats(0, inputFloats)
+                runnerInstance.runInference()
+                raw = runnerInstance.readOutputFloats(0)
             }
             val output = requireNotNull(raw)
             if (output.size < PANEL_ANCHORS * 5) {
@@ -256,7 +216,7 @@ class OnnxPanelDetector {
             val panels = rescaleToOriginal(nms(candidates, IOU_THRESHOLD), letterbox, originalWidth, originalHeight)
             val t3 = System.nanoTime()
             logcat(LogPriority.INFO) {
-                "[panel_perf] model=panel_detector provider=${runner.executionProviderLabel} total=${(t3 - t0) / 1_000_000.0}ms " +
+                "[panel_perf] model=panel_detector provider=${runnerInstance.executionProviderLabel} total=${(t3 - t0) / 1_000_000.0}ms " +
                     "preprocess=${(t1 - t0) / 1_000_000.0}ms " +
                     "inference=${(t2 - t1) / 1_000_000.0}ms " +
                     "postprocess=${(t3 - t2) / 1_000_000.0}ms " +
@@ -270,22 +230,15 @@ class OnnxPanelDetector {
     }
 
     fun close() {
-        liteRtRunner?.close()
-        liteRtRunner = null
-        liteRtEnvironment?.close()
-        liteRtEnvironment = null
-        liteRtInputFloats = null
-        session?.close()
-        session = null
-        inputBufferPool.clear()
+        runner.close()
     }
 
     fun reclaimPooledMemory() {
-        inputBufferPool.clear()
+        runner.reclaimPooledMemory()
     }
 
     fun forceReleaseNativeBuffers() {
-        inputBufferPool.clear()
+        runner.forceReleaseNativeBuffers()
     }
 
     /** Pooled 640x640 letterboxed canvas plus its inverse-transform parameters. */

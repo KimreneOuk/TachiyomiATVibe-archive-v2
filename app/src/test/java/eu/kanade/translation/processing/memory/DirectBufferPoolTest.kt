@@ -1,4 +1,4 @@
-package tachiyomi.domain.translation.pools
+﻿package eu.kanade.translation.processing.memory
 
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test

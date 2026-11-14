@@ -1,7 +1,6 @@
 package eu.kanade.translation.persistence
 
 import eu.kanade.translation.model.PageStage
-import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.PageTranslationView
 import eu.kanade.translation.model.StageFingerprints
 import eu.kanade.translation.model.TranslationBlockView
@@ -20,9 +19,9 @@ import eu.kanade.translation.model.TranslationBlockView
  * This enum is for lease ownership only. Durable provenance keeps the
  * separate [ArtifactOrigin] vocabulary and the
  * `pageTranslationOrigin` string stamp — map through [toArtifactOrigin] and
- * never stamp `"MANUAL"`/`"AUTO"` strings (`PageWorkPlanner.stageEvidence`
- * parses the stamp with `ArtifactOrigin.valueOf`; unmapped names would
- * silently degrade provenance to UNKNOWN and shift reuse evidence).
+ * never stamp `"MANUAL"`/`"AUTO"` strings (provenance consumers parse the
+ * stamp with `ArtifactOrigin.valueOf`; unmapped names would silently degrade
+ * provenance to UNKNOWN and shift reuse evidence).
  */
 enum class PageWriteOrigin {
     MANUAL,
@@ -38,122 +37,6 @@ enum class PageWriteOrigin {
 fun PageWriteOrigin?.toArtifactOrigin(): ArtifactOrigin = when (this) {
     PageWriteOrigin.MANUAL, PageWriteOrigin.AUTO, null -> ArtifactOrigin.READER_ADHOC
     PageWriteOrigin.BATCH -> ArtifactOrigin.BATCH
-}
-
-/**
- * Detection/OCR-owned fields and preconditions captured before recognition.
- * The live pipeline performs both in one pass. A stale worker — wrong
- * generation, wrong page version, or a changed prior OCR identity — is
- * rejected and cannot clobber newer work.
- */
-data class OcrStagePatch(
-    val pageKey: String,
-    val generation: Long,
-    /** Page version observed before the native pass started. */
-    val expectedPageVersion: Long,
-    /** OCR identity of the blocks being replaced, translation-independent. */
-    val expectedPriorOcrFingerprints: List<String>,
-    val ocrResult: PageTranslation,
-    val errorMessage: String? = null,
-    /** Lease fencing token captured before native recognition began. */
-    val expectedLeaseToken: Long? = null,
-    /** Artifact candidate generation captured before native recognition began. */
-    val expectedCandidateGenerationId: String? = null,
-    /** Artifact dependency fingerprint captured before native recognition began. */
-    val expectedDependencyFingerprint: String? = null,
-    /** Artifact-manifest page version captured before native recognition began. */
-    val expectedArtifactPageVersion: Long? = null,
-)
-
-/** One detached Pass-1 target and the preconditions captured before the request. */
-data class TranslationBlockPatch(
-    val blockIndex: Int,
-    val expectedOcrFingerprint: String,
-    val expectedSourceText: String,
-    val expectedTranslation: String,
-    val expectedUserEditedAt: Long?,
-    val translation: String,
-)
-
-/** Translation-owned fields and target-specific merge preconditions. */
-data class TranslationStagePatch(
-    val pageKey: String,
-    val generation: Long,
-    val expectedOcrBlockFingerprints: List<String>,
-    val expectedSourceTexts: List<String>,
-    val blocks: List<TranslationBlockPatch>,
-    val translationStatus: String,
-    val errorMessage: String? = null,
-    val expectedPageVersion: Long? = null,
-    val expectedLeaseToken: Long? = null,
-    val expectedCandidateGenerationId: String? = null,
-    val expectedDependencyFingerprint: String? = null,
-    val expectedArtifactPageVersion: Long? = null,
-    /**
-     * Envelope-plan fingerprint used to plan the dispatch.
-     * When present, the merge rejects if the manifest's `envelopePlan`
-     * pointer has a different fingerprint. A rejected commit never advances
-     * the context frontier.
-     */
-    val envelopePlanFingerprint: String? = null,
-    /** Fresh source bytes observed by the shared per-page lazy fingerprint map. */
-    val sourceFingerprint: String? = null,
-)
-
-/** Render-owned colors for one block. No image or bitmap is retained. */
-data class RenderBlockPatch(
-    val blockIndex: Int,
-    val expectedBlockFingerprint: String,
-    val textColor: Long,
-    val strokeColor: Long,
-    val strokeWidth: Float,
-)
-
-/** Render-owned fields and the cleaned-image identity they join against. */
-data class RenderStagePatch(
-    val pageKey: String,
-    val generation: Long,
-    val expectedCleanedImageName: String,
-    val expectedInpaintRevision: Int,
-    val expectedOcrBlockFingerprints: List<String>,
-    val blocks: List<RenderBlockPatch>,
-    val renderStatus: String,
-    val errorMessage: String? = null,
-    val layoutFingerprint: String? = null,
-    val expectedPageVersion: Long? = null,
-    val expectedLeaseToken: Long? = null,
-    val expectedCandidateGenerationId: String? = null,
-    val expectedDependencyFingerprint: String? = null,
-    val expectedArtifactPageVersion: Long? = null,
-)
-
-internal sealed interface StagePatch {
-    val pageKey: String
-    val generation: Long
-
-    data class Ocr(val value: OcrStagePatch) : StagePatch {
-        override val pageKey: String get() = value.pageKey
-        override val generation: Long get() = value.generation
-    }
-
-    data class Translation(val value: TranslationStagePatch) : StagePatch {
-        override val pageKey: String get() = value.pageKey
-        override val generation: Long get() = value.generation
-    }
-
-    data class Render(val value: RenderStagePatch) : StagePatch {
-        override val pageKey: String get() = value.pageKey
-        override val generation: Long get() = value.generation
-    }
-}
-
-sealed interface StagePatchResult {
-    data class Accepted(
-        val snapshot: ChapterTranslationStore.PageSnapshot,
-        val appliedBlockIndices: List<Int> = emptyList(),
-    ) : StagePatchResult
-
-    data class Rejected(val reason: String) : StagePatchResult
 }
 
 /**

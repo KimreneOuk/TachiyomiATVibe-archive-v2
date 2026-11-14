@@ -123,8 +123,26 @@ internal object MangaColorizationImageProcessing {
         return bitmapFromPixels(pixels, width, height)
     }
 
+    /**
+     * Applies the selected look. ORIGINAL is the model authors' recipe: the RGB
+     * prediction is resampled straight to source size, with no ink combine.
+     * VIBRANT runs the ink-aware combine at the prototype shading strength.
+     */
+    fun applyLook(source: Bitmap, coloredWork: Bitmap, mode: ColorCombineMode): Bitmap = when (mode) {
+        ColorCombineMode.ORIGINAL -> resizeModelRgbToSource(coloredWork, source)
+        ColorCombineMode.VIBRANT -> combineColoredWithSource(source, coloredWork, INK_SHADING_STRENGTH)
+    }
+
+    /** Source-sized copy; [coloredWork] stays owned by the caller. */
+    private fun resizeModelRgbToSource(coloredWork: Bitmap, source: Bitmap): Bitmap =
+        if (coloredWork.width == source.width && coloredWork.height == source.height) {
+            coloredWork.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            Bitmap.createScaledBitmap(coloredWork, source.width, source.height, true)
+        }
+
     /** Ink-aware combine on API 33+ (AGSL) or the CPU twin otherwise/on GPU failure — never a backend fallback. */
-    fun combineColoredWithSource(source: Bitmap, coloredWork: Bitmap, shadingStrength: Float): Bitmap {
+    private fun combineColoredWithSource(source: Bitmap, coloredWork: Bitmap, shadingStrength: Float): Bitmap {
         val (mergeWidth, mergeHeight) = mergeDimensions(source.width, source.height)
         if (AgslChromaCombiner.supported) {
             try {
@@ -212,12 +230,3 @@ internal object MangaColorizationImageProcessing {
 /** Ink-aware combine shading strength from the user's Variant C prototype (the VIBRANT look). */
 internal const val INK_SHADING_STRENGTH = 0.35f
 
-/** ORIGINAL look strength: full model lightness outside ink — each model renders faithfully. */
-internal const val ORIGINAL_SHADING_STRENGTH = 1f
-
-/** The combine strength each look mode runs at. */
-internal val ColorCombineMode.shadingStrength: Float
-    get() = when (this) {
-        ColorCombineMode.ORIGINAL -> ORIGINAL_SHADING_STRENGTH
-        ColorCombineMode.VIBRANT -> INK_SHADING_STRENGTH
-    }

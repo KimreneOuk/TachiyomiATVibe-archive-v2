@@ -252,9 +252,7 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
             if (manga != null) observeTranslationState()
 
             // TachiyomiAT: kick auto-translate for the new chapter's landing page.
-            if (translationPreferences.translationEnabled().get() &&
-                translationPreferences.autoTranslate().get()
-            ) {
+            if (translationController.isAutoTranslateEnabled()) {
                 val pages = chapter.pages
                 val landingIndex = chapter.requestedPage.coerceAtLeast(0)
                     .coerceAtMost((pages?.lastIndex ?: 0))
@@ -438,9 +436,7 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
 
         updateTranslationWorkingSet(selectedChapter, pageIndex, dispatchRefresh = true)
 
-        if (translationPreferences.translationEnabled().get() &&
-            translationPreferences.autoTranslate().get()
-        ) {
+        if (translationController.isAutoTranslateEnabled()) {
             // TachiyomiAT: drop stale cross-chapter events. onPageSelected can
             // fire for a page whose chapter has already been replaced by a newer
             // loadChapter (e.g. rapid chapter-swiping fires several page events

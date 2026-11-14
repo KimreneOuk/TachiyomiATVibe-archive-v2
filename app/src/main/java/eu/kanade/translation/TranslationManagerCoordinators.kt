@@ -5,7 +5,6 @@ import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.translation.TranslationForegroundService
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
-import eu.kanade.translation.coordinator.ReaderSessionIntent
 import eu.kanade.translation.coordinator.ReaderTranslationCoordinator
 import eu.kanade.translation.coordinator.SessionAdmission
 import eu.kanade.translation.coordinator.TranslationPendingRequestStore
@@ -253,7 +252,7 @@ internal fun TranslationManager.createCoordinatorRuntime(): TranslationManagerCo
         ) {
             false
         } else {
-            sessionCoordinator.requestReaderSession(ReaderSessionIntent(chapterId)) !is SessionAdmission.Rejected
+            admitReaderSession(chapterId) !is SessionAdmission.Rejected
         }
     },
     beforeOpenReaderSession = { chapterId -> requestCoordinator.clearStaleDownloadFailedRequest(chapterId) },
@@ -306,7 +305,6 @@ internal fun TranslationManager.createProgressProjection(): TranslationProgressP
         durableStatusResolver.persistedChapterStatus(chapterId, chapterName, chapterScanlator, mangaTitle, sourceId)
     },
     openOrCreateStoreSuspend = chapterTranslationAccess::openOrCreateActiveChapterTranslationStore,
-    observeActiveDisplayStore = { chapterId -> activeStores.get(chapterId)?.display },
     reconstructDurableTerminalSnapshot = { chapterId ->
         reconstructDurableTerminalSnapshot(
             chapterId,

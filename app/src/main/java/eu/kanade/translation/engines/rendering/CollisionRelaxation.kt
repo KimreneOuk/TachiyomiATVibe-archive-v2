@@ -14,11 +14,11 @@ private typealias GrownBox = TextLayoutPlanner.GrownBox
  */
 internal object CollisionRelaxation {
 
-    private const val VERTICAL_CHAR_STEP = TextLayoutPlanner.VERTICAL_CHAR_STEP
-    private const val VERTICAL_COL_STEP = TextLayoutPlanner.VERTICAL_COL_STEP
+    private const val VERTICAL_CHAR_STEP = FontFittingAlgorithms.VERTICAL_CHAR_STEP
+    private const val VERTICAL_COL_STEP = FontFittingAlgorithms.VERTICAL_COL_STEP
 
     private fun cjkWrap(text: String, font: Float, maxWidth: Float, measurer: TextMeasurer): List<String> =
-        TextLayoutPlanner.cjkWrap(text, font, maxWidth, measurer)
+        FontFittingAlgorithms.cjkWrap(text, font, maxWidth, measurer)
 
     private fun binarySearchFontSize(
         text: String,
@@ -28,29 +28,84 @@ internal object CollisionRelaxation {
         isVertical: Boolean,
         scale: Float,
         measurer: TextMeasurer,
-    ): Float = TextLayoutPlanner.binarySearchFontSize(text, safeW, safeH, baseW, isVertical, scale, measurer)
+    ): Float = FontFittingAlgorithms.binarySearchFontSize(text, safeW, safeH, baseW, isVertical, scale, measurer)
 
-    private fun fitsAt(
+    internal fun fitsAt(
         text: String,
         font: Float,
         isVertical: Boolean,
         safeW: Float,
         safeH: Float,
         measurer: TextMeasurer,
-    ): Boolean = TextLayoutPlanner.fitsAt(text, font, isVertical, safeW, safeH, measurer)
+    ): Boolean = !overflows(text, font, isVertical, safeW, safeH, measurer)
 
-    private fun columnsFor(text: String, safeH: Float, charStep: Float): Int =
-        TextLayoutPlanner.columnsFor(text, safeH, charStep)
+    internal fun columnsFor(text: String, safeH: Float, charStep: Float): Int {
+        val chars = strippedLength(text)
+        if (chars == 0) return 1
+        val maxChars = max(1, (safeH / charStep).toInt())
+        return ceil(chars.toFloat() / maxChars).toInt().coerceAtLeast(1)
+    }
 
-    private fun strippedLength(text: String): Int =
-        TextLayoutPlanner.strippedLength(text)
+    internal fun strippedLength(text: String): Int =
+        text.count { it != '\r' && it != '\n' && it != ' ' }
 
-    private fun minWidthForLines(
+    internal fun minWidthForLines(
         text: String,
         font: Float,
         maxLines: Int,
         measurer: TextMeasurer,
-    ): Float = TextLayoutPlanner.minWidthForLines(text, font, maxLines, measurer)
+    ): Float {
+        val tokens = tokenize(text)
+        val fullW = measurer.measureTextWidth(text, font).coerceAtLeast(1f)
+        if (maxLines <= 1) return fullW
+        val minWordW = tokens.maxOfOrNull { measurer.measureTextWidth(it, font) }?.coerceAtLeast(1f) ?: fullW
+        if (cjkWrap(text, font, minWordW, measurer).size <= maxLines) return minWordW
+        var lo = minWordW
+        var hi = fullW
+        var ans = fullW
+        var guard = 0
+        while (lo <= hi && guard < 24) {
+            val mid = (lo + hi) / 2f
+            if (cjkWrap(text, font, mid, measurer).size <= maxLines) {
+                ans = mid
+                hi = mid
+            } else {
+                lo = mid
+            }
+            if (hi - lo < 1f) break
+            guard++
+        }
+        return ans
+    }
+
+    private fun tokenize(text: String): List<String> {
+        val tokens = mutableListOf<String>()
+        var i = 0
+        while (i < text.length) {
+            val ch = text[i]
+            when {
+                ch == '\n' || ch.isWhitespace() -> {
+                    i++
+                }
+                FontFittingAlgorithms.isCJK(ch) -> {
+                    tokens.add(ch.toString())
+                    i++
+                }
+                else -> {
+                    val start = i
+                    while (i < text.length && !FontFittingAlgorithms.isCJK(text[i]) && !text[i].isWhitespace() && text[i] != '\n') {
+                        if (text[i] == '-' && i > start) {
+                            i++
+                            break
+                        }
+                        i++
+                    }
+                    tokens.add(text.substring(start, i))
+                }
+            }
+        }
+        return tokens
+    }
 
     private fun translateRect(rect: FloatRect, dx: Float, dy: Float): FloatRect =
         FloatRect(rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy)

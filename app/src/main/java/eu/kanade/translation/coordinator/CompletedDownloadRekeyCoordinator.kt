@@ -223,7 +223,6 @@ internal class CompletedDownloadRekeyCoordinator(
                                 artifactManifest.expectedPageCountTrusted ||
                                 artifactManifest.partialBatchInfo != null ||
                                 artifactManifest.activeCandidateGenerationIds.isNotEmpty() ||
-                                artifactManifest.envelopePlan != null ||
                                 artifactManifest.cutoverAtEpochMs != null
                             if (manifestHasPriorEvidence) {
                                 return@withFileOpeningLock DownloadRekeyOutcome.Rejected(

@@ -751,8 +751,6 @@ class ChapterArtifactEngineTest {
         page.pageVersion shouldBe 3L
         page.committed.shouldNotBeNull().generationId shouldBe "g-1757040000000-0001jpg-5baa61e4"
         page.displayState shouldBe PageDisplayState.DISPLAY_READY
-        // The retained envelope-plan pointer defaults to neutral state.
-        manifest.envelopePlan shouldBe null
     }
 
     @Test

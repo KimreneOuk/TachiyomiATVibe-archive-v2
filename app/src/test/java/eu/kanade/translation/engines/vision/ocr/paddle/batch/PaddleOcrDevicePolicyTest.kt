@@ -120,7 +120,7 @@ class PaddleOcrDevicePolicyTest {
 
     @Test
     fun `pinned B1 entry keeps provider target and never enables dynamic batching`() {
-        val decision = PaddleOcrBatchActivationPolicy.currentPinnedB1(
+        val decision = PaddleOcrDevicePolicy.currentPinnedB1(
             requestedProvider = PaddleOcrExecutionProvider.QUALCOMM_QNN_GPU,
         )
 
@@ -132,7 +132,7 @@ class PaddleOcrDevicePolicyTest {
 
     @Test
     fun `DYNAMIC preference maps to the B8 tier with the dynamic flag in debug`() {
-        val decision = PaddleOcrBatchActivationPolicy.current(
+        val decision = PaddleOcrDevicePolicy.current(
             requestedBatchSize = PaddleOcrBatchSize.B8,
             requestedProvider = PaddleOcrProviderTarget.QNN_HTP,
             dynamicPageBatch = true,
@@ -146,7 +146,7 @@ class PaddleOcrDevicePolicyTest {
     fun `DYNAMIC skips the staged build-config cap that clamps fixed tiers`() {
         // Build config caps fixed tiers at 4; a dynamic request must not be
         // clamped because its ceiling is memory-derived at runtime.
-        val decision = PaddleOcrBatchActivationPolicy.current(
+        val decision = PaddleOcrDevicePolicy.current(
             requestedBatchSize = PaddleOcrBatchSize.B8,
             requestedProvider = PaddleOcrProviderTarget.QNN_HTP,
             dynamicPageBatch = true,

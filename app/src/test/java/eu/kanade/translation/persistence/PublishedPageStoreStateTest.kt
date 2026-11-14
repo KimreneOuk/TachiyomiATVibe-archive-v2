@@ -94,20 +94,20 @@ class PublishedPageStoreStateTest {
             }
             runCurrent()
 
-            val beforeCount = store.testSeams.publishedPageCopies
+            val beforeCount = store.publishedPageCopies
             val before = store.state.value
             repeat(3) {
                 store.state.value
                 store.display.value
             }
-            store.testSeams.publishedPageCopies shouldBe beforeCount
+            store.publishedPageCopies shouldBe beforeCount
 
             store.updatePageFromCurrentSnapshot("page-0", "immutable publication test") { page ->
                 page!!.copy(translationStatus = StageStatus.READY)
             }.shouldBeInstanceOf<ChapterTranslationStore.PatchResult.Accepted>()
             runCurrent()
 
-            store.testSeams.publishedPageCopies shouldBe beforeCount + 1
+            store.publishedPageCopies shouldBe beforeCount + 1
             val after = store.state.value
             assertSame(before.getValue("page-1"), after.getValue("page-1"))
             assertSame(before.getValue("page-31"), after.getValue("page-31"))

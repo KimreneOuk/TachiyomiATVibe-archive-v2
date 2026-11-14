@@ -1,10 +1,8 @@
 package eu.kanade.translation.processing.batch.progress
 
-import eu.kanade.translation.model.AiPageProgressState
 import eu.kanade.translation.model.BatchPhase
 import eu.kanade.translation.model.Translation
 
-enum class PhaseStatus { RUNNING, DONE, FAILED, SKIPPED, PARTIAL, PAUSED }
 
 /**
  * Input to the batch-progress projection. Pipeline/store own all actual page state.
@@ -14,21 +12,6 @@ enum class PhaseStatus { RUNNING, DONE, FAILED, SKIPPED, PARTIAL, PAUSED }
  * PagePhase, BatchFinished, and BatchAborted events.
  */
 sealed class TranslationBatchEvent {
-    data class PagePhase(
-        val pageKey: String,
-        val pageIndex: Int,
-        val phase: BatchPhase,
-        val status: PhaseStatus,
-        val elapsedMs: Long = 0L,
-        val heapMiB: Long? = null,
-        val reason: String? = null,
-    ) : TranslationBatchEvent()
-    data class AiPageProgress(
-        val pageKey: String,
-        val pageIndex: Int,
-        val state: AiPageProgressState,
-        val reason: String? = null,
-    ) : TranslationBatchEvent()
 
     /**
      *   the coordinator is rebuilding the envelope dispatch work
