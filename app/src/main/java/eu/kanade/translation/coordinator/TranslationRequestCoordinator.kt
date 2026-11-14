@@ -1,7 +1,6 @@
 package eu.kanade.translation.coordinator
 
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
-import eu.kanade.translation.coordinator.TranslationPendingRequestRecord
 import eu.kanade.translation.coordinator.TranslationPendingRequestStore
 import eu.kanade.translation.diagnostics.BatchDownloadDiagnostics
 import eu.kanade.translation.model.Translation
@@ -14,8 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -23,7 +20,6 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 internal const val REGISTERED_READER_STORE_WAIT_REASON =
     "Waiting for registered reader translation store to close before download re-key"
@@ -57,26 +53,12 @@ internal class TranslationRequestCoordinator(
         QUEUE_FAILED,
     }
 
-    private val pendingTranslationRequestsState = initialPendingRequests ?: MutableStateFlow(
-        pendingRequestStore.load().associateWith { chapterId ->
-            val record = pendingRequestStore.record(chapterId)
-            TranslationRequestState(
-                chapterId = chapterId,
-                phase = record?.phase ?: TranslationRequestPhase.WAITING_FOR_DOWNLOAD,
-                reason = pendingRequestStore.reason(chapterId),
-                generation = record?.generation ?: 0L,
-                failureKind = record?.failureKind ?: TranslationRequestFailureKind.NONE,
-            )
-        },
-    )
-    val pendingTranslationRequests: StateFlow<Map<Long, TranslationRequestState>> =
-        pendingTranslationRequestsState.asStateFlow()
-    internal val pendingRequestMutationLock = Any()
-    private val pendingRequestWriteVersions = ConcurrentHashMap<Long, AtomicLong>()
-    private val pendingRequestGenerationCounters = ConcurrentHashMap<Long, AtomicLong>()
-    private val downloadAttachGenerations = ConcurrentHashMap<Long, Long>()
+    private val ledger = PendingRequestLedger(pendingRequestStore, initialPendingRequests)
+    val pendingTranslationRequests: StateFlow<Map<Long, TranslationRequestState>>
+        get() = ledger.state
+    internal val pendingRequestMutationLock: Any
+        get() = ledger.mutationLock
     private val downloadRekeyingChapterIds = ConcurrentHashMap.newKeySet<Long>()
-    private val pendingGroupIdSequence = AtomicLong(0)
     private val storeScope get() = storeScopeProvider()
     private val batchCoordinator get() = batchCoordinatorProvider()
     private val queueState get() = queueStateProvider?.invoke() ?: batchCoordinator.queueState
@@ -103,12 +85,10 @@ internal class TranslationRequestCoordinator(
         chapter.id?.let { chapterId ->
             restoreAdmittedChapterIds.remove(chapterId)
             synchronized(pendingRequestMutationLock) {
-                setPendingTranslationRequest(chapterId, TranslationRequestPhase.WAITING_FOR_DOWNLOAD)
+                ledger.set(chapterId, TranslationRequestPhase.WAITING_FOR_DOWNLOAD)
                 // Attach: capture the request generation the download will be
                 // fenced against when its completion callback arrives.
-                pendingTranslationRequestsState.value[chapterId]?.generation?.let { generation ->
-                    downloadAttachGenerations[chapterId] = generation
-                }
+                ledger.attachDownloadGeneration(chapterId)
             }
         }
     }
@@ -121,7 +101,7 @@ internal class TranslationRequestCoordinator(
     ): Boolean {
         val chapterId = chapter.id ?: return false
         synchronized(pendingRequestMutationLock) {
-            if (!isRequestCurrent(chapterId, expectedGeneration)) return false
+            if (!ledger.isCurrent(chapterId, expectedGeneration)) return false
             queueTranslationAfterDownload(manga, chapter)
             return true
         }
@@ -130,7 +110,7 @@ internal class TranslationRequestCoordinator(
     /** Writes PREPARING only while the request still has [expectedGeneration]. */
     fun markTranslationRequestPreparingIfCurrent(chapterId: Long, expectedGeneration: Long): Boolean {
         synchronized(pendingRequestMutationLock) {
-            if (!isRequestCurrent(chapterId, expectedGeneration)) return false
+            if (!ledger.isCurrent(chapterId, expectedGeneration)) return false
             markTranslationRequestPreparing(chapterId)
             return true
         }
@@ -139,8 +119,8 @@ internal class TranslationRequestCoordinator(
     /** Keeps this attached download request live while a reader owns its chapter store. */
     fun markRegisteredReaderStoreWaitIfCurrent(chapterId: Long, expectedGeneration: Long): Boolean {
         synchronized(pendingRequestMutationLock) {
-            if (!isRequestCurrent(chapterId, expectedGeneration)) return false
-            setPendingTranslationRequest(
+            if (!ledger.isCurrent(chapterId, expectedGeneration)) return false
+            ledger.set(
                 chapterId = chapterId,
                 phase = TranslationRequestPhase.PREPARING,
                 reason = REGISTERED_READER_STORE_WAIT_REASON,
@@ -156,13 +136,11 @@ internal class TranslationRequestCoordinator(
      * a user retry allocates a new generation.
      */
     fun isTranslationRequestCurrent(chapterId: Long, generation: Long): Boolean =
-        currentRequest(chapterId)?.let { request ->
-            !request.isTerminal && request.generation == generation
-        } == true
+        ledger.isCurrent(chapterId, generation)
 
     /** Current in-process request generation, or null when no request exists. */
     fun pendingRequestGeneration(chapterId: Long): Long? =
-        pendingTranslationRequestsState.value[chapterId]?.generation
+        ledger.generation(chapterId)
 
     /** Reserve a completed-download page-key migration against request and batch admission. */
     fun tryBeginDownloadRekey(chapterId: Long, isBatchActive: () -> Boolean): Boolean =
@@ -179,12 +157,8 @@ internal class TranslationRequestCoordinator(
         chapterId in downloadRekeyingChapterIds
 
     /** Captures only the currently attached, live request for this download. */
-    fun downloadAttachGeneration(chapterId: Long): Long? = synchronized(pendingRequestMutationLock) {
-        val current = currentRequest(chapterId) ?: return@synchronized null
-        current.generation.takeIf {
-            !current.isTerminal && downloadAttachGenerations[chapterId] == current.generation
-        }
-    }
+    fun downloadAttachGeneration(chapterId: Long): Long? =
+        ledger.downloadAttachGeneration(chapterId)
 
     /**
      * Retries only the request that failed because its completed-download
@@ -199,31 +173,10 @@ internal class TranslationRequestCoordinator(
         autoStart: Boolean,
     ): Boolean {
         val chapterId = chapter.id ?: return false
-        val retryGeneration = synchronized(pendingRequestMutationLock) {
-            val current = currentRequest(chapterId) ?: return false
-            val retryableFailure =
-                current.phase == TranslationRequestPhase.ADMISSION_FAILED &&
-                    current.failureKind == TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED &&
-                    current.isDownloadRekeyFailure()
-            val waitingForReaderStore =
-                current.phase == TranslationRequestPhase.PREPARING &&
-                    current.reason == REGISTERED_READER_STORE_WAIT_REASON
-            if (
-                current.generation != expectedGeneration ||
-                (!retryableFailure && !waitingForReaderStore) ||
-                downloadAttachGenerations[chapterId] != expectedGeneration ||
-                batchCoordinator.isPaused ||
-                queueState.value.any { it.chapter.id == chapterId }
-            ) {
-                return false
-            }
-            setPendingTranslationRequest(
-                chapterId = chapterId,
-                phase = TranslationRequestPhase.PREPARING,
-                reason = "Retrying translation after completed-download reconciliation",
-            )
-            currentRequest(chapterId)?.generation?.also { downloadAttachGenerations[chapterId] = it }
-        } ?: return false
+        val retryGeneration =
+            ledger.beginRekeyRetryIfCurrent(chapterId, expectedGeneration) {
+                batchCoordinator.isPaused || queueState.value.any { it.chapter.id == chapterId }
+            } ?: return false
         submitTranslation(manga, chapter, retryGeneration, autoStart)
         if (queueState.value.any { it.chapter.id == chapterId }) return true
 
@@ -231,9 +184,9 @@ internal class TranslationRequestCoordinator(
         // reader session won a race after the full leave). Keep the request
         // visible and retryable instead of leaving a false PREPARING state.
         synchronized(pendingRequestMutationLock) {
-            val current = currentRequest(chapterId)
+            val current = ledger.current(chapterId)
             if (current?.generation == retryGeneration && current.phase == TranslationRequestPhase.PREPARING) {
-                setPendingTranslationRequest(
+                ledger.set(
                     chapterId = chapterId,
                     phase = TranslationRequestPhase.ADMISSION_FAILED,
                     reason = "Download re-key reconciliation completed but batch admission was deferred",
@@ -244,59 +197,12 @@ internal class TranslationRequestCoordinator(
         return false
     }
 
-    private fun TranslationRequestState.isDownloadRekeyFailure(): Boolean =
-        reason?.startsWith("Rekey deferred:") == true ||
-            reason?.startsWith("Rekey rejected:") == true ||
-            reason?.startsWith("Rekey partial:") == true ||
-            reason?.startsWith("Download re-key reconciliation ") == true
-
-    /** Lock-internal fence check used by the fenced mutation helpers. */
-    private fun isRequestCurrent(chapterId: Long, generation: Long): Boolean =
-        isTranslationRequestCurrent(chapterId, generation)
-
-    /**
-     * The current request, preferring the live state and falling back to the
-     * durable record (e.g. a request restored after a process restart). Both
-     * views are normalized onto [TranslationRequestState].
-     */
-    private fun currentRequest(chapterId: Long): TranslationRequestState? =
-        pendingTranslationRequestsState.value[chapterId]
-            ?: pendingRequestStore.record(chapterId)?.let { record ->
-                TranslationRequestState(
-                    chapterId = record.chapterId,
-                    phase = record.phase,
-                    reason = record.reason,
-                    generation = record.generation,
-                    failureKind = record.failureKind,
-                )
-            }
-
     /** Publishes the acknowledgement shown while the live download probe runs. */
     fun acknowledgeTranslationRequests(chapters: List<Chapter>) {
         val chapterIds = chapters.mapNotNull { it.id }.distinct()
         if (chapterIds.isEmpty()) return
         chapterIds.forEach(restoreAdmittedChapterIds::remove)
-        val versions = synchronized(pendingRequestMutationLock) {
-            // One generation bump per new request; one group id per batch.
-            val generations = chapterIds.associateWith(::allocateGeneration)
-            val groupId = nextGroupId()
-            pendingTranslationRequestsState.update { current ->
-                current + chapterIds.associateWith { chapterId ->
-                    TranslationRequestState(
-                        chapterId = chapterId,
-                        phase = TranslationRequestPhase.STARTING,
-                        generation = generations.getValue(chapterId),
-                    )
-                }
-            }
-            chapterIds.associateWith { chapterId ->
-                PendingAcknowledgement(
-                    version = nextPendingRequestVersion(chapterId),
-                    generation = generations.getValue(chapterId),
-                    groupId = groupId,
-                )
-            }
-        }
+        val versions = ledger.acknowledge(chapterIds)
         versions.forEach { (chapterId, acknowledgement) ->
             BatchDownloadDiagnostics.requestPhase(
                 chapterId = chapterId,
@@ -308,15 +214,15 @@ internal class TranslationRequestCoordinator(
         }
         storeScope.launch(Dispatchers.IO) {
             versions.forEach { (chapterId, acknowledgement) ->
-                persistPendingStartingAcknowledgement(chapterId, acknowledgement)
+                ledger.persistStartingAcknowledgement(chapterId, acknowledgement)
             }
         }
     }
 
     /** Advances an acknowledged request into archive/store/engine preparation. */
     fun markTranslationRequestPreparing(chapterId: Long) {
-        if (pendingTranslationRequestsState.value.containsKey(chapterId)) {
-            setPendingTranslationRequest(chapterId, TranslationRequestPhase.PREPARING)
+        if (ledger.state.value.containsKey(chapterId)) {
+            ledger.set(chapterId, TranslationRequestPhase.PREPARING)
         }
     }
 
@@ -330,7 +236,7 @@ internal class TranslationRequestCoordinator(
     ): AdmissionResult {
         val chapterId = chapter.id ?: return AdmissionResult.QUEUE_FAILED
         if (expectedGeneration != null) {
-            val current = pendingTranslationRequestsState.value[chapterId]
+            val current = ledger.state.value[chapterId]
             if (current == null || current.generation != expectedGeneration) {
                 logcat(LogPriority.INFO) {
                     "T911 dropped stale translate admission for chapter $chapterId " +
@@ -350,7 +256,7 @@ internal class TranslationRequestCoordinator(
             colorizeOnly,
         )
         return if (batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
-            clearPendingTranslationRequest(chapterId)
+            ledger.clear(chapterId)
             AdmissionResult.QUEUED
         } else {
             markTranslationQueueFailureIfAcknowledged(manga, chapterId)
@@ -458,12 +364,12 @@ internal class TranslationRequestCoordinator(
     }
 
     fun markTranslationQueueFailureIfAcknowledged(manga: Manga, chapterId: Long) {
-        if (pendingTranslationRequestsState.value.containsKey(chapterId)) {
+        if (ledger.state.value.containsKey(chapterId)) {
             val failureKind = translationQueueAdmissionFailureKind(
                 sourceIsHttp = sourceIsHttp(manga),
                 configValid = batchCoordinator.isQueueConfigValid(),
             )
-            setPendingTranslationRequest(
+            ledger.set(
                 chapterId,
                 TranslationRequestPhase.ADMISSION_FAILED,
                 "Translation could not be queued",
@@ -505,29 +411,20 @@ internal class TranslationRequestCoordinator(
         resolveTranslation: suspend (Long) -> Translation? = this.resolveTranslation,
         hasDownloadedFiles: (Translation) -> Boolean = this.hasDownloadedFiles,
     ) {
-        val pendingIds = (pendingRequestStore.load() + pendingTranslationRequestsState.value.keys).distinct()
+        val pendingIds = (ledger.durableChapterIds() + ledger.state.value.keys).distinct()
         if (pendingIds.isEmpty()) return
         val translationQueueIds = queueState.value.mapNotNull { it.chapter.id }.toSet()
         pendingIds.forEach { chapterId ->
-            val current = pendingTranslationRequestsState.value[chapterId]
-                ?: pendingRequestStore.record(chapterId)?.let { record ->
-                    TranslationRequestState(
-                        chapterId = record.chapterId,
-                        phase = record.phase,
-                        reason = record.reason,
-                        generation = record.generation,
-                        failureKind = record.failureKind,
-                    )
-                }
+            val current = ledger.current(chapterId)
             if (current == null || current.isTerminal) return@forEach
             val translation = resolveTranslation(chapterId)
             when {
-                translation == null -> clearPendingTranslationRequest(chapterId)
-                chapterId in translationQueueIds -> clearPendingTranslationRequest(chapterId)
+                translation == null -> ledger.clear(chapterId)
+                chapterId in translationQueueIds -> ledger.clear(chapterId)
                 chapterId in downloadQueueChapterIds -> {
                     restoreAdmittedChapterIds.add(chapterId)
                     if (current.phase != TranslationRequestPhase.WAITING_FOR_DOWNLOAD) {
-                        setPendingTranslationRequest(chapterId, TranslationRequestPhase.WAITING_FOR_DOWNLOAD)
+                        ledger.set(chapterId, TranslationRequestPhase.WAITING_FOR_DOWNLOAD)
                     }
                 }
                 hasDownloadedFiles(translation) -> admitRestoredPendingTranslation(translation, current.generation)
@@ -544,7 +441,7 @@ internal class TranslationRequestCoordinator(
         val chapterId = translation.chapter.id ?: return
         if (!sessionCoordinator.requestBatchSession(setOf(chapterId))) return
         synchronized(pendingRequestMutationLock) {
-            val current = pendingTranslationRequestsState.value[chapterId]
+            val current = ledger.state.value[chapterId]
             val currentGeneration = current?.generation ?: pendingRequestStore.record(chapterId)?.generation
             if (currentGeneration != expectedGeneration) return
             cancelReaderChapterAsync(chapterId)
@@ -552,7 +449,7 @@ internal class TranslationRequestCoordinator(
             batchCoordinator.queueChapter(translation.manga, translation.chapter)
             if (batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
                 restoreAdmittedChapterIds.add(chapterId)
-                clearPendingTranslationRequest(chapterId)
+                ledger.clear(chapterId)
             } else {
                 markTranslationQueueFailureIfAcknowledged(translation.manga, chapterId)
             }
@@ -565,10 +462,10 @@ internal class TranslationRequestCoordinator(
         reason: String? = null,
         failureKind: TranslationRequestFailureKind = TranslationRequestFailureKind.DOWNLOAD_FAILED,
     ) {
-        if (pendingTranslationRequestsState.value.containsKey(chapterId) ||
-            pendingRequestStore.load().contains(chapterId)
+        if (ledger.state.value.containsKey(chapterId) ||
+            ledger.durableChapterIds().contains(chapterId)
         ) {
-            setPendingTranslationRequest(
+            ledger.set(
                 chapterId,
                 TranslationRequestPhase.DOWNLOAD_FAILED,
                 reason,
@@ -582,10 +479,10 @@ internal class TranslationRequestCoordinator(
         chapterId: Long,
         reason: String? = null,
     ) {
-        if (pendingTranslationRequestsState.value.containsKey(chapterId) ||
-            pendingRequestStore.load().contains(chapterId)
+        if (ledger.state.value.containsKey(chapterId) ||
+            ledger.durableChapterIds().contains(chapterId)
         ) {
-            setPendingTranslationRequest(
+            ledger.set(
                 chapterId,
                 TranslationRequestPhase.ADMISSION_FAILED,
                 reason ?: "Translation could not start after the chapter download",
@@ -629,18 +526,18 @@ internal class TranslationRequestCoordinator(
         reason: String?,
         kind: () -> TranslationRequestFailureKind,
     ) {
-        if (pendingTranslationRequestsState.value.containsKey(chapterId) ||
-            pendingRequestStore.load().contains(chapterId)
+        if (ledger.state.value.containsKey(chapterId) ||
+            ledger.durableChapterIds().contains(chapterId)
         ) {
-            setPendingTranslationRequest(chapterId, phase, reason, kind())
+            ledger.set(chapterId, phase, reason, kind())
         }
     }
 
     /** Removes only the pending request; downloaded files and queue membership are untouched. */
     fun cancelTranslationRequest(chapterId: Long): Boolean {
-        val existed = pendingTranslationRequestsState.value.containsKey(chapterId) ||
-            pendingRequestStore.load().contains(chapterId)
-        clearPendingTranslationRequest(chapterId)
+        val existed = ledger.state.value.containsKey(chapterId) ||
+            ledger.durableChapterIds().contains(chapterId)
+        ledger.clear(chapterId)
         return existed
     }
 
@@ -651,23 +548,23 @@ internal class TranslationRequestCoordinator(
      * batch. Live phases are left untouched.
      */
     fun clearStaleDownloadFailedRequest(chapterId: Long) {
-        val phase = pendingTranslationRequestsState.value[chapterId]?.phase
-            ?: pendingRequestStore.phase(chapterId)
+        val phase = ledger.state.value[chapterId]?.phase
+            ?: ledger.durablePhase(chapterId)
         if (phase == TranslationRequestPhase.DOWNLOAD_FAILED ||
             phase == TranslationRequestPhase.CANCELLED ||
             phase == TranslationRequestPhase.ADMISSION_FAILED
         ) {
-            clearPendingTranslationRequest(chapterId)
+            ledger.clear(chapterId)
         }
     }
 
     /** Rearms a failed download request so an explicit download retry can complete it. */
     fun rearmDownloadFailedRequest(chapterId: Long): Boolean {
-        val currentPhase = pendingTranslationRequestsState.value[chapterId]?.phase
-            ?: pendingRequestStore.phase(chapterId)
+        val currentPhase = ledger.state.value[chapterId]?.phase
+            ?: ledger.durablePhase(chapterId)
             ?: return false
         if (currentPhase == TranslationRequestPhase.DOWNLOAD_FAILED) {
-            setPendingTranslationRequest(
+            ledger.set(
                 chapterId = chapterId,
                 phase = TranslationRequestPhase.WAITING_FOR_DOWNLOAD,
                 reason = "re-armed after download failure",
@@ -679,8 +576,8 @@ internal class TranslationRequestCoordinator(
     }
 
     fun hasPendingTranslationRequest(chapterId: Long): Boolean =
-        pendingTranslationRequestsState.value.containsKey(chapterId) ||
-            pendingRequestStore.load().contains(chapterId)
+        ledger.state.value.containsKey(chapterId) ||
+            ledger.durableChapterIds().contains(chapterId)
 
     /**
      * A chapter remains protected from reader auto-delete while either its
@@ -690,8 +587,8 @@ internal class TranslationRequestCoordinator(
         val queuedState = queuedTranslationOrNull(chapterId)?.status
         return ChapterDeletionProtection.protects(
             queuedState = queuedState,
-            hasPendingRequest = pendingTranslationRequestsState.value.containsKey(chapterId) ||
-                pendingRequestStore.load().contains(chapterId),
+            hasPendingRequest = ledger.state.value.containsKey(chapterId) ||
+                ledger.durableChapterIds().contains(chapterId),
         ) ||
             chapterId in batchCoordinator.persistedQueueChapterIds()
     }
@@ -699,172 +596,18 @@ internal class TranslationRequestCoordinator(
     /** Protected ids are passed to the pending chapter deleter at reader finish. */
     fun protectedChapterIds(): Set<Long> = ChapterDeletionProtection.protectedIds(
         queueState.value,
-        pendingTranslationRequestsState.value.keys + pendingRequestStore.load(),
+        ledger.state.value.keys + ledger.durableChapterIds(),
         batchCoordinator.persistedQueueChapterIds(),
     )
 
-    fun setPendingTranslationRequest(
-        chapterId: Long,
-        phase: TranslationRequestPhase,
-        reason: String? = null,
-        failureKind: TranslationRequestFailureKind = TranslationRequestFailureKind.NONE,
-    ) {
-        synchronized(pendingRequestMutationLock) {
-            nextPendingRequestVersion(chapterId)
-            val current = pendingTranslationRequestsState.value[chapterId]
-            val durable = pendingRequestStore.record(chapterId)
-            // The generation is stable across the request's live phase
-            // transitions so a fence taken at attach time stays valid through
-            // PREPARING. It advances when a live phase is written over a
-            // terminal record (a retry is a NEW request) and when a brand-new
-            // record is created outside an acknowledgement, so fences never
-            // compare against 0 or against a cancelled generation.
-            val wasTerminal = current?.isTerminal == true ||
-                (current == null && durable?.phase?.isTerminalPhase() == true)
-            val generation = when {
-                wasTerminal && !phase.isTerminalPhase() -> allocateGeneration(chapterId)
-                current != null -> current.generation
-                durable != null -> durable.generation
-                else -> allocateGeneration(chapterId)
-            }
-            val groupId = durable?.groupId
-            val kind = if (phase.isTerminalPhase()) failureKind else TranslationRequestFailureKind.NONE
-            pendingRequestStore.add(
-                TranslationPendingRequestRecord(
-                    chapterId = chapterId,
-                    phase = phase,
-                    reason = reason,
-                    generation = generation,
-                    groupId = groupId,
-                    failureKind = kind,
-                    createdAtEpochMs = durable?.createdAtEpochMs ?: System.currentTimeMillis(),
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                ),
-            )
-            pendingTranslationRequestsState.update {
-                it + (
-                    chapterId to TranslationRequestState(
-                        chapterId = chapterId,
-                        phase = phase,
-                        reason = reason,
-                        generation = generation,
-                        failureKind = kind,
-                    )
-                    )
-            }
-            BatchDownloadDiagnostics.requestPhase(
-                chapterId = chapterId,
-                generation = generation,
-                from = current?.phase ?: durable?.phase,
-                to = phase,
-                failureKind = kind,
-            )
-        }
-    }
-
-    fun clearPendingTranslationRequest(chapterId: Long) {
-        synchronized(pendingRequestMutationLock) {
-            val current = currentRequest(chapterId)
-            nextPendingRequestVersion(chapterId)
-            // Generation bump on cancel/removal: a later request for the same
-            // chapter must never reuse the removed request's generation.
-            pendingRequestGenerationCounters.computeIfAbsent(chapterId) {
-                AtomicLong(pendingRequestStore.generation(chapterId))
-            }.incrementAndGet()
-            downloadAttachGenerations.remove(chapterId)
-            pendingRequestStore.remove(chapterId)
-            pendingTranslationRequestsState.update { it - chapterId }
-            if (current != null) {
-                BatchDownloadDiagnostics.requestCleared(chapterId, current.generation, current.phase)
-            }
-        }
-    }
-
-    fun clearAllPendingTranslationRequests() {
-        synchronized(pendingRequestMutationLock) {
-            val requests = (pendingTranslationRequestsState.value.keys + pendingRequestStore.load())
-                .distinct()
-                .mapNotNull(::currentRequest)
-            requests.forEach { request ->
-                val chapterId = request.chapterId
-                nextPendingRequestVersion(chapterId)
-                pendingRequestGenerationCounters.computeIfAbsent(chapterId) {
-                    AtomicLong(pendingRequestStore.generation(chapterId))
-                }.incrementAndGet()
-                downloadAttachGenerations.remove(chapterId)
-            }
-            pendingRequestStore.clear()
-            pendingTranslationRequestsState.value = emptyMap()
-            requests.forEach { request ->
-                BatchDownloadDiagnostics.requestCleared(request.chapterId, request.generation, request.phase)
-            }
-        }
-    }
+    fun clearAllPendingTranslationRequests() = ledger.clearAll()
 
     /** Clears all queued work and request acknowledgements as one batch lifecycle operation. */
     fun clearTranslationQueue() {
         batchCoordinator.clearQueue()
         batchCoordinator.stop()
-        clearAllPendingTranslationRequests()
+        ledger.clearAll()
         sessionCoordinator.finishSession()
-    }
-
-    private fun nextPendingRequestVersion(chapterId: Long): Long =
-        pendingRequestWriteVersions.computeIfAbsent(chapterId) { AtomicLong() }.incrementAndGet()
-
-    /** Continues per-chapter generations from durable state so retries cannot reuse an old generation. */
-    private fun allocateGeneration(chapterId: Long): Long =
-        pendingRequestGenerationCounters.computeIfAbsent(chapterId) {
-            AtomicLong(
-                maxOf(
-                    pendingRequestStore.generation(chapterId),
-                    pendingTranslationRequestsState.value[chapterId]?.generation ?: 0L,
-                ),
-            )
-        }.incrementAndGet()
-
-    private fun nextGroupId(): String = "batch-${pendingGroupIdSequence.incrementAndGet()}"
-
-    private fun TranslationRequestPhase.isTerminalPhase(): Boolean =
-        this == TranslationRequestPhase.DOWNLOAD_FAILED ||
-            this == TranslationRequestPhase.CANCELLED ||
-            this == TranslationRequestPhase.ADMISSION_FAILED
-
-    /**
-     * Persists the immediate STARTING acknowledgement without allowing it to
-     * overwrite a newer phase. The same lock covers normal phase mutations, so
-     * the version check and commit cannot be separated by a state publication.
-     */
-    private fun persistPendingStartingAcknowledgement(
-        chapterId: Long,
-        acknowledgement: PendingAcknowledgement,
-    ) {
-        synchronized(pendingRequestMutationLock) {
-            val currentVersion = pendingRequestWriteVersions[chapterId]?.get() ?: return
-            val current = pendingTranslationRequestsState.value[chapterId]
-            if (current == null) {
-                // A cancellation may have removed the request before this IO
-                // task acquired the lock. Keep the durable store cleared.
-                pendingRequestStore.remove(chapterId)
-                return
-            }
-            if (currentVersion != acknowledgement.version ||
-                current.phase != TranslationRequestPhase.STARTING
-            ) {
-                return
-            }
-            pendingRequestStore.add(
-                TranslationPendingRequestRecord(
-                    chapterId = chapterId,
-                    phase = TranslationRequestPhase.STARTING,
-                    reason = null,
-                    generation = acknowledgement.generation,
-                    groupId = acknowledgement.groupId,
-                    createdAtEpochMs = System.currentTimeMillis(),
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                ),
-            )
-        }
     }
 
     /** Fences download completion with the attached request generation; stale callbacks cannot admit or recreate it. */
@@ -899,29 +642,7 @@ internal class TranslationRequestCoordinator(
         // write runs first and the cancel removes the request) — the request
         // can never be resurrected. Admission then re-validates the captured
         // generation under the same lock inside translateChapter.
-        val generation = synchronized(pendingRequestMutationLock) {
-            val current = currentRequest(chapterId) ?: return
-            // A request that reached an explicit terminal phase (cancelled or
-            // failed by the download side) can never be satisfied by a
-            // completion callback.
-            if (current.isTerminal) return
-            val attachedGeneration = downloadAttachGenerations[chapterId]
-            if (attachedGeneration == null || attachedGeneration != current.generation) {
-                logcat(LogPriority.INFO) {
-                    "T911 dropped stale download-completion callback for chapter $chapterId " +
-                        "(attachedGeneration=$attachedGeneration currentGeneration=${current.generation})"
-                }
-                return
-            }
-            setPendingTranslationRequest(chapterId, TranslationRequestPhase.PREPARING)
-            current.generation
-        }
+        val generation = ledger.beginHandoffIfCurrent(chapterId) ?: return
         submitTranslation(manga, chapter, generation, autoStart)
     }
-
-    private data class PendingAcknowledgement(
-        val version: Long,
-        val generation: Long,
-        val groupId: String,
-    )
 }
