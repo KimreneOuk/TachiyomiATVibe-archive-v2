@@ -25,11 +25,7 @@ data class ChapterArtifactDeletionResult(
     val complete: Boolean get() = failures.isEmpty()
 }
 
-/**
- * Captures the exact artifact-owned paths before chapter teardown.
- * The plan is deliberately read-only until [delete] is called after all workers have
- * been cancelled and joined.
- */
+/** Captures artifact-owned paths before teardown; read-only until [delete] after workers are cancelled and joined. */
 class ChapterArtifactDeletionPlan private constructor(
     private val io: ChapterDocumentIo,
     val layout: ChapterArtifactLayout,

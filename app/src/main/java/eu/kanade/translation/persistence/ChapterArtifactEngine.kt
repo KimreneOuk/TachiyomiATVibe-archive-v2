@@ -55,11 +55,7 @@ class ChapterArtifactEngine(
     val candidates: ChapterCandidateTransactions = ChapterCandidateTransactions(documents, layout, this)
 
     internal companion object {
-        /**
-         * Captured at first engine use in this process: any candidate written
-         * later necessarily belongs to a live in-process run, while candidates
-         * stamped earlier predate the process and can only be crash debris.
-         */
+        /** Captured at first engine use: later candidates belong to this process; earlier ones are crash debris. */
         val processStartEpochMs: Long = System.currentTimeMillis()
     }
 
@@ -108,12 +104,9 @@ class ChapterArtifactEngine(
             val recovered = candidates.recoverInterruptedStages(existing)
             val reconciled = candidates.closeOrphanedCandidates(recovered, processStartEpochMs)
             recoverInterruptedStage.end()
-            // P3A: the open-time backup deletion was removed. The retained
-            // `.bak` is the chapter's crash-recovery copy and repair/retry
-            // evidence; the next manifest rotation replaces it, and explicit
-            // chapter teardown remains the only other remover. Interrupted-
-            // stage recovery (when it published) already rotated a fresh
-            // backup into place.
+            // P3A: the open-time backup deletion was removed. The retained `.bak` is the crash-recovery copy
+            // and repair/retry evidence; the next manifest rotation replaces it, and explicit chapter teardown
+            // remains the only other remover; interrupted-stage recovery (when it published) rotated a fresh one.
             return LoadResult(reconciled)
         }
 
@@ -147,12 +140,7 @@ class ChapterArtifactEngine(
     fun publishManifest(manifest: ChapterArtifactManifest): Boolean =
         publishManifestInternal(stampChapterKey(manifest))
 
-    /**
-     * P3A receipt of a destructive or initialization manifest publication:
-     * the publication must leave a verified same-state backup, because
-     * restoring a stale previous generation after a later primary corruption
-     * would resurrect state the destructive operation removed.
-     */
+    /** Destructive or initialization receipt: same-state backup prevents resurrection after primary corruption. */
     sealed interface DestructiveManifestReceipt {
         /** Primary and backup verified same-state. */
         data class Complete(val manifest: ChapterArtifactManifest) : DestructiveManifestReceipt
@@ -210,16 +198,9 @@ class ChapterArtifactEngine(
         }
     }
 
-    // ------------------------------------------------------------------
-    // Crash-safe store transactions.
-    //
-    // Every operation is crash-safe: immutable sidecars are published first
-    // (temp/validate/rename), the manifest pointer moves second, and a crash
-    // between the two leaves an orphan file that retention reconciliation
-    // removes later — never a committed pointer at a missing file. Candidate
-    // writes require the generation id, the expected page version, and the
-    // dependency fingerprint, so a stale worker cannot commit over newer work.
-    // ------------------------------------------------------------------
+    // Crash-safe store transactions: immutable sidecars publish first (temp/validate/rename), the manifest
+    // pointer moves second — a crash between them leaves an orphan file retention removes later, never a
+    // committed pointer at a missing file. Generation, page version and dependency fingerprint fence stale workers.
 
     /** Outcome of one store transaction; only [Committed] changed durable state. */
     sealed interface TransactionOutcome {
@@ -228,11 +209,7 @@ class ChapterArtifactEngine(
             val generationId: String? = null,
             val deletedFiles: List<String> = emptyList(),
             val candidateOpenState: CandidateOpenState? = null,
-            /**
-             * P3A destructive-checked publications only: set when the manifest
-             * publication physically succeeded but the same-state backup copy
-             * could not be verified. Null keeps the plain Committed contract.
-             */
+            /** P3A destructive only: manifest published but same-state backup unverified; null keeps Committed. */
             val unverifiedBackupReason: String? = null,
         ) : TransactionOutcome
 
@@ -242,12 +219,7 @@ class ChapterArtifactEngine(
         ) : TransactionOutcome
     }
 
-    /**
-     * One immutable sidecar to publish before its manifest pointer may move
-     *. [contentFingerprint] is the semantic content identity
-     * the caller established for the sidecar (it must match the pointer's);
-     * [publish] must go through [AtomicChapterDocuments.publish]/[AtomicChapterDocuments.publishJson].
-     */
+    /** Publish immutable sidecars via [AtomicChapterDocuments] before pointers; [contentFingerprint] must match. */
     class SidecarPublication(
         val fileName: String,
         val contentFingerprint: String,
@@ -299,12 +271,7 @@ class ChapterArtifactEngine(
     // ------------------------------------------------------------------
 
 
-    /**
-     * Builds one immutable JSON sidecar publication for
-     * [publishSidecarPointers] through the shared [AtomicChapterDocuments]
-     * Json, so callers outside this package can stage
-     * sidecar-then-pointer transactions without touching the document layer.
-     */
+    /** Builds a JSON sidecar publication for [publishSidecarPointers]; out-of-package callers stage transactions. */
     fun <T : Any> jsonSidecarPublication(
         fileName: String,
         contentFingerprint: String,
@@ -370,11 +337,7 @@ class ChapterArtifactEngine(
     /** Cancels and joins every asynchronous sweep at a store teardown boundary. */
     suspend fun cancelRetentionWorkAndJoin() = retentionScopeJob.cancelAndJoin()
 
-    /**
-     * Reclaims explicitly unlinked artifact files without a full tree crawl.
-     * Files referenced by [stagedReachable] or [durableManifest] are preserved
-     * so a concurrent publication cannot delete a still-reachable document.
-     */
+    /** Reclaims unlinked files without a tree crawl; [stagedReachable]/[durableManifest] references are preserved. */
     fun deleteKnownOrphans(
         candidateOrphans: Collection<String>,
         stagedReachable: Set<String> = emptySet(),
@@ -391,11 +354,7 @@ class ChapterArtifactEngine(
         documents.json.decodeFromStream<ChapterArtifactManifest>(bytes.inputStream())
     }.getOrNull()?.normalizeSupportedSchema()
 
-    /**
-     * Caches whether a supported schema version needs normalization. Future
-     * schema checks remain fresh so a newer document is never hidden by a
-     * stale normalization decision.
-     */
+    /** Caches whether a supported schema version needs normalization; future-schema checks stay fresh. */
     private val schemaNormalizationDecisionCache = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
 
     internal fun isNormalizationRequired(schemaVersion: Int): Boolean =
@@ -407,12 +366,7 @@ class ChapterArtifactEngine(
         schemaNormalizationDecisionCache.clear()
     }
 
-    /**
-     * Normalizes supported older manifests in memory so their next
-     * publication uses the current schema version. This prevents new pointer
-     * fields from being written into a schema that an older build might strip.
-     * Future schemas remain untouched and are rejected by the schema guard.
-     */
+    /** Normalize old schemas so older builds cannot strip new pointers; future schemas stay untouched. */
     private fun ChapterArtifactManifest.normalizeSupportedSchema(): ChapterArtifactManifest =
         if (isNormalizationRequired(schemaVersion)) {
             copy(schemaVersion = ChapterArtifactManifest.SCHEMA_VERSION)

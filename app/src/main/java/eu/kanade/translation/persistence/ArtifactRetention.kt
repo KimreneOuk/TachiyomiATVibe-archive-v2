@@ -1,10 +1,6 @@
 package eu.kanade.translation.persistence
 
-/**
- * Performs bounded retention work over chapter documents and artifact paths.
- * It is stateless; locking stays at the
- * [ChapterArtifactEngine.reconcileRetention] entry point.
- */
+/** Stateless bounded retention over chapter artifacts; locking lives at [ChapterArtifactEngine.reconcileRetention]. */
 internal class ArtifactRetention(
     private val io: ChapterDocumentIo,
     private val layout: ChapterArtifactLayout,
@@ -44,11 +40,7 @@ internal class ArtifactRetention(
         return candidates
     }
 
-    /**
-     * Recurses [directory]; returns true when every entry under it is itself a
-     * candidate (a fully reclaimable directory, matching the old
-     * became-empty rule). Managed roots are never candidates themselves.
-     */
+    /** Recurses [directory]; true when every entry is a candidate (became-empty rule); managed roots excluded. */
     private fun collectDirectory(
         directory: String,
         reachable: Set<String>,
@@ -182,14 +174,7 @@ internal class ArtifactRetention(
         return retainedImageGenerations.any { generationSegment -> fileName.startsWith("$generationSegment-") }
     }
 
-    /**
-     * Image files under `images/<pageSegment>/` embed their generation id as
-     * `<generationId>-<fingerprint>.<ext>`. A file is retained while its
-     * generation belongs to the manifest/generation graph: a committed,
-     * one-previous, or candidate bundle of any page, or any chapter-active
-     * candidate generation. This bounds retention to exactly those
-     * generations' files.
-     */
+    /** Keep images for committed, previous, page-candidate and chapter-active generations encoded in their names. */
     private fun retainedImageGenerations(manifest: ChapterArtifactManifest): Set<String> = buildSet {
         manifest.pages.values.forEach { page ->
             page.committed?.let { add(layout.generationSegment(it.generationId)) }
