@@ -13,11 +13,7 @@ import tachiyomi.domain.manga.model.Manga
 import java.io.IOException
 import java.io.InputStream
 
-/**
- * One planned page. [imageUrl] is the page-list value the reader keys on;
- * lazy-URL sources resolve the real image URL at prepare time, exactly like
- * the reader's own [eu.kanade.tachiyomi.ui.reader.loader.HttpPageLoader].
- */
+/** Planned page; [imageUrl] is the reader-keyed list value; lazy URLs resolve at prepare like HttpPageLoader. */
 internal class PlannedPage(
     val sourcePage: Page,
     val imageUrl: String?,

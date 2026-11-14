@@ -15,10 +15,7 @@ import eu.kanade.translation.processing.adaptive.DevicePermitPriority
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
-/**
- * Handles single-page lease acquisition, translation processing through TranslationProcessor,
- * guarded atomic store update, and attempt-fenced stage signal publication.
- */
+/** Single-page lease acquisition, processor translation, guarded atomic store update, attempt-fenced stage signals. */
 internal class ReaderPagePipeline(
     private val processor: TranslationProcessor,
     private val stageBoard: TranslationStageSignalBoard,
@@ -36,11 +33,9 @@ internal class ReaderPagePipeline(
                 diagnosticDetail = acquired.reason,
             )
         }
-        // TachiyomiAT: transient stage signals for the reader status pill.
-        // The full key includes the chapter key, so concurrent chapters can
-        // never bleed into each other's indicators; the attempt token fences a
-        // superseded attempt's reporter callbacks from overwriting a newer
-        // attempt's stage (spec §8 stale-callback rule).
+        // TachiyomiAT: transient stage signals for the reader status pill. The full key includes the
+        // chapter key, so concurrent chapters can never bleed into each other's indicators; the attempt
+        // token fences superseded attempt callbacks from overwriting a newer stage (spec §8 stale-callback rule).
         val fullStageKey = "${request.chapterKey}:${request.pageKey}"
         val stageAttempt = stageBoard.nextAttemptToken()
         try {
