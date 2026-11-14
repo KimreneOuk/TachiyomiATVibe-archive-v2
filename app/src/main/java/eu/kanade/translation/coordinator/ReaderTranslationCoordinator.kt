@@ -3,22 +3,15 @@ package eu.kanade.translation.coordinator
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.engines.translator.TranslatorComputeClass
 import eu.kanade.translation.model.PageRejectionKind
-import eu.kanade.translation.model.PageStage
-import eu.kanade.translation.model.PageTranslation
-import eu.kanade.translation.model.PageTranslationView
 import eu.kanade.translation.model.SinglePageOutcome
 import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.Translation
-import eu.kanade.translation.model.detachedCopy
-import eu.kanade.translation.model.isTextlessTerminal
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
 import eu.kanade.translation.persistence.ChapterTranslationStore
-import eu.kanade.translation.persistence.LeaseAcquisition
 import eu.kanade.translation.persistence.PageWriteOrigin
 import eu.kanade.translation.processing.MemoryPressurePolicy
 import eu.kanade.translation.processing.TranslationProcessor
 import eu.kanade.translation.processing.TranslationStageSignal
-import eu.kanade.translation.processing.adaptive.DevicePermitPriority
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -46,7 +39,6 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -60,40 +52,23 @@ import java.util.concurrent.atomic.AtomicLong
  * 4. Yields when batch translation owns the chapter lock.
  * 5. Direct commit of completed pages to [ChapterTranslationStore].
  */
-/**
- * True when submitted page work may be skipped as already-final. A
- * colorize-only page is NEVER final for reader dispatch — manual or
- * automatic: its OCR/translation statuses are placeholders, and a translate
- * request (explicit tap or auto-translation demand) must rework it, running
- * detection/render. Only genuinely translated or textless-terminal states
- * finalize page work.
- */
-internal fun isReaderPageWorkFinal(
-    state: PageTranslationView?,
-    force: Boolean,
-): Boolean = !force &&
-    (
-        state?.translationStatus == StageStatus.READY ||
-            state?.isTextlessTerminal == true
-        )
-
 internal class ReaderTranslationCoordinator(
     private val processor: TranslationProcessor,
     private val isBatchActiveForChapter: (String) -> Boolean = { false },
     private val resolveSessionStore: suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore? = { _, _, _ -> null },
     private val admitReaderSession: (Long) -> Boolean = { true },
-    private val beforeOpenSession: suspend (Long) -> Unit = {},
+    private val beforeOpenSession: suspend (Long) -> Unit = { },
     private val manualStreamProvider: (Manga, Chapter, HttpSource, String) -> (() -> java.io.InputStream)? = { _, _, _, _ -> null },
     private val isAutoTranslateEnabled: () -> Boolean = { true },
-    private val prepareEngines: suspend () -> Unit = {},
+    private val prepareEngines: suspend () -> Unit = { },
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob()),
     private val activeStoresProvider: () -> ActiveChapterStoreRegistry? = { null },
     private val batchCoordinator: BatchTranslationCoordinator? = null,
     private val sessionCoordinator: TranslationSessionCoordinator? = null,
-    private val clearPendingRequests: () -> Unit = {},
-    private val disposeBatchTracker: (Long) -> Unit = {},
-    private val unregisterActiveStore: suspend (Long) -> Unit = {},
-    private val retryPendingRekeysAfterReaderLeave: suspend () -> Unit = {},
+    private val clearPendingRequests: () -> Unit = { },
+    private val disposeBatchTracker: (Long) -> Unit = { },
+    private val unregisterActiveStore: suspend (Long) -> Unit = { },
+    private val retryPendingRekeysAfterReaderLeave: suspend () -> Unit = { },
     autoStart: Boolean = true,
 ) : Closeable {
 
@@ -131,7 +106,7 @@ internal class ReaderTranslationCoordinator(
     private val outcomeLock = Any()
     private val staleOutcomes = MutableStateFlow<Map<String, SinglePageOutcome>>(emptyMap())
     private val pendingSessionPreparations = AtomicInteger(0)
-    private val sessionSwitchJobs = CopyOnWriteArrayList<Job>()
+    private val sessionSwitchProtocol = SessionSwitchJoinProtocol()
 
     @Volatile
     private var activeSessionChapterKey: String? = null
@@ -160,6 +135,11 @@ internal class ReaderTranslationCoordinator(
      */
     private val stageBoard = TranslationStageSignalBoard()
     val pageStageSignalFlow = stageBoard.flow
+
+    private val pagePipeline = ReaderPagePipeline(
+        processor = processor,
+        stageBoard = stageBoard,
+    )
 
     private var workerJob: Job? = null
 
@@ -233,7 +213,7 @@ internal class ReaderTranslationCoordinator(
                         val job = scope.launch(start = CoroutineStart.LAZY) {
                             val outcome = try {
                                 prepareEngines()
-                                processRequest(nextRequest)
+                                pagePipeline.processRequest(nextRequest)
                             } catch (c: CancellationException) {
                                 throw c
                             } catch (t: Throwable) {
@@ -323,14 +303,8 @@ internal class ReaderTranslationCoordinator(
     fun pauseForSessionSwitch() {
         batchSwitchPauseRequested = true
         requestJobs.values.forEach { job ->
-            retainSessionSwitchJob(job)
+            sessionSwitchProtocol.retain(job)
             job.cancel()
-        }
-    }
-
-    private fun retainSessionSwitchJob(job: Job) {
-        if (sessionSwitchJobs.addIfAbsent(job)) {
-            job.invokeOnCompletion { sessionSwitchJobs.remove(job) }
         }
     }
 
@@ -349,18 +323,13 @@ internal class ReaderTranslationCoordinator(
                 updatePendingCountLocked()
             }
             requestJobs.values.forEach { job ->
-                retainSessionSwitchJob(job)
+                sessionSwitchProtocol.retain(job)
                 job.cancel()
             }
         }
-        chapterCancellationJobs.values.forEach(::retainSessionSwitchJob)
-        for (pendingJob in sessionSwitchJobs.toList()) {
-            if (withTimeoutOrNull(timeoutMs) { pendingJob.join() } == null) {
-                return false
-            }
-            sessionSwitchJobs.remove(pendingJob)
-        }
-        return inFlight.isEmpty() && requestJobs.isEmpty()
+        chapterCancellationJobs.values.forEach(sessionSwitchProtocol::retain)
+        val joined = sessionSwitchProtocol.joinAll(timeoutMs)
+        return joined && inFlight.isEmpty() && requestJobs.isEmpty()
     }
 
     suspend fun switchToBatchSession(chapterIds: Set<Long>): SessionAdmission {
@@ -676,84 +645,6 @@ internal class ReaderTranslationCoordinator(
         }
     }
 
-    private suspend fun processRequest(request: PageRequest): SinglePageOutcome {
-        val stream = request.streamFn ?: return SinglePageOutcome.Failed(request.pageKey, "Page image stream is unavailable")
-        val origin = if (request.isManual) PageWriteOrigin.MANUAL else PageWriteOrigin.AUTO
-        val store = request.session.store
-        val lease = when (val acquired = store.tryAcquirePageStageLease(request.pageKey, PageStage.Ocr, origin)) {
-            is LeaseAcquisition.Granted -> acquired.lease
-            is LeaseAcquisition.Denied -> return SinglePageOutcome.Rejected(
-                owner = acquired.owner,
-                kind = PageRejectionKind.ALREADY_OWNED,
-                diagnosticDetail = acquired.reason,
-            )
-        }
-        // TachiyomiAT: transient stage signals for the reader status pill.
-        // The full key includes the chapter key, so concurrent chapters can
-        // never bleed into each other's indicators; the attempt token fences a
-        // superseded attempt's reporter callbacks from overwriting a newer
-        // attempt's stage (spec §8 stale-callback rule).
-        val fullStageKey = "${request.chapterKey}:${request.pageKey}"
-        val stageAttempt = stageBoard.nextAttemptToken()
-        try {
-            // Fence against writes that happen while decode/native/remote work is running.
-            // Refreshing this at commit time would let an older candidate overwrite them.
-            val expected = store.snapshot(request.pageKey).toPrecondition().copy(leaseToken = lease.token)
-            stageBoard.publish(fullStageKey, TranslationStageSignal.PREPARING, stageAttempt)
-            val stageReporter = { stage: TranslationStageSignal ->
-                stageBoard.publish(fullStageKey, stage, stageAttempt)
-            }
-            val result = processor.processSinglePage(
-                pageKey = request.pageKey,
-                streamFn = stream,
-                recognitionEngine = processor.recognitionEngine,
-                translator = processor.textTranslator,
-                companionDir = processor.companionDirectory(
-                    request.session.manga,
-                    request.session.chapter,
-                    request.session.source,
-                ),
-                chapterId = request.session.chapter.id,
-                chapterName = request.session.chapter.name,
-                priority = if (request.isManual) DevicePermitPriority.FOREGROUND else DevicePermitPriority.BACKGROUND,
-                stageReporter = stageReporter,
-            )
-            val candidate = when (result) {
-                is TranslationProcessor.ProcessResult.Success -> result.page
-                is TranslationProcessor.ProcessResult.Failure -> result.page ?: PageTranslation(
-                    sourceFileName = request.pageKey,
-                ).apply {
-                    ocrStatus = StageStatus.FAILED
-                    errorMessage = result.errorMessage
-                }
-            }
-            val write = store.updatePageGuarded(
-                pageKey = request.pageKey,
-                expected = expected,
-                description = "reader:${result::class.simpleName}",
-            ) { candidate.detachedCopy() }
-            if (write is ChapterTranslationStore.PatchResult.Rejected) {
-                return SinglePageOutcome.Rejected(
-                    owner = origin,
-                    kind = PageRejectionKind.PERSISTENCE_FAILED,
-                    diagnosticDetail = write.reason,
-                )
-            }
-            return when (result) {
-                is TranslationProcessor.ProcessResult.Success -> SinglePageOutcome.Completed
-                is TranslationProcessor.ProcessResult.Failure -> SinglePageOutcome.Failed(request.pageKey, result.errorMessage)
-            }
-        } finally {
-            withContext(NonCancellable) {
-                store.releasePageStageLease(request.pageKey, origin)
-            }
-            // TachiyomiAT: drop this attempt's stage signal so the pill does not
-            // outlive the attempt. Removal only happens when the stored token
-            // is still this attempt's — a retried attempt owns the entry then.
-            stageBoard.clear("${request.chapterKey}:${request.pageKey}", stageAttempt)
-        }
-    }
-
     fun outcomeFor(chapterId: Long, pageKey: String): SinglePageOutcome? =
         outcomeStates[chapterId.toString()]?.value?.get(pageKey)
 
@@ -861,9 +752,6 @@ internal class ReaderTranslationCoordinator(
         return hadAutomaticDemand
     }
 
-    /**
-     * Updates viewport window: retains auto prefetch requests only for pages in [visibleOrNearPageKeys].
-     */
     suspend fun updateViewportWindow(chapterKey: String, visibleOrNearPageKeys: Set<String>) = mutex.withLock {
         val removed = autoQueue.keys.filter { key ->
             key.startsWith("$chapterKey:") && key.substringAfter("$chapterKey:") !in visibleOrNearPageKeys
@@ -876,7 +764,6 @@ internal class ReaderTranslationCoordinator(
         updatePendingCountLocked()
     }
 
-    /** Fire-and-forget counterpart for the reader's synchronous cancel button. */
     fun cancelPageAsync(chapterKey: String, pageKey: String): Boolean {
         val fullKey = "$chapterKey:$pageKey"
         val wasQueuedOrRunning = fullKey in queuedKeys || fullKey in inFlight
@@ -1069,7 +956,7 @@ internal class ReaderTranslationCoordinator(
         viewportStates.clear()
         viewportRevisions.clear()
         viewportLocks.clear()
-        sessionSwitchJobs.clear()
+        sessionSwitchProtocol.clear()
         pendingSessionPreparations.set(0)
         batchSwitchPauseRequested = false
         activeSessionChapterKey = null
@@ -1078,41 +965,5 @@ internal class ReaderTranslationCoordinator(
 
     private companion object {
         const val OUTCOME_RETENTION = 32
-    }
-}
-
-/**
- * TachiyomiAT: in-memory, per-attempt pipeline stage signals for live reader
- * feedback (the status pill). Atomic primitives — never persisted, never part
- * of the durable translation store. Carriers carry the attempt token so a
- * stale reporter callback arriving after a retry started can never overwrite
- * the newer attempt's stage (spec §8 stale-callback rule).
- */
-internal data class PageStageSignal(
-    val stage: TranslationStageSignal,
-    val attemptToken: Long,
-)
-
-internal class TranslationStageSignalBoard {
-    private val signals = MutableStateFlow<Map<String, PageStageSignal>>(emptyMap())
-    val flow: StateFlow<Map<String, PageStageSignal>> = signals.asStateFlow()
-
-    private val attemptCounter = AtomicLong()
-
-    fun nextAttemptToken(): Long = attemptCounter.incrementAndGet()
-
-    fun publish(fullKey: String, stage: TranslationStageSignal, attemptToken: Long) {
-        val current = signals.value[fullKey]
-        // Stale fence: a callback from an old attempt must never overwrite the
-        // newer attempt's stage.
-        if (current != null && current.attemptToken > attemptToken) return
-        signals.value = signals.value + (fullKey to PageStageSignal(stage, attemptToken))
-    }
-
-    fun clear(fullKey: String, attemptToken: Long) {
-        val current = signals.value[fullKey] ?: return
-        if (current.attemptToken == attemptToken) {
-            signals.value = signals.value - fullKey
-        }
     }
 }
