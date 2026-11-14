@@ -10,7 +10,7 @@ import eu.kanade.translation.coordinator.BatchAdmissionDecision
 import eu.kanade.translation.coordinator.BatchAdmissionProbe
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.engines.inpainting.InpaintingMode
-import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationRequestState
 import eu.kanade.translation.persistence.ChapterResetReceipt
@@ -54,7 +54,7 @@ internal class MangaTranslationCoordinator(
     private fun ensureInpaintModelAvailable(continueTranslation: () -> Unit): Boolean {
         if (!inpaintStartBlocked()) return true
         val modeName = InpaintingMode.fromPref(translationPreferences.translationInpaintingMode().get()).name
-        val modelName = LiteRTMangaInpaintingEngine.displayNameFor(
+        val modelName = LiteRtInpaintingAssetManager.displayNameFor(
             translationPreferences.translationInpaintingNeuralModel().get(),
         )
         updateSuccessState {

@@ -133,20 +133,6 @@ internal class PageStageLeaseTable(private val store: ChapterTranslationStore) {
             }
         }
 
-    /** Releases every lease held by [origin]; used at batch teardown. */
-    suspend fun releaseAllPageLeases(origin: PageWriteOrigin) {
-        withContext(NonCancellable) {
-            mutex.withLock {
-                synchronized(pageLeases) {
-                    pageLeases.entries
-                        .filter { it.value.origin == origin }
-                        .map { it.key }
-                        .forEach(pageLeases::remove)
-                }
-            }
-        }
-    }
-
     fun pageLeaseOwner(pageKey: String): PageWriteOrigin? = synchronized(pageLeases) {
         pageLeases[pageKey]?.origin
     }

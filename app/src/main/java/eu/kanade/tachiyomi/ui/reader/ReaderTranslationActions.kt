@@ -17,7 +17,7 @@ import eu.kanade.translation.coordinator.ReaderTrigger
 import eu.kanade.translation.coordinator.SessionAdmission
 import eu.kanade.translation.coordinator.SessionRejection
 import eu.kanade.translation.diagnostics.NativeVisionTelemetry
-import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import eu.kanade.translation.model.Translation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -67,7 +67,7 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
 
     /** BALANCE/QUALITY starts are impossible while the selected model's assets are absent; FAST never blocks. */
     private fun inpaintModelMissing(): Boolean =
-        LiteRTMangaInpaintingEngine.isNeuralStartBlocked(translationPreferences, Injekt.get<Application>())
+        LiteRtInpaintingAssetManager.isNeuralStartBlocked(translationPreferences, Injekt.get<Application>())
     private fun resolvePageKey(page: ReaderPage) = owner.resolvePageKey(page)
     private suspend fun ensureQueueSession(chapter: ReaderChapter) = controller.ensureQueueSession(chapter)
     private fun resetAutoTranslationState() = controller.resetAutoTranslationState()

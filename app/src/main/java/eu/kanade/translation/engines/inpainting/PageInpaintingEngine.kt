@@ -3,6 +3,7 @@ package eu.kanade.translation.engines.inpainting
 import android.graphics.Bitmap
 import eu.kanade.translation.engines.inpainting.aot.NeuralInpaintingCoordinator
 import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import eu.kanade.translation.engines.runtime.EngineMemoryBudget
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.StageStatus
@@ -24,7 +25,7 @@ class PageInpaintingEngine(
     private val neuralModel: NeuralInpaintModel = NeuralInpaintModel.LAMA_LITERT_GPU,
     private val notifyInpaintFailed: (String) -> Unit = { InpaintingFailureNotifier.announce(it) },
 ) {
-    private val neuralModelDisplayName = LiteRTMangaInpaintingEngine.displayNameFor(neuralModel)
+    private val neuralModelDisplayName = LiteRtInpaintingAssetManager.displayNameFor(neuralModel)
 
     fun inpaint(bitmap: Bitmap, pageTranslation: PageTranslation): Bitmap? {
         // Persisted masks and detector-only regions can outlive OCR blocks.

@@ -20,7 +20,7 @@ import eu.kanade.translation.coordinator.ReaderSubmission
 import eu.kanade.translation.coordinator.ReaderTrigger
 import eu.kanade.translation.diagnostics.AutoSmoothnessTelemetry
 import eu.kanade.translation.diagnostics.NativeVisionTelemetry
-import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import eu.kanade.translation.engines.translator.TranslatorComputeClass
 import eu.kanade.translation.engines.translator.providers.AiModelFetcher
 import eu.kanade.translation.engines.vision.ocr.OcrModelCatalog
@@ -108,7 +108,7 @@ internal class ReaderTranslationController(
 
     /** BALANCE/QUALITY starts are impossible while the selected model's assets are absent; FAST never blocks. */
     private fun inpaintModelMissing(): Boolean =
-        LiteRTMangaInpaintingEngine.isNeuralStartBlocked(translationPreferences, Injekt.get<Application>())
+        LiteRtInpaintingAssetManager.isNeuralStartBlocked(translationPreferences, Injekt.get<Application>())
 
     private fun maybeToastAutoInpaintMissing() {
         if (autoInpaintMissingToasted) return

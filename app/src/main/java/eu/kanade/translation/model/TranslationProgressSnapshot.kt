@@ -16,6 +16,9 @@ data class StageCount(
     val fraction: Float get() = if (total == 0) 0f else processed.toFloat() / total
 }
 
+/** Stages included in the chapter progress summary. */
+enum class BatchPhase { OCR, TRANSLATE, INPAINT, RENDER, DISPLAY }
+
 enum class AiPageProgressState {
     PENDING,
     BUFFERED,
