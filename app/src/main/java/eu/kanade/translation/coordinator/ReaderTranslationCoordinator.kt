@@ -36,16 +36,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Single-page translation coordinator for reader viewport demands.
- *
- * Enforces:
- * 1. Manual translation requests take absolute priority over auto prefetch requests.
- * 2. Strictly single-page in-flight concurrency (memory bound).
- * 3. Deduplication: skips pages already translated or in flight.
- * 4. Yields when batch translation owns the chapter lock.
- * 5. Direct commit of completed pages to [ChapterTranslationStore].
- */
+/** Reader translation: manual priority, one in-flight page to bound memory, dedupe, batch yield, store commit. */
 internal class ReaderTranslationCoordinator(
     private val processor: TranslationProcessor,
     private val isBatchActiveForChapter: (String) -> Boolean = { false },
@@ -109,13 +100,7 @@ internal class ReaderTranslationCoordinator(
     private val _pendingCount = MutableStateFlow(0)
     val pendingCount: StateFlow<Int> = _pendingCount.asStateFlow()
 
-    /**
-     * TachiyomiAT: in-memory, per-attempt pipeline stage signals for live
-     * reader feedback (status pill). Pure state machine extracted so the stale
-     * token fence is unit-testable without a coordinator. Keyed by FULL page
-     * key ("chapterKey:pageKey") so concurrent chapters can never
-     * cross-contaminate each other's indicators.
-     */
+    /** Full chapter:page keys isolate stage signals; attempt tokens prevent stale updates. */
     private val stageBoard = TranslationStageSignalBoard()
     val pageStageSignalFlow = stageBoard.flow
 
@@ -475,11 +460,7 @@ internal class ReaderTranslationCoordinator(
 
     fun reconcileAll(admissionGuard: (Long) -> Boolean = { true }) = viewport.reconcileAll(admissionGuard)
 
-    /**
-     * Transient COLORING stage signal for reader-direct colorize runs, which
-     * never enter the queue pipeline's own stage reporting ([processRequest]).
-     * The attempt token fences the clear against a newer attempt.
-     */
+    /** Reader-direct colorization bypasses queue reporting; attempt tokens prevent stale signal clears. */
     suspend fun <T> withColorizeStageSignal(
         chapterId: Long,
         pageKey: String,
@@ -550,10 +531,7 @@ internal class ReaderTranslationCoordinator(
         ),
     )
 
-    /**
-     * Enqueues a page for translation.
-     * Manual requests preempt all auto requests.
-     */
+    /** Enqueues a page for translation; manual requests preempt all auto requests. */
     suspend fun enqueuePage(request: PageRequest): Boolean = mutex.withLock {
         if (batchSwitchPauseRequested) return false
         val fullKey = "${request.chapterKey}:${request.pageKey}"

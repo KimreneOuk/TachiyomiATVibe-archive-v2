@@ -369,3 +369,12 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 
 - At `4360c324`, scanning 276 Kotlin files under `app/src/main/java/eu/kanade/translation` and excluding blank and comment-only lines yields four files at or above 700 code lines: `TranslationTrace` 1,013; `TranslationPipelineDiagnostics` 953; `TranslationProcessor` 852; `QnnDiagnostics` 840. Each is previously deferred. Reader is 695; all currently non-deferred files are below the threshold.
 - The comment-cap backlog remains open. A preliminary scan of standalone comment runs finds 912 over-cap runs (113 line-comment runs and 799 block comments); this is a heuristic and is not directly comparable to the earlier 917-run baseline without confirming its methodology. No device validation is implied by the JVM gates.
+
+### (k) File-size limit revised
+
+- The user revised the upper limit to 1,000 lines on 2026-11-14, superseding the earlier 700-line threshold. Applying the same code-line counting method as the prior checkpoint, only `TranslationTrace` (1,013) exceeds 1,000; `TranslationPipelineDiagnostics` (953), `TranslationProcessor` (852), and `QnnDiagnostics` (840) are below the limit. The previously recorded risk and deferral of diagnostics redesign still apply.
+- Comment-cap cleanup remains a separate, active backlog.
+
+### (l) Maintainability takes priority
+
+- The user clarified that file size is a signal, not a goal by itself: a split must have a coherent architectural responsibility and improve readability for developers new to the project. Avoid creating small files solely to reduce line counts; preserve useful concurrency and lifecycle rationale when shortening comments. The 1,000-line upper limit remains the stated guideline.
