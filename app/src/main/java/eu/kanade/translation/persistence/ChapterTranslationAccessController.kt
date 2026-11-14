@@ -165,6 +165,29 @@ internal class ChapterTranslationAccessController(
         }
     }
 
+    /**
+     * Admission-lock-held variant of [openOrCreateActiveChapterTranslationStore]
+     * for the reader admission transaction, which already holds the chapter's
+     * admission lock — the kotlinx Mutex is non-reentrant.
+     */
+    suspend fun openOrCreateActiveChapterTranslationStoreHoldingAdmissionLock(
+        chapterId: Long,
+        chapterName: String,
+        scanlator: String?,
+        mangaTitle: String,
+        source: Source,
+        mangaId: Long?,
+    ): ChapterTranslationStore? = withContext(Dispatchers.IO) {
+        openOrCreateActiveChapterTranslationStoreLocked(
+            chapterId,
+            chapterName,
+            scanlator,
+            mangaTitle,
+            source,
+            mangaId,
+        )
+    }
+
     private suspend fun openOrCreateActiveChapterTranslationStoreLocked(
         chapterId: Long,
         chapterName: String,

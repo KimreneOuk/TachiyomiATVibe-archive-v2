@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
@@ -76,6 +77,7 @@ internal class ReaderTranslationCoordinator(
     private val sessionBindings = ConcurrentHashMap<String, SessionBinding>()
     private val sessionBindingMutex = Mutex()
     private val readerGeneration = AtomicLong()
+    private val readerStopEpoch = AtomicLong()
     private val chapterCancellations = ConcurrentHashMap.newKeySet<String>()
     private val chapterCancellationJobs = ConcurrentHashMap<String, Job>()
     private val chapterCancellationLock = Any()
@@ -83,6 +85,9 @@ internal class ReaderTranslationCoordinator(
     private val staleOutcomes = MutableStateFlow<Map<String, SinglePageOutcome>>(emptyMap())
     private val pendingSessionPreparations = AtomicInteger(0)
     private val sessionSwitchProtocol = SessionSwitchJoinProtocol()
+
+    @Volatile
+    private var lastReaderStop: ReaderStopTicket? = null
 
     @Volatile
     private var activeSessionChapterKey: String? = null
@@ -139,8 +144,12 @@ internal class ReaderTranslationCoordinator(
             override fun isFinalInStore(request: PageRequest): Boolean =
                 isReaderPageWorkFinal(request.session.store.state.value[request.pageKey], request.force)
 
-            override fun publishOutcome(chapterKey: String, pageKey: String, outcome: SinglePageOutcome) {
-                outcomes.publish(chapterKey, pageKey, outcome)
+            override fun publishOutcome(chapterKey: String, pageKey: String, outcome: SinglePageOutcome, identity: ChapterTranslationStore.Identity?) {
+                // A tagged outcome from any store state other than the bound one
+                // can never commit; publishing it would poison the replacement
+                // session's retry gate.
+                if (identity != null && sessionBindings[chapterKey]?.session?.store?.currentIdentity != identity) return
+                outcomes.publish(chapterKey, pageKey, outcome, identity)
             }
 
             override fun setActiveKey(pageKey: String) {
@@ -183,6 +192,7 @@ internal class ReaderTranslationCoordinator(
         val token: ReaderSessionToken,
         val session: TranslationSession,
         val computeClass: TranslatorComputeClass,
+        val boundStopEpoch: Long,
     )
 
     init {
@@ -317,27 +327,28 @@ internal class ReaderTranslationCoordinator(
         })
     }
 
+    /**
+     * Opens a session for direct (untransactional) use. Store resolution runs
+     * under the chapter's admission lock via the lock-held [resolveSessionStore]
+     * variant — the kotlinx Mutex is non-reentrant.
+     */
     suspend fun openSession(manga: Manga, chapter: Chapter, source: HttpSource): TranslationSession? {
         val chapterId = chapter.id ?: return null
-        beforeOpenSession(chapterId)
-        val store = resolveSessionStore(manga, chapter, source) ?: return null
-        return TranslationSession("${source.id}:${manga.id}:$chapterId", manga, chapter, source, store)
+        val stores = activeStores ?: return openSessionAdmitted(manga, chapter, source)
+        return stores.withChapterAdmissionLock(chapterId) { openSessionAdmitted(manga, chapter, source) }
     }
 
-    /** Binds a reader token to its live store and invalidates an older chapter binding. */
+    /**
+     * Binds a reader token to its live store, invalidating an older chapter
+     * binding. A bind arriving while a reader stop enumerates waits on the
+     * binding mutex and records the epoch, so the stop skips this newer session.
+     */
     suspend fun bindSession(
         session: TranslationSession,
         computeClass: TranslatorComputeClass,
     ): ReaderSessionToken? {
         val chapterId = session.chapter.id ?: return null
         val chapterKey = chapterId.toString()
-        if (batchSwitchPauseRequested ||
-            readerStopInFlight ||
-            chapterKey in chapterCancellations ||
-            isBatchActiveForChapter(chapterKey)
-        ) {
-            return null
-        }
         chapterCancellationJobs[chapterKey]?.join()
         return sessionBindingMutex.withLock {
             if (batchSwitchPauseRequested ||
@@ -371,10 +382,55 @@ internal class ReaderTranslationCoordinator(
             }
             if (existing != null) cancelChapter(chapterKey)
             val token = ReaderSessionToken(session.key, readerGeneration.incrementAndGet())
-            sessionBindings[chapterKey] = SessionBinding(token, session, computeClass)
+            sessionBindings[chapterKey] = SessionBinding(token, session, computeClass, readerStopEpoch.get())
             activeSessionChapterKey = chapterKey
             token
         }
+    }
+
+    /**
+     * Atomically resolves the chapter's active store and binds the session
+     * under the same admission lock eviction takes, so a bind never straddles
+     * an eviction. [resolveSessionStore] must not re-take the non-reentrant lock.
+     */
+    suspend fun admitReaderSessionUse(
+        manga: Manga,
+        chapter: Chapter,
+        source: HttpSource,
+        computeClass: TranslatorComputeClass,
+    ): ReaderAdmission {
+        val chapterId = chapter.id ?: return ReaderAdmission.StoreUnavailable
+        val expectedKey = "${source.id}:${manga.id}:$chapterId"
+        val bind: suspend () -> ReaderAdmission = {
+            val chapterKey = chapterId.toString()
+            val existing = sessionBindings[chapterKey]?.session
+            val session = if (existing?.key == expectedKey) existing else openSessionAdmitted(manga, chapter, source)
+            when {
+                session == null -> ReaderAdmission.StoreUnavailable
+                else -> when (val token = bindSession(session, computeClass)) {
+                    null -> ReaderAdmission.SessionDenied
+                    else -> {
+                        // Outcomes tagged with a superseded store identity can never
+                        // commit; dropping those blocking rejections lets the freshly
+                        // bound session retry the affected pages.
+                        outcomes.removeStaleRejections(chapterKey, session.store.currentIdentity)
+                        ReaderAdmission.Admitted(token)
+                    }
+                }
+            }
+        }
+        // Store resolution and binding are atomic against store eviction under
+        // the chapter's admission lock; without a registry there is no eviction
+        // to guard against.
+        val stores = activeStores ?: return bind()
+        return stores.withChapterAdmissionLock(chapterId, bind)
+    }
+
+    private suspend fun openSessionAdmitted(manga: Manga, chapter: Chapter, source: HttpSource): TranslationSession? {
+        val chapterId = chapter.id ?: return null
+        beforeOpenSession(chapterId)
+        val store = resolveSessionStore(manga, chapter, source) ?: return null
+        return TranslationSession("${source.id}:${manga.id}:$chapterId", manga, chapter, source, store)
     }
 
     fun sessionFor(token: ReaderSessionToken): TranslationSession? =
@@ -481,24 +537,24 @@ internal class ReaderTranslationCoordinator(
         beginSessionPreparation()
         scope.launch {
             try {
-                val session = openSession(manga, chapter, source)
-                if (session == null) {
-                    chapter.id?.let { outcomes.publish(it.toString(), pageKey, SinglePageOutcome.Failed(pageKey, "store unavailable")) }
-                    return@launch
-                }
-                val token = bindSession(session, TranslatorComputeClass.REMOTE_IO)
-                if (token == null) {
-                    chapter.id?.let {
-                        outcomes.publish(
-                            it.toString(),
-                            pageKey,
-                            SinglePageOutcome.Rejected(null, PageRejectionKind.SESSION_DENIED, "reader session denied"),
-                        )
+                when (val admission = admitReaderSessionUse(manga, chapter, source, TranslatorComputeClass.REMOTE_IO)) {
+                    ReaderAdmission.StoreUnavailable -> {
+                        chapter.id?.let { outcomes.publish(it.toString(), pageKey, SinglePageOutcome.Failed(pageKey, "store unavailable")) }
                     }
-                    return@launch
+                    ReaderAdmission.SessionDenied -> {
+                        chapter.id?.let {
+                            outcomes.publish(
+                                it.toString(),
+                                pageKey,
+                                SinglePageOutcome.Rejected(null, PageRejectionKind.SESSION_DENIED, "reader session denied"),
+                            )
+                        }
+                    }
+                    is ReaderAdmission.Admitted -> {
+                        val work = ReaderPageWork(pageKey, -1, manualStreamProvider(manga, chapter, source, pageKey))
+                        submitPage(admission.token, work, ReaderTrigger.MANUAL_TAP, force)
+                    }
                 }
-                val work = ReaderPageWork(pageKey, -1, manualStreamProvider(manga, chapter, source, pageKey))
-                submitPage(token, work, ReaderTrigger.MANUAL_TAP, force)
             } finally {
                 withContext(NonCancellable) {
                     endSessionPreparationAndReleaseIfIdle()
@@ -652,18 +708,27 @@ internal class ReaderTranslationCoordinator(
         worker.cancelAndJoin(keys)
     }
 
-    /** Drains every reader request before a global reader teardown. */
-    suspend fun cancelAllAndJoin() {
+    /** Drains every reader request before a global reader teardown. Chapters bound at or after [skipChaptersBoundAtOrAfter] belong to a newer session and are left untouched. */
+    suspend fun cancelAllAndJoin(skipChaptersBoundAtOrAfter: Long? = null) {
         readerStopInFlight = true
         try {
             sessionBindingMutex.withLock {
+                val protectedChapters = skipChaptersBoundAtOrAfter?.let { epoch ->
+                    sessionBindings.keys.filterTo(mutableSetOf()) { key ->
+                        (sessionBindings[key]?.boundStopEpoch ?: Long.MIN_VALUE) >= epoch
+                    }
+                } ?: emptySet()
                 val chapters = mutex.withLock {
                     (manualQueue.values + autoQueue.values).mapTo(linkedSetOf()) { it.chapterKey }
                 }
                 chapters += worker.trackedChapterKeys()
                 chapters += autoEnabledChapters
                 chapters += sessionBindings.keys
+                chapters.removeAll(protectedChapters)
                 chapters.forEach { cancelChapter(it) }
+                // Cleared under the same mutex that bindSession re-checks, so a
+                // queued bind never observes a stale in-flight flag.
+                readerStopInFlight = false
             }
         } finally {
             readerStopInFlight = false
@@ -672,34 +737,70 @@ internal class ReaderTranslationCoordinator(
 
     /** Schedules joined reader teardown on the coordinator lifetime. */
     fun stopReaderTranslations(reason: String) {
-        scope.launch(start = CoroutineStart.DEFAULT) {
+        beginReaderStop(reason, terminal = false)
+    }
+
+    /**
+     * Schedules a joined reader teardown and assigns its stop epoch synchronously,
+     * so any session bound after this call is newer than the stop. Background stops
+     * skip chapters bound at or after the epoch; terminal stops tear down everything.
+     */
+    fun beginReaderStop(reason: String, terminal: Boolean): ReaderStopTicket {
+        val epoch = readerStopEpoch.incrementAndGet()
+        val completion = scope.async(start = CoroutineStart.DEFAULT) {
+            if (terminal) runTerminalReaderStop(reason) else runBackgroundReaderStop(epoch, reason)
+        }
+        val ticket = ReaderStopTicket(epoch, terminal, completion)
+        lastReaderStop = ticket
+        return ticket
+    }
+
+    /** Resolves once the latest reader stop — background or terminal — finished; false if it is still running after [timeoutMs]. */
+    suspend fun awaitPendingReaderStop(timeoutMs: Long = 10_000L): Boolean {
+        val stop = lastReaderStop ?: return true
+        return withTimeoutOrNull(timeoutMs) {
+            stop.await()
+            true
+        } ?: false
+    }
+
+    private suspend fun runTerminalReaderStop(reason: String) {
+        withContext(Dispatchers.IO) {
             readerTeardownMutex.withLock {
                 sessionCoordinator?.abortPausingToBatch()
-                cancelAllPageTranslations(cancelBatchQueue = false, reason = reason)
-                if (!isAnyBatchTranslationActive()) {
+                cancelAllAndJoin(skipChaptersBoundAtOrAfter = null)
+                evictRegisteredStores(reason, skipChaptersBoundAtOrAfter = null, clearTransientQueues = false)
+                sessionCoordinator?.finishSession(TranslationSessionState.READER_SESSION)
+            }
+            retryPendingRekeysAfterReaderLeave()
+        }
+    }
+
+    private suspend fun runBackgroundReaderStop(stopEpoch: Long, reason: String) {
+        withContext(Dispatchers.IO) {
+            readerTeardownMutex.withLock {
+                sessionCoordinator?.abortPausingToBatch()
+                cancelAllAndJoin(skipChaptersBoundAtOrAfter = stopEpoch)
+                evictRegisteredStores(reason, skipChaptersBoundAtOrAfter = stopEpoch, clearTransientQueues = true)
+                // The batch side flips TRANSLATING->QUEUE and releases native
+                // buffers. A session that survived this stop still owns the
+                // engines, and active batch work keeps them too.
+                if (!hasChapterBoundAtOrAfter(stopEpoch) && !isAnyBatchTranslationActive()) {
                     batchCoordinator?.stop(reason, closeEngines = false)
                 }
-                sessionCoordinator?.finishSession(TranslationSessionState.READER_SESSION)
+                // A newer session survived this stop; it owns READER_SESSION.
+                if (!hasChapterBoundAtOrAfter(stopEpoch)) {
+                    sessionCoordinator?.finishSession(TranslationSessionState.READER_SESSION)
+                }
             }
         }
     }
 
     fun requestReaderStop(reason: String): Deferred<Unit> =
-        scope.async(start = CoroutineStart.DEFAULT) { awaitReaderStop(reason) }
+        scope.async(start = CoroutineStart.DEFAULT) { beginReaderStop(reason, terminal = true).await() }
 
     suspend fun awaitReaderStop(reason: String) {
-        withContext(Dispatchers.IO) {
-            readerTeardownMutex.withLock {
-                sessionCoordinator?.abortPausingToBatch()
-                cancelAllAndJoin()
-                val chapterIdsToEvict = activeStores?.chapterIds()
-                    ?.filterNot { isChapterBatchActive(it, includePaused = true) }
-                    .orEmpty()
-                chapterIdsToEvict.forEach { unregisterActiveStore(it) }
-                sessionCoordinator?.finishSession(TranslationSessionState.READER_SESSION)
-            }
-            retryPendingRekeysAfterReaderLeave()
-        }
+        beginReaderStop(reason, terminal = true).await()
     }
 
     fun cancelPageTranslation(chapterId: Long, pageKey: String): Boolean =
@@ -717,22 +818,26 @@ internal class ReaderTranslationCoordinator(
         releaseSessionIfIdle()
         if (isChapterBatchActive(chapterId, includePaused = true)) return
         disposeBatchTracker(chapterId)
-        activeStores?.get(chapterId)?.clearTransientQueuePages(reason)
-        withContext(Dispatchers.IO) { unregisterActiveStore(chapterId) }
+        withContext(Dispatchers.IO) {
+            val stores = activeStores ?: return@withContext
+            stores.withChapterAdmissionLock(chapterId) {
+                stores.get(chapterId)?.clearTransientQueuePages(reason)
+                unregisterActiveStore(chapterId)
+            }
+        }
     }
 
     suspend fun cancelAllPageTranslations(
         cancelBatchQueue: Boolean = false,
         reason: String = "All translation cancelled",
     ) {
-        cancelAllAndJoin()
-        val chapterIdsToEvict = activeStores?.chapterIds()
-            ?.filter { cancelBatchQueue || !isChapterBatchActive(it, includePaused = true) }
-            .orEmpty()
-        chapterIdsToEvict.mapNotNull { activeStores?.get(it) }.forEach { store ->
-            store.clearTransientQueuePages(reason)
-        }
-        chapterIdsToEvict.forEach { unregisterActiveStore(it) }
+        cancelAllAndJoin(skipChaptersBoundAtOrAfter = null)
+        evictRegisteredStores(
+            reason = reason,
+            skipChaptersBoundAtOrAfter = null,
+            clearTransientQueues = true,
+            includeBatchStores = cancelBatchQueue,
+        )
         if (cancelBatchQueue) {
             batchCoordinator?.clearQueue()
             clearPendingRequests()
@@ -748,6 +853,37 @@ internal class ReaderTranslationCoordinator(
     ) = withContext(Dispatchers.IO) {
         cancelAllPageTranslations(cancelBatchQueue, reason)
     }
+
+    /**
+     * Evicts registered stores under each chapter's admission lock, skipping
+     * chapters bound at or after [skipChaptersBoundAtOrAfter]; batch-owned
+     * stores are untouched unless [includeBatchStores] clears the queue with them.
+     */
+    private suspend fun evictRegisteredStores(
+        reason: String,
+        skipChaptersBoundAtOrAfter: Long?,
+        clearTransientQueues: Boolean,
+        includeBatchStores: Boolean = false,
+    ) {
+        val stores = activeStores ?: return
+        val chapterIdsToEvict = stores.chapterIds()
+            .filter { includeBatchStores || !isChapterBatchActive(it, includePaused = true) }
+        chapterIdsToEvict.forEach { chapterId ->
+            stores.withChapterAdmissionLock(chapterId) {
+                if (skipChaptersBoundAtOrAfter != null && isChapterBoundAtOrAfter(chapterId, skipChaptersBoundAtOrAfter)) {
+                    return@withChapterAdmissionLock
+                }
+                if (clearTransientQueues) stores.get(chapterId)?.clearTransientQueuePages(reason)
+                unregisterActiveStore(chapterId)
+            }
+        }
+    }
+
+    private fun isChapterBoundAtOrAfter(chapterId: Long, stopEpoch: Long): Boolean =
+        (sessionBindings[chapterId.toString()]?.boundStopEpoch ?: Long.MIN_VALUE) >= stopEpoch
+
+    private fun hasChapterBoundAtOrAfter(stopEpoch: Long): Boolean =
+        sessionBindings.values.any { it.boundStopEpoch >= stopEpoch }
 
     private fun isAnyBatchTranslationActive(): Boolean = batchCoordinator?.queueState?.value?.any {
         it.status == Translation.State.QUEUE || it.status == Translation.State.TRANSLATING

@@ -176,7 +176,10 @@ class HttpPageLoaderDiagnosticsTest {
 
         every { chapterCache.isImageInCache(url) } returns false
         coEvery { source.getImage(page) } returns mockResponse
-        every { chapterCache.putImageToCache(url, any()) } answers { }
+        coEvery { chapterCache.getOrDownloadImage(url, any()) } coAnswers {
+            secondArg<suspend () -> Response>().invoke().close()
+            ChapterCache.ImageCacheResult.DOWNLOADED
+        }
         every { chapterCache.getImageFile(url) } returns imageFile
 
         val loader = HttpPageLoader(chapter, source, chapterCache)
@@ -214,6 +217,10 @@ class HttpPageLoaderDiagnosticsTest {
 
         every { chapterCache.isImageInCache(url) } returns false
         coEvery { source.getImage(page) } throws IOException("Connection timed out")
+        coEvery { chapterCache.getOrDownloadImage(url, any()) } coAnswers {
+            secondArg<suspend () -> Response>().invoke().close()
+            ChapterCache.ImageCacheResult.DOWNLOADED
+        }
 
         val loader = HttpPageLoader(chapter, source, chapterCache)
         try {

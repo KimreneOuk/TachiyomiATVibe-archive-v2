@@ -93,17 +93,11 @@ internal class OnlineColorizePageStreamResolver(
             val imageUrl = page.effectiveImageUrl()
                 ?: throw IOException("Couldn't resolve the image URL for page $pageKey")
             page.sourcePage.imageUrl = imageUrl
-            // The reader holds the cache entry's single DiskLruCache editor
-            // while it prefetches the page the user is currently reading; a
-            // colorize download of the same URL fails transiently ("Unable to
-            // edit key"). Back off and retry before declaring the page
-            // unreachable — the run aborts on the first fetch failure, so one
-            // retry here saves the whole chapter.
+            if (chapterCache.isImageInCache(imageUrl)) return
             var lastFailure: Throwable? = null
             for (attempt in 1..DOWNLOAD_ATTEMPTS) {
-                if (chapterCache.isImageInCache(imageUrl)) return
                 lastFailure = try {
-                    chapterCache.putImageToCache(imageUrl, source.getImage(page.sourcePage))
+                    chapterCache.getOrDownloadImage(imageUrl) { source.getImage(page.sourcePage) }
                     null
                 } catch (e: CancellationException) {
                     throw e

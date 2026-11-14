@@ -78,7 +78,6 @@ class TranslationManager private constructor(
         val sessionCoordinator: TranslationSessionCoordinator?,
         val streamRegistry: TranslationStreamRegistry,
         val readerCoordinator: ReaderTranslationCoordinator?,
-        val readerStoreResolver: (suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore?)?,
     )
 
     companion object {
@@ -96,7 +95,6 @@ class TranslationManager private constructor(
             sessionCoordinator: TranslationSessionCoordinator? = null,
             streamRegistry: TranslationStreamRegistry = TranslationStreamRegistry(),
             readerCoordinator: ReaderTranslationCoordinator? = null,
-            readerStoreResolver: (suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore?)? = null,
         ): TranslationManager = TranslationManager(
             context = context,
             provider = provider,
@@ -111,7 +109,6 @@ class TranslationManager private constructor(
                 sessionCoordinator = sessionCoordinator,
                 streamRegistry = streamRegistry,
                 readerCoordinator = readerCoordinator,
-                readerStoreResolver = readerStoreResolver,
             ),
         )
     }
@@ -167,8 +164,6 @@ class TranslationManager private constructor(
         }
 
     internal val testReaderCoordinator: ReaderTranslationCoordinator? get() = testConstruction?.readerCoordinator
-    internal val testReaderStoreResolver: (suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore?)?
-        get() = testConstruction?.readerStoreResolver
 
     /**
      * Application-lifetime scope for one-off init work (queue rehydration). SupervisorJob so a

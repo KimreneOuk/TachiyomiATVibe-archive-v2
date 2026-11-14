@@ -91,6 +91,7 @@ internal class NpuMangaColorizationEngine(
 
     @Synchronized
     override fun colorize(source: Bitmap, seed: Long): Bitmap {
+        val started = System.nanoTime()
         // seed is unused: the generator is deterministic.
         val active = session ?: throw IllegalStateException(
             initFailure?.let { "MCV2 NPU colorization unavailable (no fallback): $it" }
@@ -130,13 +131,16 @@ internal class NpuMangaColorizationEngine(
             }
             res
         }
+        val preprocessedAt = System.nanoTime()
         val input = MangaColorizationPreprocessor.grayNchwFromGrayPlane(
             preprocessed.plane,
             letterbox,
             INPUT_WIDTH,
             INPUT_HEIGHT,
         )
+        val packedAt = System.nanoTime()
         val output = active.runtime.run(input)
+        val inferredAt = System.nanoTime()
         val expectedOutputCount = OUTPUT_FLOAT_COUNT
         check(output.size == expectedOutputCount) {
             "MCV2 NPU returned ${output.size} floats; expected $expectedOutputCount"
@@ -149,10 +153,22 @@ internal class NpuMangaColorizationEngine(
             letterbox.width,
             letterbox.height,
         )
+        val convertedAt = System.nanoTime()
+        val mode = colorCombineMode()
         return try {
-            MangaColorizationImageProcessing.applyLook(source, coloredWork, colorCombineMode())
+            MangaColorizationImageProcessing.applyLook(source, coloredWork, mode)
         } finally {
             coloredWork.recycle()
+            val finished = System.nanoTime()
+            logcat(LogPriority.INFO) {
+                "[ColorizeTiming] model=MCV2 preset=$mode source=${source.width}x${source.height} " +
+                    "denoise=${if (useFfdnet) "ffdnet" else "bilateral"} " +
+                    "preprocessMs=${(preprocessedAt - started) / 1_000_000} " +
+                    "packMs=${(packedAt - preprocessedAt) / 1_000_000} " +
+                    "inferenceMs=${(inferredAt - packedAt) / 1_000_000} " +
+                    "convertMs=${(convertedAt - inferredAt) / 1_000_000} " +
+                    "lookMs=${(finished - convertedAt) / 1_000_000} totalMs=${(finished - started) / 1_000_000}"
+            }
         }
     }
 

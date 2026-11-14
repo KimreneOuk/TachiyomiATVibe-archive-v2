@@ -104,14 +104,20 @@ internal class MangaLightHybridColorizationEngine(
             SIZE,
             SIZE,
         )
+        val converted = System.nanoTime()
+        val mode = colorCombineMode()
         return try {
-            MangaColorizationImageProcessing.applyLook(source, work, colorCombineMode())
+            MangaColorizationImageProcessing.applyLook(source, work, mode)
         } finally {
             work.recycle()
             logcat(LogPriority.INFO) {
-                "Manga Light hybrid: preprocess=${(prepared - started) / 1_000_000}ms " +
-                    "inference=${(inferred - prepared) / 1_000_000}ms " +
-                    "total=${(System.nanoTime() - started) / 1_000_000}ms"
+                "[ColorizeTiming] model=MANGA_LIGHT preset=$mode source=${source.width}x${source.height} " +
+                    "denoise=${if (useFfdnet) "ffdnet" else "bilateral"} " +
+                    "preprocessMs=${(prepared - started) / 1_000_000} " +
+                    "inferenceMs=${(inferred - prepared) / 1_000_000} " +
+                    "convertMs=${(converted - inferred) / 1_000_000} " +
+                    "lookMs=${(System.nanoTime() - converted) / 1_000_000} " +
+                    "totalMs=${(System.nanoTime() - started) / 1_000_000}"
             }
         }
     }
@@ -142,20 +148,29 @@ internal class MangaLightHybridColorizationEngine(
 
     private class Session(private val environments: List<Environment>, private val stages: List<Stage>, private val generator: Stage) : AutoCloseable {
         fun run(luma: FloatArray, rgb: FloatArray): FloatArray {
+            val started = System.nanoTime()
             var input = rgb
             for (stage in stages.take(3)) input = stage.run(mapOf(stage.inputNames.single() to input)).getValue(stage.outputNames.single())
             val features = stages.last().run(mapOf("enc_stage3_in" to input))
+            val samFinished = System.nanoTime()
             val nchw = features.getValue("sam_level0")
             val level0 = samLevel0ToNhwc(nchw)
             val level1 = features.getValue("sam_level1")
             check(level1.size == 256 * 32 * 32) { "Invalid SAM level 1" }
-            return generator.run(
+            val packed = System.nanoTime()
+            val output = generator.run(
                 mapOf(
                     "L_bw" to FloatArray(luma.size) { luma[it] * 2f - 1f },
                     "sam_level0" to level0,
                     "sam_level1" to level1,
                 ),
             ).getValue("rgb_pred")
+            logcat(LogPriority.INFO) {
+                "[ColorizeTiming] model=MANGA_LIGHT samMs=${(samFinished - started) / 1_000_000} " +
+                    "featurePackMs=${(packed - samFinished) / 1_000_000} " +
+                    "generatorMs=${(System.nanoTime() - packed) / 1_000_000}"
+            }
+            return output
         }
 
         override fun close() {

@@ -52,6 +52,7 @@ internal class TranslationManagerCoordinators(
     batchCoordinatorOverride: BatchTranslationCoordinator? = null,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     isBatchActive: (Long) -> Boolean,
+    /** Lock-held store resolution: the reader admission transaction already holds the chapter admission lock. */
     resolveReaderStore: suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore?,
     admitReaderSession: (Long) -> Boolean,
     beforeOpenReaderSession: suspend (Long) -> Unit,
@@ -232,9 +233,9 @@ internal fun TranslationManager.createCoordinatorRuntime(): TranslationManagerCo
     batchCoordinatorOverride = testConstruction?.batchCoordinator,
     scope = applicationScope,
     isBatchActive = { chapterId -> batchCoordinator.isChapterBatchActive(chapterId, includePaused = false) },
-    resolveReaderStore = testReaderStoreResolver ?: { manga, chapter, source ->
+    resolveReaderStore = { manga, chapter, source ->
         chapter.id?.let { chapterId ->
-            chapterTranslationAccess.openOrCreateActiveChapterTranslationStore(
+            chapterTranslationAccess.openOrCreateActiveChapterTranslationStoreHoldingAdmissionLock(
                 chapterId,
                 chapter.name,
                 chapter.scanlator,

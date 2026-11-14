@@ -565,7 +565,10 @@ internal class TranslationProcessor(
         // First call builds the engine runtime; absence is feature-absence, not
         // a page failure. A reported initializationError marks a hard-fail route
         // and must surface as FAILED instead of a silent skip.
-        if (!coloringEngine.isAvailable()) {
+        val initStarted = System.nanoTime()
+        val available = coloringEngine.isAvailable()
+        val initialized = System.nanoTime()
+        if (!available) {
             val initFailure = coloringEngine.initializationError()
             if (initFailure != null) {
                 page.coloringStatus = StageStatus.FAILED
@@ -600,6 +603,7 @@ internal class TranslationProcessor(
         page.coloringError = null
         page.coloringStamp = coloringEngine.currentStamp()
         page.coloredFromOriginal = fromOriginal
+        val publicationStarted = System.nanoTime()
         try {
             if (companionDir != null) {
                 val publication = cleanedPublication
@@ -627,6 +631,13 @@ internal class TranslationProcessor(
             page.coloredImageContentHash = null
             page.coloringStatus = StageStatus.FAILED
             page.coloringError = "Colored image publication failed"
+        }
+        logcat(LogPriority.INFO) {
+            "[ColorizeTiming] page=$pageKey model=${coloringEngine.javaClass.simpleName} " +
+                "preset=${translationPreferences?.colorCombineMode()?.get()} " +
+                "initMs=${(initialized - initStarted) / 1_000_000} " +
+                "publicationMs=${(System.nanoTime() - publicationStarted) / 1_000_000} " +
+                "published=${page.coloredImageName != null} status=${page.coloringStatus}"
         }
         colored
     }
