@@ -52,7 +52,7 @@ class HttpPageLoaderDiagnosticsTest {
     }
 
     @Test
-    fun `getPages emits get_pages with cacheHit true on cache hit`() = runBlocking {
+    fun `getPages emits get_pages with cacheHit true on cache hit`() = runBlocking<Unit> {
         val chapter = createTestChapter(42L)
         val source = mockk<HttpSource>(relaxed = true)
         val chapterCache = mockk<ChapterCache>(relaxed = true)
@@ -82,7 +82,7 @@ class HttpPageLoaderDiagnosticsTest {
     }
 
     @Test
-    fun `getPages emits get_pages with cacheHit false on cache miss and network fetch`() = runBlocking {
+    fun `getPages emits get_pages with cacheHit false on cache miss and network fetch`() = runBlocking<Unit> {
         val chapter = createTestChapter(42L)
         val source = mockk<HttpSource>(relaxed = true)
         val chapterCache = mockk<ChapterCache>(relaxed = true)
@@ -114,7 +114,7 @@ class HttpPageLoaderDiagnosticsTest {
     }
 
     @Test
-    fun `internalLoadPage emits image_fetch_done for disk cache hit`(@TempDir tempDir: File) = runBlocking {
+    fun `internalLoadPage emits image_fetch_done for disk cache hit`(@TempDir tempDir: File) = runBlocking<Unit> {
         val chapter = createTestChapter(42L)
         val source = mockk<HttpSource>(relaxed = true)
         val chapterCache = mockk<ChapterCache>(relaxed = true)
@@ -153,7 +153,7 @@ class HttpPageLoaderDiagnosticsTest {
     }
 
     @Test
-    fun `internalLoadPage emits image_fetch_done with speed for network download`(@TempDir tempDir: File) = runBlocking {
+    fun `internalLoadPage emits image_fetch_done with speed for network download`(@TempDir tempDir: File) = runBlocking<Unit> {
         val chapter = createTestChapter(42L)
         val source = mockk<HttpSource>(relaxed = true)
         val chapterCache = mockk<ChapterCache>(relaxed = true)
@@ -202,7 +202,7 @@ class HttpPageLoaderDiagnosticsTest {
     }
 
     @Test
-    fun `internalLoadPage emits image_fetch_error and sets error state on fetch failure`() = runBlocking {
+    fun `internalLoadPage emits image_fetch_error and sets error state on fetch failure`() = runBlocking<Unit> {
         val chapter = createTestChapter(42L)
         val source = mockk<HttpSource>(relaxed = true)
         val chapterCache = mockk<ChapterCache>(relaxed = true)
