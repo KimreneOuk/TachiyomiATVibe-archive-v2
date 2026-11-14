@@ -337,13 +337,13 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 
 ### (f) Open backlog / deferred
 
-- Reader R2 `ReaderWorkerLoop`, then R3 `ReaderViewportController` (each gated and committed locally).
+- Reader R2 and R3 are complete: `2291d339` and `4360c324`, respectively.
 - TRC T2 `StartupReconciliation` optional after T1.
 - Findings 3, 8, 9, 10, 11, 12 (OpenAI dedup, `toUiPauseReason`, store package move, `TranslationUiTruth` wrappers, `AiModelFetcher`, image GC extraction).
 - D2 page-key collision migration; `TranslationProcessor` split / `executeColorizeOnly`; diagnostics condense (risk-flagged); colorization engine lease; batch failure semantics.
 - Comment cap: exact recount after 3b; the module remains non-compliant on both the god-file threshold and the 3-line cap until the remaining god files and comment runs are cleared.
 - Device validation unchanged: ORIGINAL colorization preset has no authorized device run; Manga Light on-device init stall unresolved; strict QNN HTP/GPU diagnostics still fail.
-- **Git state:** HEAD `a73aebe7`; local only. No push without an explicit instruction.
+- **Git state:** HEAD `4360c324`; local only. No push without an explicit instruction.
 
 ### (g) Wave-3b worktree update
 
@@ -352,3 +352,20 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 - The ledger's newly introduced over-cap comment blocks were shortened. Comment-cap and remaining god-file compliance are still open.
 
 - Wave 3b commit: `a73aebe7` (8 files, +602 / -477); local only. Gate and independent review passed.
+
+### (h) Reader R2 worktree update
+
+- `ReaderWorkerLoop` extraction landed locally in `2291d339`; the coordinator measures approximately 758 code lines and still needs R3. Claim and in-flight registration remain inside the same coordinator mutex; shutdown preserves the original queue and job cleanup order.
+- The first gate failed Kotlin compilation on recursive inference of the worker field. Giving that field an explicit `ReaderWorkerLoop` type fixed the error; the full rerun passed: 288 suites / 1,787 tests / 0 failures / 0 errors / 1 skipped. The review findings and final verification are recorded below.
+
+- Independent review identified a removed `startWorker()` facade and an overlong line. The facade and original startup contract were restored, the line was wrapped, and a delayed-start/idempotence regression test was added. The reviewer verified both fixes and found no further issues. The final gate passed: 288 suites / 1,788 tests / 0 failures / 0 errors / 1 skipped.
+
+### (i) Reader R3 worktree update
+
+- `ReaderViewportController` landed locally in `4360c324`; coordinator measures 812 raw / 695 code lines. Live session-binding iteration, revision fences and original lifecycle clearing remain intact.
+- The initial gate failed to compile because the token overload called an inaccessible callback instead of the coordinator's chapter-key overload. The original delegation was restored; the rerun passed 288 suites / 1,788 tests / 0 failures / 0 errors / 1 skipped. Independent review passed with no actionable findings.
+
+### (j) Current size checkpoint
+
+- At `4360c324`, scanning 276 Kotlin files under `app/src/main/java/eu/kanade/translation` and excluding blank and comment-only lines yields four files at or above 700 code lines: `TranslationTrace` 1,013; `TranslationPipelineDiagnostics` 953; `TranslationProcessor` 852; `QnnDiagnostics` 840. Each is previously deferred. Reader is 695; all currently non-deferred files are below the threshold.
+- The comment-cap backlog remains open. A preliminary scan of standalone comment runs finds 912 over-cap runs (113 line-comment runs and 799 block comments); this is a heuristic and is not directly comparable to the earlier 917-run baseline without confirming its methodology. No device validation is implied by the JVM gates.
