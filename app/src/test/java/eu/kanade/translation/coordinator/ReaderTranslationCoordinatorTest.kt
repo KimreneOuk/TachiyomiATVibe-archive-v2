@@ -157,7 +157,7 @@ class ReaderTranslationCoordinatorTest {
     }
 
     @Test
-    fun `idle session releases after manual page completes while preserving activeStores`(@org.junit.jupiter.api.io.TempDir tempDir: java.io.File) = runBlocking {
+    fun `idle session releases after manual page completes while preserving activeStores`(@org.junit.jupiter.api.io.TempDir tempDir: java.io.File) = runBlocking<Unit> {
         val sessions = TranslationSessionCoordinator()
         val activeStores = ActiveChapterStoreRegistry()
         val store = ChapterTranslationStore.lazy(
@@ -204,7 +204,7 @@ class ReaderTranslationCoordinatorTest {
     }
 
     @Test
-    fun `toggling auto translation off releases reader session when idle`() = runBlocking {
+    fun `toggling auto translation off releases reader session when idle`() = runBlocking<Unit> {
         val sessions = TranslationSessionCoordinator()
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         testScope = scope
@@ -243,7 +243,7 @@ class ReaderTranslationCoordinatorTest {
     }
 
     @Test
-    fun `failed preparation releases reader session when queue stays empty`() = runBlocking {
+    fun `failed preparation releases reader session when queue stays empty`() = runBlocking<Unit> {
         val sessions = TranslationSessionCoordinator()
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         testScope = scope
@@ -406,7 +406,7 @@ class ReaderTranslationCoordinatorTest {
     }
 
     @Test
-    fun `switchToBatchSession cancels active reader work and admits batch ownership`(@org.junit.jupiter.api.io.TempDir tempDir: java.io.File) = runBlocking {
+    fun `switchToBatchSession cancels active reader work and admits batch ownership`(@org.junit.jupiter.api.io.TempDir tempDir: java.io.File) = runBlocking<Unit> {
         val sessions = TranslationSessionCoordinator()
         val store = ChapterTranslationStore.lazy(
             artifactParent = com.hippo.unifile.FakeUniFile(parent = null, backing = tempDir),
