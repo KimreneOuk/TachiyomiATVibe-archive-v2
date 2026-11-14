@@ -64,6 +64,7 @@ import eu.kanade.tachiyomi.ui.webview.WebViewScreen
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
+import eu.kanade.translation.coordinator.BatchAdmissionDecision
 import eu.kanade.translation.model.TranslationProgressSnapshot
 import kotlinx.coroutines.launch
 import logcat.LogPriority
@@ -461,7 +462,7 @@ class MangaScreen(
                 val body = eu.kanade.translation.presentation.TranslationUiTruth.partialDownloadBody(
                     dialog.group.map { chapterItem ->
                         when (val decision = dialog.decisions[chapterItem.chapter.id]) {
-                            is eu.kanade.translation.processing.batch.BatchAdmissionDecision.Partial ->
+                            is BatchAdmissionDecision.Partial ->
                                 eu.kanade.translation.presentation.TranslationUiTruth.PartialDecision(
                                     downloaded = decision.downloadedPageCount,
                                     expectedSourceTotal = decision.expectedSourcePageCount,

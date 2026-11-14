@@ -5,14 +5,15 @@ import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.ui.manga.MangaScreenModel.Dialog
 import eu.kanade.tachiyomi.ui.manga.MangaScreenModel.State
 import eu.kanade.translation.TranslationManager
+import eu.kanade.translation.coordinator.BatchAdmissionContext
+import eu.kanade.translation.coordinator.BatchAdmissionDecision
+import eu.kanade.translation.coordinator.BatchAdmissionProbe
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.engines.inpainting.InpaintingMode
 import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationRequestState
 import eu.kanade.translation.persistence.ChapterResetReceipt
-import eu.kanade.translation.processing.batch.BatchAdmissionDecision
-import eu.kanade.translation.processing.batch.BatchAdmissionProbe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import logcat.LogPriority
@@ -389,7 +390,7 @@ internal class MangaTranslationCoordinator(
             val manga = getSuccessState()?.manga ?: return@ensureInpaintModelAvailable
             scope.launchNonCancellable {
                 val generations = mutableMapOf<Long, Long>()
-                val contexts = mutableMapOf<Long, eu.kanade.translation.processing.batch.BatchAdmissionContext>()
+                val contexts = mutableMapOf<Long, BatchAdmissionContext>()
                 val chapters = mutableListOf<Chapter>()
                 dialog.group.forEach { item ->
                     val chapterId = item.chapter.id ?: return@forEach
@@ -398,17 +399,17 @@ internal class MangaTranslationCoordinator(
                     generations[chapterId] = generation
                     contexts[chapterId] = when (decision) {
                         is BatchAdmissionDecision.Partial ->
-                            eu.kanade.translation.processing.batch.BatchAdmissionContext(
+                            BatchAdmissionContext(
                                 probedSourcePageCount = decision.expectedSourcePageCount,
                                 sourceCountKnown = true,
                             )
                         BatchAdmissionDecision.UnknownCount ->
-                            eu.kanade.translation.processing.batch.BatchAdmissionContext(
+                            BatchAdmissionContext(
                                 probedSourcePageCount = null,
                                 sourceCountKnown = true,
                             )
                         BatchAdmissionDecision.Complete ->
-                            eu.kanade.translation.processing.batch.BatchAdmissionContext(null, false)
+                            BatchAdmissionContext(null, false)
                     }
                     chapters += item.chapter
                 }

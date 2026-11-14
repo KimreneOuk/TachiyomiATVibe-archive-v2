@@ -9,8 +9,6 @@ import eu.kanade.translation.model.TranslationRequestFailureKind
 import eu.kanade.translation.model.TranslationRequestPhase
 import eu.kanade.translation.model.TranslationRequestState
 import eu.kanade.translation.model.translationQueueAdmissionFailureKind
-import eu.kanade.translation.presentation.TranslationUiProjection
-import eu.kanade.translation.processing.batch.BatchAdmissionContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -690,7 +688,7 @@ internal class TranslationRequestCoordinator(
      */
     fun isChapterTranslationProtected(chapterId: Long): Boolean {
         val queuedState = queuedTranslationOrNull(chapterId)?.status
-        return TranslationUiProjection.protectsChapterFromDeletion(
+        return ChapterDeletionProtection.protects(
             queuedState = queuedState,
             hasPendingRequest = pendingTranslationRequestsState.value.containsKey(chapterId) ||
                 pendingRequestStore.load().contains(chapterId),
@@ -699,18 +697,11 @@ internal class TranslationRequestCoordinator(
     }
 
     /** Protected ids are passed to the pending chapter deleter at reader finish. */
-    fun protectedChapterIds(): Set<Long> = buildSet {
-        queueState.value
-            .filter { translation ->
-                translation.status == Translation.State.QUEUE ||
-                    translation.status == Translation.State.TRANSLATING ||
-                    translation.status == Translation.State.PAUSED
-            }
-            .mapNotNullTo(this) { it.chapter.id }
-        addAll(pendingTranslationRequestsState.value.keys)
-        addAll(pendingRequestStore.load())
-        addAll(batchCoordinator.persistedQueueChapterIds())
-    }
+    fun protectedChapterIds(): Set<Long> = ChapterDeletionProtection.protectedIds(
+        queueState.value,
+        pendingTranslationRequestsState.value.keys + pendingRequestStore.load(),
+        batchCoordinator.persistedQueueChapterIds(),
+    )
 
     fun setPendingTranslationRequest(
         chapterId: Long,

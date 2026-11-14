@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.annotation.VisibleForTesting
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.translation.coordinator.BatchAdmissionContext
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.coordinator.CompletedDownloadRekeyCoordinator
@@ -372,7 +373,7 @@ class TranslationManager private constructor(
         expectedRequestGeneration: Long? = null,
         // The trigger's admission-probe cross-check; null
         // keeps the existing no-cross-check path.
-        admissionContext: eu.kanade.translation.processing.batch.BatchAdmissionContext? = null,
+        admissionContext: BatchAdmissionContext? = null,
         // False for a restore-admitted request handed over by the
         // download completion — enqueue without starting.
         autoStart: Boolean = true,
@@ -491,7 +492,7 @@ class TranslationManager private constructor(
         manga: Manga,
         chapters: List<Chapter>,
         expectedGenerations: Map<Long, Long>,
-        admissionContexts: Map<Long, eu.kanade.translation.processing.batch.BatchAdmissionContext> = emptyMap(),
+        admissionContexts: Map<Long, BatchAdmissionContext> = emptyMap(),
     ): Boolean = requestCoordinator.translateChaptersAndStart(manga, chapters, expectedGenerations, admissionContexts).isNotEmpty()
 
     fun translateChapterPreflight(manga: Manga, chapter: Chapter): ChapterQueuePreflight =

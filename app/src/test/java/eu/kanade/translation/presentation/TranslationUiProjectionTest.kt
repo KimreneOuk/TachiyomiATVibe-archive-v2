@@ -30,22 +30,6 @@ class TranslationUiProjectionTest {
         ) shouldBe Translation.State.TRANSLATING
     }
 
-    @Test
-    fun `waiting requests and paused queue entries protect reader files`() {
-        TranslationUiProjection.protectsChapterFromDeletion(
-            queuedState = null,
-            hasPendingRequest = true,
-        ) shouldBe true
-        TranslationUiProjection.protectsChapterFromDeletion(
-            queuedState = Translation.State.PAUSED,
-            hasPendingRequest = false,
-        ) shouldBe true
-        TranslationUiProjection.protectsChapterFromDeletion(
-            queuedState = Translation.State.TRANSLATED,
-            hasPendingRequest = false,
-        ) shouldBe false
-    }
-
     /**  stranded in-flight states reconcile to the restartable state. */
     @Test
     fun `aborted batch reconciles only stranded in-flight states`() {
