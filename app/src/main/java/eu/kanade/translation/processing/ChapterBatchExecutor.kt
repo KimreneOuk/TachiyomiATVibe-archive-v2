@@ -580,13 +580,21 @@ private class ColorizeRunTelemetry(
     private val startMillis = System.currentTimeMillis()
 
     @Volatile private var pageIndex = 0
+
     @Volatile private var pageKey: String? = null
+
     @Volatile private var stage = "RESUME_CHECK"
+
     @Volatile private var completed = 0
+
     @Volatile private var failed = 0
+
     @Volatile private var reused = 0
+
     @Volatile private var lastPageMillis = 0L
+
     @Volatile private var pageStartMillis = 0L
+
     @Volatile private var lastAdvanceMillis = System.currentTimeMillis()
 
     fun pageStart(index: Int, key: String) {

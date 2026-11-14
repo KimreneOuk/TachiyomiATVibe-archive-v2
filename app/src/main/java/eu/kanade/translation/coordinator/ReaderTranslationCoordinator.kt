@@ -4,7 +4,6 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.engines.translator.TranslatorComputeClass
 import eu.kanade.translation.model.PageRejectionKind
 import eu.kanade.translation.model.SinglePageOutcome
-import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
 import eu.kanade.translation.persistence.ChapterTranslationStore
@@ -786,5 +785,4 @@ internal class ReaderTranslationCoordinator(
         activeSessionChapterKey = null
         updatePendingCountLocked()
     }
-
 }

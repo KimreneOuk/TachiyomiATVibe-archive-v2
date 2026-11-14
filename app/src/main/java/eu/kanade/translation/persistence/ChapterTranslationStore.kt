@@ -1,6 +1,5 @@
 package eu.kanade.translation.persistence
 
-import eu.kanade.translation.persistence.ChapterArtifactEngine.TransactionOutcome
 import com.hippo.unifile.UniFile
 import eu.kanade.translation.model.PageStage
 import eu.kanade.translation.model.PageTranslation
@@ -15,9 +14,9 @@ import eu.kanade.translation.model.hasRenderedResult
 import eu.kanade.translation.model.isColorizeOnlyComplete
 import eu.kanade.translation.model.isTextlessTerminal
 import eu.kanade.translation.model.isTranslationDisplayReady
-import kotlinx.coroutines.flow.update
 import eu.kanade.translation.model.toDraft
 import eu.kanade.translation.model.toPublishedPage
+import eu.kanade.translation.persistence.ChapterArtifactEngine.TransactionOutcome
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CoroutineDispatcher
@@ -25,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -311,7 +311,6 @@ class ChapterTranslationStore internal constructor(
     internal var lastGuardedWriteRejectionDiagnostic: String? = null
         internal set
 
-
     /** Enables memory-first publication for a registered production chapter. */
     internal fun enableLazyPersistence() {
         lazyPersistenceEnabled = true
@@ -511,7 +510,6 @@ class ChapterTranslationStore internal constructor(
                 updatedAt = System.currentTimeMillis()
             }
         }
-
 
 /**
      * Atomic committed-display promotion: when the page just reached a fully

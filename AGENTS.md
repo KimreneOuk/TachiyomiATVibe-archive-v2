@@ -55,3 +55,7 @@ Before creating new algorithms, formatters, or pipeline utilities, scan the code
 - **Remote needs an explicit instruction**: nothing is pushed unless the user asks for that specific push. Unguided or unreviewed work stays local until the user declares it clean.
 - **History rewrites need sign-off**: removing or rewriting pushed history requires the user's approval of the method (erase via force-push vs forward revert) before execution.
 
+## 9. Debugging Build Workflow
+
+- Before building or installing a debugging APK, especially when the target device already has models cached, read [docs/debug-build-workflow.md](docs/debug-build-workflow.md) and follow its prerequisites and verification steps.
+

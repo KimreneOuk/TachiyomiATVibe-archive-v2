@@ -377,7 +377,6 @@ internal class ChapterPageMutations(
         update: (PageTranslation?) -> PageTranslation,
     ): PatchResult = updatePageGuarded(pageKey, store.snapshot(pageKey).toPrecondition(), description, update)
 
-
     /** Apply a stage patch while checking only the identities owned by that stage. */
     internal suspend fun publishLocked(
         previous: PageTranslation?,
@@ -576,7 +575,6 @@ internal class ChapterPageMutations(
         updatePageGuarded(pageKey, expected, "updatePage", update)
     }
 }
-
 
 /** Formats the comma-separated write diagnostic fields shared by the store. */
 internal fun formatWriteDiagnostic(

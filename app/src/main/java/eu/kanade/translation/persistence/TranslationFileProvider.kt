@@ -248,7 +248,6 @@ class TranslationFileProvider(
         return dir.findFile(pageImageName)
     }
 
-
     fun companionImageNameForPage(pageKey: String, type: String = "cleaned"): String {
         val sanitized = pageKey.replace(Regex("[^a-zA-Z0-9.\\-_]"), "_")
         return "$sanitized.$type.png"

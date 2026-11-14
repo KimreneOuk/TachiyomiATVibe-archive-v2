@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.designsystem.ActionCard
 import eu.kanade.presentation.components.designsystem.SectionHeading
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.at.ATMR
@@ -42,12 +43,13 @@ internal fun TranslationResetSection(
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TranslationActionRow(
+        ActionCard(
             icon = Icons.Outlined.DeleteOutline,
             title = stringResource(ATMR.strings.action_reset_chapter_data),
             subtitle = stringResource(ATMR.strings.reader_translation_reset_chapter_summary),
             onClick = { showConfirmDialog = true },
             danger = true,
+            actionLabel = stringResource(ATMR.strings.action_reset),
         )
     }
 

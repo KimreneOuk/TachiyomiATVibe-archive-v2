@@ -204,7 +204,10 @@
 
     <!-- Reader settings sheet sections -->
     <string name="reader_settings_title">Reader settings</string>
+    <string name="reader_unified_subtitle">Reader, translation &amp; data</string>
     <string name="reader_section_display_adjustment">Display adjustment</string>
+    <string name="reader_pane_reader">Reader</string>
+    <string name="reader_pane_session_data">Session &amp; data</string>
 
     <!-- Destructive data management rows (moved from the compare handle dialog) -->
     <string name="reader_data_reset_confirm_title">Reset translation data?</string>
@@ -217,13 +220,13 @@
     <string name="reader_delete_chapter_confirm_message">All derived data for this chapter will be deleted:\n• Translation store manifest and backups\n• Per-page snapshots and processing artifacts\n• Cleaned, colorized and rendered images\n• Cached reader display streams\n\nAny translation or colorization running for this chapter will be cancelled. Original pages and downloads are kept.\n\nThis cannot be undone.</string>
     <string name="reader_chapter_reset_complete">Chapter data reset: %1$d files and %2$d folders removed</string>
     <string name="reader_chapter_reset_failed">Chapter reset incomplete: some files could not be deleted</string>
-    <string name="reader_tab_translation">Translation</string>
-    <string name="reader_tab_display">Display</string>
-    <string name="reader_tab_data">Data</string>
     <string name="reader_subtab_language_engines">Language &amp; Engines</string>
     <string name="reader_subtab_vision_color">Vision &amp; Color</string>
 
     <!-- Translator floater preferences -->
+    <string name="translation_language_from">From</string>
+    <string name="translation_language_to">To</string>
+    <string name="translation_swap_languages">Swap languages</string>
     <string name="pref_floater_show">Show translator floater</string>
     <string name="pref_floater_idle_fade">Fade floater while inactive</string>
     <string name="pref_floater_idle_fade_summary">Dims and tucks toward the edge after a few idle seconds</string>
@@ -234,7 +237,6 @@
     <string name="reader_floater_auto_translate">Auto-translate</string>
 
     <!-- Sheet redesign: reader drawer -->
-    <string name="reader_sheet_subtitle">Reading mode &amp; display</string>
     <string name="reader_section_navigation_feel">Navigation &amp; feel</string>
     <string name="reader_mode_manga">Manga</string>
     <string name="reader_mode_manga_summary">Paged · left to right</string>

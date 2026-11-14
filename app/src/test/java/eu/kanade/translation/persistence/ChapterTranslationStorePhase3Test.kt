@@ -133,7 +133,6 @@ class ChapterTranslationStorePhase3Test {
         reacquired.shouldBeInstanceOf<LeaseAcquisition.Granted>()
     }
 
-
     @Test
     fun `aborting batch work releases only the matching page lease`() = runTest {
         val store = store()
@@ -149,7 +148,6 @@ class ChapterTranslationStorePhase3Test {
         store.cancelPageStageWork("p1", PageWriteOrigin.BATCH) shouldBe true
         store.pageLeaseOwner("p1") shouldBe null
     }
-
 
     @Test
     fun `cancelled transient candidate cannot hide committed display`() = runTest {

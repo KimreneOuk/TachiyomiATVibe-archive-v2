@@ -12,9 +12,9 @@ import eu.kanade.translation.engines.runtime.onnx.HardwareDiscoveryEngine
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
 import eu.kanade.translation.engines.runtime.onnx.QnnContextCacheManager
 import eu.kanade.translation.engines.vision.VisionModelRunner
+import eu.kanade.translation.processing.memory.BitmapPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.File
 import java.nio.FloatBuffer
 
@@ -52,7 +52,9 @@ class OnnxPanelDetector {
     /** Provider that actually serves this detector ("qnn_htp"/"nnapi"/"cpu"/"litert_*"), for honest perf logging. */
     var executionProviderLabel: String
         get() = runner.executionProviderLabel
-        private set(value) { runner.executionProviderLabel = value }
+        private set(value) {
+            runner.executionProviderLabel = value
+        }
 
     fun initialize(
         modelFile: File,

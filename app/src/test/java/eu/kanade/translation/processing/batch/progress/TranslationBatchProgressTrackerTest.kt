@@ -1,16 +1,12 @@
 package eu.kanade.translation.processing.batch.progress
 
-import eu.kanade.translation.model.AiPageProgressState
 import eu.kanade.translation.model.BatchPhase
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationBatchPhase
 import eu.kanade.translation.model.TranslationBlock
-import eu.kanade.translation.model.TranslationProgressStage
 import eu.kanade.translation.persistence.ChapterTranslationStore
-import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -67,8 +63,6 @@ class TranslationBatchProgressTrackerTest {
         tracker.close()
     }
 
-
-
     @Test
     fun `failure groups carry the page's best reason, never a generic unknown`() = runTest {
         // Stranded-page handling: the group key is the page's best available
@@ -104,9 +98,6 @@ class TranslationBatchProgressTrackerTest {
         tracker.close()
     }
 
-
-
-
     @Test
     fun `AI progress rebuild derives durable success and failure without claiming buffered work`() = runTest {
         val store = ChapterTranslationStore(
@@ -126,7 +117,6 @@ class TranslationBatchProgressTrackerTest {
         tracker.snapshot.value.aiBufferedPages shouldBe 0
         tracker.close()
     }
-
 
     @Test
     fun `finish emits immutable terminal snapshot`() = runTest {

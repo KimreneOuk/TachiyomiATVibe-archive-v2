@@ -40,9 +40,7 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
     private var readerThemedContext = viewer.activity.createReaderThemeContext()
 
     /**
-     * Updates this adapter with the given [chapters]. It handles setting a few pages of the
-     * next/previous chapter to allow seamless transitions and inverting the pages if the viewer
-     * has R2L direction.
+     * Updates the adapter with pages from adjacent chapters for seamless transitions.
      */
     fun setChapters(chapters: ViewerChapters, forceTransition: Boolean) {
         val newItems = mutableListOf<Any>()
@@ -113,10 +111,6 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
         // Resets double-page splits, else insert pages get misplaced
         items.filterIsInstance<InsertPage>().also { items.removeAll(it) }
 
-        if (viewer is R2LPagerViewer) {
-            newItems.reverse()
-        }
-
         preprocessed = mutableMapOf()
         items = newItems
         notifyDataSetChanged()
@@ -179,20 +173,11 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
             return
         }
 
-        val placeAtIndex = when (viewer) {
-            is L2RPagerViewer,
-            is VerticalPagerViewer,
-            -> currentIndex + 1
-            else -> currentIndex
-        }
-
-        // It will enter a endless cycle of insert pages
-        if (viewer is R2LPagerViewer && placeAtIndex - 1 >= 0 && items[placeAtIndex - 1] is InsertPage) {
-            return
-        }
+        if (currentIndex < 0) return
+        val placeAtIndex = currentIndex + 1
 
         // Same here it will enter a endless cycle of insert pages
-        if (items[placeAtIndex] is InsertPage) {
+        if (items.getOrNull(placeAtIndex) is InsertPage) {
             return
         }
 

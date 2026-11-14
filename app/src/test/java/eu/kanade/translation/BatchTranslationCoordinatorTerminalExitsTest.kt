@@ -14,6 +14,7 @@ import eu.kanade.translation.processing.ChapterBatchExecutor
 import eu.kanade.translation.processing.TranslationProcessor
 import eu.kanade.translation.processing.batch.progress.TranslationBatchProgressTracker
 import eu.kanade.translation.processing.batch.progress.TranslationBatchTrackerRegistry
+import eu.kanade.translation.processing.memory.BitmapPool
 import eu.kanade.translation.util.getChapterPages
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
@@ -23,8 +24,8 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,14 +38,13 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.translation.TranslationPreferences
-import eu.kanade.translation.processing.memory.BitmapPool
-import kotlin.concurrent.thread
 import java.io.InputStream
 import java.lang.reflect.Field
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 /**
  * Exceptional exits of the chapter-level
@@ -332,10 +332,16 @@ class BatchTranslationCoordinatorTerminalExitsTest {
         try {
             val go = CountDownLatch(1)
             val first = thread(isDaemon = true) {
-                runBlocking { go.await(); if (coordinator.requeueExisting(chapterId)) successfulRequeues.incrementAndGet() }
+                runBlocking {
+                    go.await()
+                    if (coordinator.requeueExisting(chapterId)) successfulRequeues.incrementAndGet()
+                }
             }
             val second = thread(isDaemon = true) {
-                runBlocking { go.await(); if (coordinator.requeueExisting(8L)) successfulRequeues.incrementAndGet() }
+                runBlocking {
+                    go.await()
+                    if (coordinator.requeueExisting(8L)) successfulRequeues.incrementAndGet()
+                }
             }
             go.countDown()
             withTimeout(TimeUnit.SECONDS.toMillis(10)) {

@@ -1,7 +1,7 @@
 package eu.kanade.translation.persistence
 
-import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.PageDisplayState
+import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.StageFingerprints
 import eu.kanade.translation.model.detachedCopy
 import eu.kanade.translation.model.isTextlessTerminal

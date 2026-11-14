@@ -14,6 +14,7 @@ import eu.kanade.translation.processing.ChapterBatchExecutor
 import eu.kanade.translation.processing.batch.progress.BatchProgressReconciler
 import eu.kanade.translation.processing.batch.progress.ReconciliationResult
 import eu.kanade.translation.processing.batch.progress.TranslationBatchProgressTracker
+import eu.kanade.translation.processing.memory.BitmapPool
 import kotlinx.coroutines.CancellationException
 import logcat.LogPriority
 import mihon.core.archive.archiveReader
@@ -21,7 +22,6 @@ import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
-import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.InputStream
 
 /** Runs one chapter: resolves its store and page streams, pre-registers pages, manages trackers and reconciles. */

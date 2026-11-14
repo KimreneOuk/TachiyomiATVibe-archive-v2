@@ -64,7 +64,8 @@ internal class MangaLightHybridColorizationEngine(
 
     @Synchronized
     override fun currentStamp(): String? = session?.let {
-        STAMP + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising())
+        STAMP + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising()) +
+            MangaColorizationImageProcessing.lookStampSuffix(colorCombineMode())
     }
 
     @Synchronized

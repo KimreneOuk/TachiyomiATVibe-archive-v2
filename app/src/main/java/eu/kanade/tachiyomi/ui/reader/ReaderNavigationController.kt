@@ -678,7 +678,7 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
         val readingMode = ReadingMode.fromPreference(manga?.readingMode?.toInt())
         return when {
             resolveDefault && readingMode == ReadingMode.DEFAULT -> default
-            else -> manga?.readingMode?.toInt() ?: default
+            else -> readingMode.flagValue
         }
     }
 
@@ -786,12 +786,8 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
         mutableState.update { it.copy(dialog = ReaderViewModel.Dialog.PageActions(page)) }
     }
 
-    fun openSettingsDialog() {
-        mutableState.update { it.copy(dialog = ReaderViewModel.Dialog.Settings) }
-    }
-
-    fun openTranslationSettingsDialog() {
-        mutableState.update { it.copy(dialog = ReaderViewModel.Dialog.TranslationSettings) }
+    fun openReaderSettings(destination: ReaderSettingsDestination) {
+        mutableState.update { it.copy(dialog = ReaderViewModel.Dialog.ReaderSettings(destination)) }
     }
 
     fun closeDialog() {

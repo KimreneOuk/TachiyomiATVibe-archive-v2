@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.reader.setting
 import android.os.Build
 import androidx.compose.ui.graphics.BlendMode
 import dev.icerock.moko.resources.StringResource
+import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.i18n.MR
@@ -37,9 +38,8 @@ class ReaderPreferences(
 
     fun keepScreenOn() = preferenceStore.getBoolean("pref_keep_screen_on_key", true)
 
-    fun defaultReadingMode() = preferenceStore.getInt(
-        "pref_default_reading_mode_key",
-        ReadingMode.RIGHT_TO_LEFT.flagValue,
+    fun defaultReadingMode(): Preference<Int> = ReadingModePreference(
+        preferenceStore.getInt("pref_default_reading_mode_key", ReadingMode.LEFT_TO_RIGHT.flagValue),
     )
 
     fun defaultOrientationType() = preferenceStore.getInt(

@@ -1,6 +1,5 @@
 package eu.kanade.translation.processing
 
-import eu.kanade.translation.persistence.CleanedPublication
 import android.content.Context
 import android.graphics.Bitmap
 import com.hippo.unifile.UniFile
@@ -11,6 +10,7 @@ import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.isTextlessTerminal
+import eu.kanade.translation.persistence.CleanedPublication
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe

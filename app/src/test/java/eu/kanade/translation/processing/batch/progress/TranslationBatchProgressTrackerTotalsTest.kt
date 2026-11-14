@@ -1,6 +1,5 @@
 package eu.kanade.translation.processing.batch.progress
 
-import eu.kanade.translation.model.BatchPhase
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.Translation
@@ -109,7 +108,6 @@ class TranslationBatchProgressTrackerTotalsTest {
         tracker.close()
     }
 
-
     @Test
     fun `aborted terminal snapshot keeps the known totals with the typed reason`() = runTest {
         val store = ChapterTranslationStore()
@@ -132,7 +130,6 @@ class TranslationBatchProgressTrackerTotalsTest {
         snapshot.abortedReason shouldBe "Page pre-registration was rejected: store is defunct"
         tracker.awaitTerminalSnapshot().totalPages shouldBe 3
     }
-
 
     /**  terminal page: committed translation, NO in-pass render. */
     private fun zeroLegacyTerminalPage(key: String) = PageTranslation(

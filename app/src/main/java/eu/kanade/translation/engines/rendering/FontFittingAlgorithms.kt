@@ -178,7 +178,9 @@ internal object FontFittingAlgorithms {
     ): Float {
         val startSize = max(max(containerW, safeH * 0.35f) * FIT_START_WIDTH_FACTOR, FIT_MIN_FONT_PX * scale * 4.5f).toInt()
         var high = min(max(startSize, (FIT_MIN_FONT_PX * scale * 4.5f).toInt()), (FIT_MAX_FONT_PX * scale).toInt())
-        var low = max(2, (FIT_MIN_FONT_PX * scale).toInt()
+        var low = max(
+            2,
+            (FIT_MIN_FONT_PX * scale).toInt(),
         )
         var best = low.toFloat()
         while (low <= high) {

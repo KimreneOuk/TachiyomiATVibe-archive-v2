@@ -6,19 +6,16 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import com.google.ai.edge.litert.Accelerator
-import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
-import com.google.ai.edge.litert.TensorBuffer
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrProviderOverride
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrProviderResolution
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrSessionFactory
 import eu.kanade.translation.engines.vision.ocr.paddle.batch.PaddleOcrDynamicPageBatchPolicy
-import logcat.LogPriority
-import tachiyomi.core.common.util.system.logcat
 import eu.kanade.translation.processing.memory.BitmapPool
 import eu.kanade.translation.processing.memory.DirectBufferPool
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -608,4 +605,5 @@ class PaddleOcrV6SmallEngine : RoiOcrEngine {
     }
 
     private fun String.isCpuLikeProvider(): Boolean =
-        equals("cpu", ignoreCase = true) || equals("uninitialized", ignoreCase = true) || isBlank()}
+        equals("cpu", ignoreCase = true) || equals("uninitialized", ignoreCase = true) || isBlank()
+}

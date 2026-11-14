@@ -1,7 +1,7 @@
 package eu.kanade.translation.engines.translator.providers
-import eu.kanade.translation.engines.translator.InputAccountingContract
 import eu.kanade.translation.engines.translator.CertifiedAccountingProfile
 import eu.kanade.translation.engines.translator.CertifiedBoundInputAccountingContract
+import eu.kanade.translation.engines.translator.InputAccountingContract
 import eu.kanade.translation.engines.translator.ProviderRequestGovernor
 import eu.kanade.translation.engines.translator.SharedProviderRequestGovernor
 import eu.kanade.translation.engines.translator.contextual.ContextualRequestProtocol

@@ -3,6 +3,8 @@ package eu.kanade.translation.persistence
 import eu.kanade.translation.diagnostics.ReaderEntryTrace
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.PublishedPageTranslation
+import eu.kanade.translation.persistence.ChapterArtifactEngine.DestructiveManifestReceipt
+import eu.kanade.translation.persistence.ChapterArtifactEngine.TransactionOutcome
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.serialization.KSerializer
@@ -11,17 +13,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromStream
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-
-/**
- * Owns one chapter's artifact manifest and immutable sidecar tree. Candidate
- * generation transitions, preconditioned stage commits, committed-pointer
- * promotion, cancellation and failure state, crash recovery, and bounded
- * retention all operate on artifact documents. Flat translation files from
- * pre-artifact builds are not read or migrated.
- */
-
-import eu.kanade.translation.persistence.ChapterArtifactEngine.DestructiveManifestReceipt
-import eu.kanade.translation.persistence.ChapterArtifactEngine.TransactionOutcome
 
 typealias CandidateOpenState = ChapterCandidateTransactions.CandidateOpenState
 
@@ -269,7 +260,6 @@ class ChapterArtifactEngine(
     // ------------------------------------------------------------------
     // Generic sidecar publication support.
     // ------------------------------------------------------------------
-
 
     /** Builds a JSON sidecar publication for [publishSidecarPointers]; out-of-package callers stage transactions. */
     fun <T : Any> jsonSidecarPublication(

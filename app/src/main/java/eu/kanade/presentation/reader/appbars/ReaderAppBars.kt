@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.reader.components.ReaderQuickActionsMenu
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
-import eu.kanade.tachiyomi.ui.reader.viewer.pager.R2LPagerViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationProgressSnapshot
@@ -70,13 +69,11 @@ fun ReaderAppBars(
     fullscreenEnabled: Boolean,
     onClickToggleFullscreen: () -> Unit,
     onClickSettings: () -> Unit,
-    onClickTranslationSettings: () -> Unit,
     translationState: Translation.State = Translation.State.NOT_TRANSLATED,
     translationBatchProgress: TranslationProgressSnapshot? = null,
     isBatchSession: Boolean = false,
     onClickTranslate: () -> Unit = {},
 ) {
-    val isRtl = viewer is R2LPagerViewer
     val isWebtoon = viewer is WebtoonViewer || readingMode.type is ReadingMode.ViewerType.Webtoon
     var quickActionsExpanded by remember { mutableStateOf(false) }
 
@@ -154,10 +151,6 @@ fun ReaderAppBars(
                             quickActionsExpanded = false
                             onClickSettings()
                         },
-                        onClickTranslationSettings = {
-                            quickActionsExpanded = false
-                            onClickTranslationSettings()
-                        },
                     )
 
                     if (isBatchSession) {
@@ -167,7 +160,7 @@ fun ReaderAppBars(
                     }
 
                     ReaderNavigationDock(
-                        isRtl = isRtl,
+                        isRtl = false,
                         isWebtoon = isWebtoon,
                         onNextChapter = onNextChapter,
                         enabledNext = enabledNext,

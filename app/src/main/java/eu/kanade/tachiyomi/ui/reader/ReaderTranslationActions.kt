@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.PageColorizeOutcome
 import eu.kanade.translation.coordinator.ReaderPageWork
-import eu.kanade.translation.coordinator.ReaderSessionIntent
 import eu.kanade.translation.coordinator.ReaderSessionToken
 import eu.kanade.translation.coordinator.ReaderSubmission
 import eu.kanade.translation.coordinator.ReaderTrigger

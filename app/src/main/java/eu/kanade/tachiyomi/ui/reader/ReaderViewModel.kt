@@ -889,8 +889,7 @@ class ReaderViewModel @JvmOverloads constructor(
     fun openReadingModeSelectDialog() = navigationController.openReadingModeSelectDialog()
     fun openOrientationModeSelectDialog() = navigationController.openOrientationModeSelectDialog()
     fun openPageDialog(page: ReaderPage) = navigationController.openPageDialog(page)
-    fun openSettingsDialog() = navigationController.openSettingsDialog()
-    fun openTranslationSettingsDialog() = navigationController.openTranslationSettingsDialog()
+    fun openReaderSettings(destination: ReaderSettingsDestination) = navigationController.openReaderSettings(destination)
     fun closeDialog() = navigationController.closeDialog()
     fun dismissBatchReaderSwitch() = navigationController.dismissBatchReaderSwitch()
     fun confirmBatchReaderSwitch(request: Dialog.BatchReaderSwitch) = navigationController.confirmBatchReaderSwitch(request)
@@ -1103,8 +1102,7 @@ class ReaderViewModel @JvmOverloads constructor(
 
     sealed interface Dialog {
         data object Loading : Dialog
-        data object Settings : Dialog
-        data object TranslationSettings : Dialog
+        data class ReaderSettings(val destination: ReaderSettingsDestination) : Dialog
         data object ReadingModeSelect : Dialog
         data object OrientationModeSelect : Dialog
         data class PageActions(val page: ReaderPage) : Dialog

@@ -6,9 +6,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.Paint
+import eu.kanade.translation.processing.memory.BitmapPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.max

@@ -235,7 +235,6 @@ class TranslationBatchProgressTracker(
             // again — a future event type must be reduced explicitly here.
         }
 
-
         fun computeSnapshot(
             pageMap: Map<String, PageTranslationView>,
             chapterState: Translation.State,
@@ -479,4 +478,3 @@ class TranslationBatchProgressTracker(
         }
     }
 }
-

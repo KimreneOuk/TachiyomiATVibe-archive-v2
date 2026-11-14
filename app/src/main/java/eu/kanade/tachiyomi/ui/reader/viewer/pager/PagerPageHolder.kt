@@ -554,13 +554,7 @@ class PagerPageHolder(
     }
 
     private fun splitInHalf(imageSource: BufferedSource): BufferedSource {
-        var side = when {
-            viewer is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.RIGHT
-            viewer !is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.LEFT
-            viewer is L2RPagerViewer && page !is InsertPage -> ImageUtil.Side.LEFT
-            viewer !is L2RPagerViewer && page !is InsertPage -> ImageUtil.Side.RIGHT
-            else -> error("We should choose a side!")
-        }
+        var side = if (page is InsertPage) ImageUtil.Side.RIGHT else ImageUtil.Side.LEFT
 
         if (viewer.config.dualPageInvert) {
             side = when (side) {

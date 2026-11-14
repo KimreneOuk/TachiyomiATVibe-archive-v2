@@ -1,10 +1,10 @@
 package eu.kanade.translation.processing
 
-import eu.kanade.translation.persistence.CLEANED_JPEG_QUALITY
-import eu.kanade.translation.persistence.CleanedPublication
 import android.graphics.Bitmap
 import com.hippo.unifile.UniFile
 import eu.kanade.translation.engines.inpainting.InpaintingMode
+import eu.kanade.translation.persistence.CLEANED_JPEG_QUALITY
+import eu.kanade.translation.persistence.CleanedPublication
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk

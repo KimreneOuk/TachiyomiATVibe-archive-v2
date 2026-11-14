@@ -9,20 +9,19 @@ import eu.kanade.translation.engines.inpainting.InpaintingHardwareOverride
 import eu.kanade.translation.engines.inpainting.InpaintingMode
 import eu.kanade.translation.engines.inpainting.PushPullGradient
 import eu.kanade.translation.engines.inpainting.RegionDispatch
-import eu.kanade.translation.engines.inpainting.bubble.BubbleMaskBuilder
+import eu.kanade.translation.engines.inpainting.resolveDispatch
+import eu.kanade.translation.engines.inpainting.toAotBackend
 import eu.kanade.translation.engines.runtime.onnx.DeviceCapability
 import eu.kanade.translation.engines.runtime.onnx.ModelRoutingEngine
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
+import eu.kanade.translation.processing.memory.DirectBufferPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.NeuralInpaintModel
-import eu.kanade.translation.processing.memory.DirectBufferPool
 import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.max
 import kotlin.math.min
-import eu.kanade.translation.engines.inpainting.resolveDispatch
-import eu.kanade.translation.engines.inpainting.toAotBackend
 
 /**
  * Model-agnostic neural inpainting coordinator. It owns the shared region

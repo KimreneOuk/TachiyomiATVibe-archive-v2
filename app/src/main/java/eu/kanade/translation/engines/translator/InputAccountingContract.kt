@@ -34,7 +34,7 @@ internal enum class CertifiedAccountingProfile(
     LM_STUDIO("lm_studio", 1.40, 64),
     DEEPSEEK("deepseek", 1.15, 32),
     OPENROUTER("openrouter", 1.35, 64),
-    GEMINI("gemini", 1.10, 32);
+    GEMINI("gemini", 1.10, 32),
 }
 
 /**
