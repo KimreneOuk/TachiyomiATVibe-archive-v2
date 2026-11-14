@@ -7,6 +7,8 @@ import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
+import eu.kanade.translation.engines.runtime.ModelDeployment
+import eu.kanade.translation.engines.runtime.qnnDispatchPrecheck
 import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -191,23 +193,9 @@ internal class NpuMangaColorizationEngine(
                 val nativeLibraryDir = context.applicationInfo.nativeLibraryDir
                 return Dependencies(
                     artifact = { extractModel(context) },
-                    precheck = { dispatchPrecheck(File(nativeLibraryDir)) },
+                    precheck = { qnnDispatchPrecheck(File(nativeLibraryDir)) },
                     openSession = { artifact -> LiteRtSession.open(context, artifact) },
                 )
-            }
-
-            /** Typed pre-check before native calls: absent libs otherwise fail opaquely (debug CheckJNI aborts). */
-            internal fun dispatchPrecheck(nativeLibraryDir: File): String? {
-                val missing = REQUIRED_LIBRARIES.filterNot { File(nativeLibraryDir, it).isFile }
-                if (missing.isNotEmpty()) {
-                    return "Qualcomm NPU dispatch libraries missing from ${nativeLibraryDir.absolutePath}: " +
-                        missing.joinToString(", ")
-                }
-                val systemLib = File(nativeLibraryDir, "libQnnSystem.so")
-                if (systemLib.length() == 2_689_368L) {
-                    return "Qualcomm QNN system library is the outdated 1.7.0 version; requires QNN >= 1.14"
-                }
-                return null
             }
 
             /** Streams the asset into a version-stamped cache, hashing as it copies. */
@@ -223,7 +211,7 @@ internal class NpuMangaColorizationEngine(
                 }
                 if (!assetExists) {
                     return if (destination.isFile && destination.length() > 0L) {
-                        Artifact(destination, MangaColorizationModelStore.sha256Of(destination))
+                        Artifact(destination, ModelDeployment.sha256Of(destination))
                     } else {
                         null
                     }
@@ -247,11 +235,11 @@ internal class NpuMangaColorizationEngine(
                 // The pinned hash must judge the file's real bytes, never the
                 // recorded one - recompute even on a cache hit so a corrupted
                 // cache fails visibly instead of reaching the device.
-                if (cacheIsValid) return Artifact(destination, MangaColorizationModelStore.sha256Of(destination))
+                if (cacheIsValid) return Artifact(destination, ModelDeployment.sha256Of(destination))
 
                 val temporary = File(destination.parentFile, "$fileName.tmp")
                 return try {
-                    val sha256 = MangaColorizationModelStore.copyAssetWithDigest(context, assetPath, temporary)
+                    val sha256 = ModelDeployment.copyAssetWithDigest(context, assetPath, temporary)
                     if (!temporary.renameTo(destination)) {
                         temporary.copyTo(destination, overwrite = true)
                         temporary.delete()
@@ -265,7 +253,7 @@ internal class NpuMangaColorizationEngine(
                 } catch (failure: Throwable) {
                     temporary.delete()
                     if (destination.isFile && destination.length() > 0L) {
-                        val sha256 = MangaColorizationModelStore.sha256Of(destination)
+                        val sha256 = ModelDeployment.sha256Of(destination)
                         preferences.edit()
                             .putLong(KEY_APP_UPDATE_TIME + fileName, appUpdateTime)
                             .putLong(KEY_EXTRACTED_SIZE + fileName, destination.length())
@@ -378,12 +366,6 @@ internal class NpuMangaColorizationEngine(
         // claiming support it has not shown.
         const val MINIMUM_CONTENT_DIMENSION = 256
 
-        val REQUIRED_LIBRARIES = listOf(
-            "libQnnHtp.so",
-            "libQnnSystem.so",
-            "libQnnHtpV75Stub.so",
-            "libQnnHtpV75Skel.so",
-        )
         val SHA256_PATTERN = Regex("^[0-9a-f]{64}$")
     }
 }

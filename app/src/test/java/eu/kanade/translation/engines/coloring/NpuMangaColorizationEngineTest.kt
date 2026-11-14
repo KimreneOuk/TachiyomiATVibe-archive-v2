@@ -1,5 +1,7 @@
 package eu.kanade.translation.engines.coloring
 
+import eu.kanade.translation.engines.runtime.QNN_REQUIRED_LIBRARIES
+import eu.kanade.translation.engines.runtime.qnnDispatchPrecheck
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -186,19 +188,19 @@ class NpuMangaColorizationEngineTest {
 
     @Test
     fun `dispatch precheck passes when all four libraries are co-located`(@TempDir tempDir: File) {
-        NpuMangaColorizationEngine.REQUIRED_LIBRARIES.forEach { File(tempDir, it).writeBytes(byteArrayOf(1)) }
+        QNN_REQUIRED_LIBRARIES.forEach { File(tempDir, it).writeBytes(byteArrayOf(1)) }
 
-        NpuMangaColorizationEngine.Dependencies.dispatchPrecheck(tempDir) shouldBe null
+        qnnDispatchPrecheck(tempDir) shouldBe null
     }
 
     @Test
     fun `dispatch precheck names the missing libraries and the directory`(@TempDir tempDir: File) {
-        File(tempDir, NpuMangaColorizationEngine.REQUIRED_LIBRARIES.first()).writeBytes(byteArrayOf(1))
+        File(tempDir, QNN_REQUIRED_LIBRARIES.first()).writeBytes(byteArrayOf(1))
 
-        val reason = NpuMangaColorizationEngine.Dependencies.dispatchPrecheck(tempDir)
+        val reason = qnnDispatchPrecheck(tempDir)
 
         reason.shouldBeInstanceOf<String>()
-        reason shouldContain NpuMangaColorizationEngine.REQUIRED_LIBRARIES.last()
+        reason shouldContain QNN_REQUIRED_LIBRARIES.last()
         reason shouldContain tempDir.absolutePath
     }
 }

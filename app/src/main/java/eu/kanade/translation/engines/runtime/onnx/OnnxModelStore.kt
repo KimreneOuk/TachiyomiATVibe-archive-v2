@@ -274,22 +274,6 @@ class OnnxModelStore(private val context: Context) {
         )
     }
 
-    fun ensureMangaColorization(): File {
-        val dir = File(modelsDir, "coloring").also { if (!it.exists()) it.mkdirs() }
-        // int8 weights preferred: parity with fp32 on validation pages (PSNR
-        // 39+ dB) at a quarter of the size; fp32 stays bundled as the fallback
-        // while the int8 artifact is still being proven on-device.
-        val int8 = runCatching {
-            copyIfNeeded(dir, "manga_colorize_int8.onnx", "models/coloring/manga_colorize_int8.onnx")
-        }.getOrNull()
-        return int8 ?: copyIfNeeded(dir, "manga_colorize_fp32.onnx", "models/coloring/manga_colorize_fp32.onnx")
-    }
-
-    fun ensureMangaColorizationInt8(): File {
-        val dir = File(modelsDir, "coloring").also { if (!it.exists()) it.mkdirs() }
-        return copyIfNeeded(dir, "manga_colorize_int8.onnx", "models/coloring/manga_colorize_int8.onnx")
-    }
-
     fun ffdnetDenoisingAvailable(): Boolean {
         val dir = File(modelsDir, "coloring")
         return File(dir, "ffdnet_fp16.onnx").exists()

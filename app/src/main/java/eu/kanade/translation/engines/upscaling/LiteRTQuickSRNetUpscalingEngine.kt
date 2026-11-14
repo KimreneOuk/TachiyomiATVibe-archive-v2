@@ -7,7 +7,7 @@ import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
-import eu.kanade.translation.engines.coloring.MangaColorizationModelStore
+import eu.kanade.translation.engines.runtime.ModelDeployment
 import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -341,7 +341,7 @@ internal class LiteRTQuickSRNetUpscalingEngine(
                 }
                 if (!assetExists) {
                     return if (destination.isFile && destination.length() > 0L) {
-                        Artifact(destination, MangaColorizationModelStore.sha256Of(destination))
+                        Artifact(destination, ModelDeployment.sha256Of(destination))
                     } else {
                         null
                     }
@@ -350,8 +350,7 @@ internal class LiteRTQuickSRNetUpscalingEngine(
                 destination.parentFile?.mkdirs()
                 val temporary = File(destination.parentFile, "$MODEL_FILE_NAME.tmp")
                 return try {
-                    // Shared pure asset primitives from the coloring package (reuse, no duplicate).
-                    val sha256 = MangaColorizationModelStore.copyAssetWithDigest(context, MODEL_ASSET, temporary)
+                    val sha256 = ModelDeployment.copyAssetWithDigest(context, MODEL_ASSET, temporary)
                     if (!temporary.renameTo(destination)) {
                         temporary.copyTo(destination, overwrite = true)
                         temporary.delete()

@@ -190,9 +190,12 @@ internal class FfdnetDenoiserEngine(
         companion object {
             private const val INPUT_NAME = "input"
 
+            /** Intra-op CPU thread budget for on-device ONNX FFDNet denoising sessions. */
+            private val ONNX_THREADS = minOf(4, maxOf(1, Runtime.getRuntime().availableProcessors()))
+
             fun open(modelFile: File): OrtFfdnetSession {
                 val options = OnnxRuntimeProvider.createSessionOptions(useAccelerator = false) {
-                    it.setIntraOpNumThreads(MANGA_COLORIZATION_ONNX_THREADS)
+                    it.setIntraOpNumThreads(ONNX_THREADS)
                 }
                 val built = try {
                     OnnxRuntimeProvider.environment.createSession(modelFile.absolutePath, options)
