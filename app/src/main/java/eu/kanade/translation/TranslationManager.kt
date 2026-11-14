@@ -20,7 +20,7 @@ import eu.kanade.translation.coordinator.TranslationRequestCoordinator
 import eu.kanade.translation.coordinator.TranslationSessionCoordinator
 import eu.kanade.translation.engines.coloring.PageColorizationEngine
 import eu.kanade.translation.engines.inpainting.InpaintingHardwareOverride
-import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import eu.kanade.translation.model.PageTranslationView
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationProgressSnapshot
@@ -344,7 +344,7 @@ class TranslationManager private constructor(
 
     /** BALANCE/QUALITY starts cannot proceed while the selected model's assets are absent from this build. */
     fun isNeuralStartBlocked(): Boolean =
-        LiteRTMangaInpaintingEngine.isNeuralStartBlocked(translationPreferences, context)
+        LiteRtInpaintingAssetManager.isNeuralStartBlocked(translationPreferences, context)
 
     fun pauseTranslation() = batchCoordinator.pause()
 
@@ -483,10 +483,6 @@ class TranslationManager private constructor(
     /** The colorization pass can run: pref on and a colorization engine attached. */
     fun isColorizationReady(): Boolean =
         translationPreferences.translationColorizationEnabled().get() && colorizationEngine != null
-
-    fun translateChapters(manga: Manga, chapters: List<Chapter>) {
-        requestCoordinator.translateChaptersAndStart(manga, chapters)
-    }
 
     fun translateChaptersIfCurrent(
         manga: Manga,

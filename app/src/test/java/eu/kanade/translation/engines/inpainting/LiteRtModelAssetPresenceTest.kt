@@ -1,6 +1,6 @@
 package eu.kanade.translation.engines.inpainting
 
-import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 
@@ -16,7 +16,7 @@ class LiteRtModelAssetPresenceTest {
         cachedTime: Long = 100L,
         cachedSize: Long = 2_000_000L,
         appUpdateTime: Long = 100L,
-    ) = LiteRTMangaInpaintingEngine.isExtractedCacheValid(
+    ) = LiteRtInpaintingAssetManager.isExtractedCacheValid(
         extractedFileExists = true,
         extractedLength = extractedLength,
         cachedTime = cachedTime,
@@ -31,7 +31,7 @@ class LiteRtModelAssetPresenceTest {
 
     @Test
     fun `missing or undersized files never count`() {
-        LiteRTMangaInpaintingEngine.isExtractedCacheValid(
+        LiteRtInpaintingAssetManager.isExtractedCacheValid(
             extractedFileExists = false,
             extractedLength = 0L,
             cachedTime = 100L,

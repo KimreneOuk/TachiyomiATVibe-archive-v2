@@ -61,13 +61,13 @@ internal object TextLineBreaker {
                     tokens += Token.Whitespace
                     i++
                 }
-                TextLayoutPlanner.isCJK(ch) -> {
+                FontFittingAlgorithms.isCJK(ch) -> {
                     tokens += Token.Word(ch.toString())
                     i++
                 }
                 else -> {
                     val start = i
-                    while (i < text.length && !TextLayoutPlanner.isCJK(text[i]) && !text[i].isWhitespace() && text[i] != '\n') {
+                    while (i < text.length && !FontFittingAlgorithms.isCJK(text[i]) && !text[i].isWhitespace() && text[i] != '\n') {
                         if (text[i] == '-' && i > start) {
                             i++
                             break

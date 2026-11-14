@@ -456,10 +456,6 @@ class ChapterTranslationStore internal constructor(
     suspend fun cancelPageStageWork(pageKey: String, origin: PageWriteOrigin): Boolean =
         pageStageLeaseTable.cancelPageStageWork(pageKey, origin)
 
-    /** Releases every lease held by [origin]; used at batch teardown so no lease outlives its run. */
-    suspend fun releaseAllPageLeases(origin: PageWriteOrigin) =
-        pageStageLeaseTable.releaseAllPageLeases(origin)
-
     fun pageLeaseOwner(pageKey: String): PageWriteOrigin? = pageStageLeaseTable.pageLeaseOwner(pageKey)
 
     suspend fun <T> withGeneration(generation: Long, block: suspend () -> T): T =
@@ -645,15 +641,6 @@ class ChapterTranslationStore internal constructor(
         // pageKey after ownership has moved. Check every live/committed/retained
         // reference before deleting the shared image or its identity sidecar.
         return name !in referencedCleanedImageNames()
-    }
-
-    /**
-     * Point-in-time store authorization to physically delete a cleaned image
-     * name: the same predicate as [mayDeleteCleanedImage], evaluated under
-     * [mutex].
-     */
-    suspend fun authorizeCleanedImageDeletion(pageKey: String, name: String): Boolean = mutex.withLock {
-        mayDeleteCleanedImage(pageKey, name)
     }
 
     /** Protect a companion image still owned by a different page after page reset/deletion. */

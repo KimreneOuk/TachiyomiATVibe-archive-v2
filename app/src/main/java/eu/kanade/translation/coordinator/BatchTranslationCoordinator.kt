@@ -26,12 +26,16 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.supervisorScope
@@ -742,3 +746,16 @@ internal class BatchTranslationCoordinator(
         activeChapters.clear()
     }
 }
+
+/** Replays each queued translation's current status, then follows its live state flow. */
+internal fun translationQueueStatusFlow(queue: StateFlow<List<Translation>>): Flow<Translation> =
+    queue.flatMapLatest { translations ->
+        translations
+            .map { translation ->
+                translation.statusFlow
+                    .drop(1)
+                    .map { translation }
+                    .onStart { emit(translation) }
+            }
+            .merge()
+    }

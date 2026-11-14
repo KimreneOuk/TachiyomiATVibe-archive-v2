@@ -47,7 +47,7 @@ import eu.kanade.translation.TranslationManager
 import eu.kanade.translation.coordinator.BatchAdmissionDecision
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.engines.inpainting.InpaintingMode
-import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
+import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationProgressSnapshot
 import eu.kanade.translation.model.TranslationRequestState
@@ -461,7 +461,7 @@ class MangaScreenModel(
             onTranslationResumePaused = ::showTranslationResumePausedNotice,
             onColorizeUnavailable = ::showColorizeUnavailableNotice,
             inpaintStartBlocked = {
-                LiteRTMangaInpaintingEngine.isNeuralStartBlocked(translationPreferences, context)
+                LiteRtInpaintingAssetManager.isNeuralStartBlocked(translationPreferences, context)
             },
         )
     }
