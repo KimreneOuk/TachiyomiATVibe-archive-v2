@@ -56,6 +56,8 @@
   <li><a href="#decisions">Settled decisions</a></li>
   <li><a href="#notdoing">Explicitly not doing</a></li>
   <li><a href="#risks">Risks &amp; verification</a></li>
+  <li><a href="#reconciliation">Reconciliation 11-13</a></li>
+  <li><a href="#reconciliation-wave2">Wave-2 reconciliation 11-14</a></li>
   <li><a href="#gates">Your gates</a></li>
 </ul>
 
@@ -219,12 +221,59 @@
 </table></div>
 </section>
 
+<section id="reconciliation">
+<h2>Stage-6 reconciliation — actuals as of 2026-11-13</h2>
+<p class="small muted">Recorded from implementation reports and orchestrator-reported gate results (compile+test runs over the worktree; agents run no builds per mandate). Only measured counts are stated. Deferred work is NOT marked complete.</p>
+<div class="wrap"><table>
+<tr><th>Unit</th><th>Status</th><th>Evidence / note</th></tr>
+<tr><td class="mono">BatchPageOperation → ChapterBatchExecutor</td><td>DONE</td><td class="small">class+file rename, 5 caller/test repoints (imports/types only); test class name <span class="mono">BatchPageOperationTest</span> deliberately kept; in tree for every subsequently reported passed gate.</td></tr>
+<tr><td class="mono">ProviderRequestGovernor split</td><td>DONE (partial by design)</td><td class="small">ProviderFailureModel + BatchRequestSublimitGate extracted (945→810 measured); core + priority machinery + SharedBatchRequestSublimitGate (F2) deliberately preserved in place; gate passed.</td></tr>
+<tr><td class="mono">TranslationUiTruth → BatchStatusLineProjection</td><td>DONE</td><td class="small">facade object kept per plan note; gate passed.</td></tr>
+<tr><td class="mono">ReaderViewModel combine collapse (Stage 5 step 1)</td><td>DONE</td><td class="small">30-flow nested combine → 5 named intermediate flows; engine-flow flattening reverted on coordinator review — operator topology preserved; gate passed.</td></tr>
+<tr><td class="mono">Memory facts</td><td>DONE — plan amended</td><td class="small">TMB.snapshot→EngineMemoryBudget.heapSnapshot (sole owner, + SystemMemoryFacts); measured net ≈ −25L vs the −90L estimate (correction recorded). ActivityManager "×6 → 1" amended to <b>2 deliberate sites</b>: EngineMemoryBudget.systemMemoryFacts() + RoiVisionEngineFactory's original engine-context lookup — failure behaviors differ (Injekt can fail where the passed context succeeds), ruled not equivalent; conservative 0L tier preserved in both.</td></tr>
+<tr><td class="mono">ChapterBulkMutator rekey extraction</td><td>DONE</td><td class="small">rekey logic moved verbatim → ChapterPageRekeyMutator; 728→331 measured; facade keeps a signature-identical rekeyPages delegate; zero caller/test repoints; mutex lifetime preserved (one per store); gate passed.</td></tr>
+<tr><td class="mono">TranslationPreferences split (Stage 5 step 4)</td><td>DONE</td><td class="small">facade-first: AiEngineCredentials / PipelinePrefs / ReaderUiPrefs; all 46 facade members + companion + enums preserved; 42 keys verified exactly-one-definition. One gate failure (PipelinePrefs:63 unresolved defaultOcrModel — lost enclosing-class scope in extraction) fixed by companion qualification, defaults unchanged; subsequent gate passed.</td></tr>
+<tr><td class="mono">TranslationManager merge (plan :164)</td><td>IMPLEMENTED — gate pending</td><td class="small">Initialization+Coordinators merged into TranslationManagerCoordinators.kt; dead processor branch deleted on full caller evidence (single construction site repo-wide, non-null override always passed, zero test constructors, init order verified). "ColorizationEngineOwner" was already out as <b>TranslationManagerColorization</b> (pre-existing; corrected name). Awaiting combined gate.</td></tr>
+<tr><td class="mono">TranslationProcessor split + executeColorizeOnly consolidation</td><td>DEFERRED</td><td class="small">no behavior/test-preserving seam (orchestrators member-mocked in ~5 test files; primitives bound to private state); consolidation is behavioral divergence — colorize-only pass is deliberately lease-free with test-pinned batch:colorize-* markers; no lease/marker changes authorized. File remains whole.</td></tr>
+<tr><td class="mono">Diagnostics condense (QnnDiagnostics + TranslationTrace pair)</td><td>DEFERRED</td><td class="small">unit-level outcome not evidenced in this reconciliation (other agent); binding constraints unchanged (App.kt:197, analyze_latency_budget.py formats, TranslationIdentityKeys.token() privacy scrubber).</td></tr>
+<tr><td class="mono">D2 page-key collision fix</td><td>DEFERRED — evidence phase done</td><td class="small">both candidate schemes rejected (positional-prefix, C′ hash — wrong-record-reuse/contamination risk); algorithm + migration decision at a separate post-wave gate; safe-failure doctrine: unproven identity → re-run, never claim another page's record.</td></tr>
+</table></div>
+<p class="small muted">Other agents' zones (vision splits, pools move, asset-IO rehome, QNN dedup, persistence merges): orchestrator gates reported PASSED over the tree containing their work; unit-level outcomes are not recorded here (not evidenced to this agent).</p>
+</section>
+
+<section id="reconciliation-wave2">
+<h2>Wave-2 reconciliation — actuals as of 2026-11-14</h2>
+<p class="small muted">Written by the doc-only reconciler from seven agent transcripts plus direct read-only git measurement of the worktree at HEAD <code>0752b750</code>. No builds or git writes were run by the reconciler; gate results are coordinator-reported. Deferred work is NOT marked complete. Full audit-disposition detail lives in ledger Section I.</p>
+<div class="grid2">
+  <div class="card"><div class="stat">131</div><b>pending entries at measurement</b><br><span class="muted small">77 modified + 26 deleted tracked, 28 untracked — superseded same day by checkpoint <code>7afa1e5b</code> (16 pending), then <code>74c9d2fc</code> (structure move; only these docs remained)</span></div>
+  <div class="card"><div class="stat">−3,958</div><b>net worktree lines vs HEAD (measured)</b><br><span class="muted small">tracked +3,015/−13,128 · new files +6,155 · implementation agent separately reported ≈ −10,799L / −34 files vs its own baseline</span></div>
+</div>
+<div class="wrap"><table>
+<tr><th>Unit</th><th>Status</th><th>Evidence / note</th></tr>
+<tr><td class="mono">Persistence consolidation (ArtifactEngine + Store)</td><td>IN WORKTREE — gate passed, uncommitted</td><td class="small">CandidateTransactions/Rekey/Retention → ChapterArtifactEngine (now 1,505L — reviewer warned not to bundle further); DisplayPublication + TestSeams → ChapterTranslationStore (now 824L, crosses the file-size threshold; future work must extract a genuine seam); ChapterStageMerges deleted; @Volatile crash seam + publish-copy counter preserved verbatim.</td></tr>
+<tr><td class="mono">Stage-patch vocabulary deletion</td><td>DONE today — compile green, suite pending</td><td class="small">5 dead patch classes + sealed StagePatch + StagePatchResult deleted from TranslationStageContracts (180→103L); valid only because its 3 prerequisites were already in the worktree (persistence audit dependency analysis); PageWriteOrigin/leases preserved.</td></tr>
+<tr><td class="mono">ChapterDataResetController wrapper inlining</td><td>DONE today — compile green, suite pending</td><td class="small">14 private pass-through wrappers removed, injected lambdas inlined (→189L).</td></tr>
+<tr><td class="mono">ORIGINAL colorization preset (author recipe)</td><td>DONE today — compile green, suite pending</td><td class="small">applyLook() dispatches ORIGINAL to a direct bilinear resize of model RGB to source size; VIBRANT keeps the ink-aware combine; both engines call it. Softer-than-VIBRANT output is inherent to the authentic recipe — confirmed with the user before implementation.</td></tr>
+<tr><td class="mono">Vision &amp; inpainting splits</td><td>IN WORKTREE, splits landed; shape contested</td><td class="small">NeuralInpaintingCoordinator 2,033→430 (5 stage files); RoiPageRecognitionEngine 1,457→310; MangaOcrEngine 885→241 + 2 runners. Reviews flag the extension-forwarding pattern (OnnxRuntimeProvider 3-file split: recommend REJECT; ROI/inpainting splits: revisit) — owner decisions pending; OnnxRuntimeProvider now 399L.</td></tr>
+<tr><td class="mono">Coordinator splits</td><td>IN WORKTREE — gate passed</td><td class="small">BatchTranslationCoordinator 1,138→676 (+BatchChapterPipeline 331, committed <code>0475c56f</code>); ReaderTranslationCoordinator 1,118→893; SessionSwitchJoinProtocol + TranslationStageSignalBoard verified sound by the coordinator audit.</td></tr>
+<tr><td class="mono">UI seams</td><td>IN WORKTREE — gate passed; two extractions contested</td><td class="small">TranslationUiTruth 999→549 (+BatchStatusLineProjection 412, facade kept); ReaderViewModel combine collapse in tree; ReaderTranslationSettingsWriter + TranslationPreferences split preserved but commit-readiness rejected by review (shallow forwarding / wrapper maze) — revise or revert at the wave-3 gate.</td></tr>
+<tr><td class="mono">colorizeOnly queue restore regression</td><td>FOUND &amp; FIXED</td><td class="small">Batch-commit-boundary review caught BatchQueuePersistence not re-persisting colorizeOnly ids; fixed via persist(queue), regression tests added (consecutive restores, concurrent addition); covering gate passed.</td></tr>
+<tr><td class="mono">TranslationProcessor split + executeColorizeOnly consolidation</td><td>DEFERRED (unchanged)</td><td class="small">no safe seam; file measured 930L today.</td></tr>
+<tr><td class="mono">Diagnostics condense</td><td>DEFERRED + NEW RISK FINDING</td><td class="small">review found the proposed large reduction would remove live behavior — only a stale-comment cleanup landed; condense needs redesign. Binding constraints unchanged (App.kt:197, analyze_latency_budget.py formats, privacy scrubber).</td></tr>
+<tr><td class="mono">D2 page-key collision fix</td><td>DEFERRED — not started</td><td class="small">both candidate schemes rejected; needs an evidence-class migration design at its own gate.</td></tr>
+<tr><td class="mono">Engine-ownership lease (colorization)</td><td>DESIGNED — not implemented</td><td class="small">per-generation state machine converged across auditors after two rejected sketches; device probes (MCV2 W8A8, FFDNet, QuickSRNet, LiteRT inpaint, Paddle OCR) passed earlier are device evidence only; Manga Light init stall and QNN strict HTP/GPU diagnostics remain unresolved.</td></tr>
+</table></div>
+<p class="small muted"><b>Same-day update:</b> the wave was checkpointed as local commit <code>7afa1e5b</code> "Reconcile translation ownership and prune dead surfaces" (126 files, +9,194/−12,732) — consolidation, splits, preference split, reader seam, CleanedImagePublisher removal and the three 11-14 actions all committed. Gate over that tree (coordinator-reported): <b>286 suites / 1,784 tests / 0 failures / 1 skipped benchmark</b>, compile green. Pending entries dropped 131 → <b>16</b>; the structure move then landed as <code>74c9d2fc</code> "Rehome batch admission and extract deletion protection" with <b>287 suites / 1,784 tests / 0 failures / 1 skipped benchmark</b>, leaving only these docs. The review-flagged extractions (preference split, settings writer, ONNX provider split) were committed by owner decision — objections stay on record in ledger Section I(b).</p>
+<p class="small muted"><b>AGENTS.md conformance at <code>7afa1e5b</code> (coordinator-measured):</b> 266 files / 47,207 code lines. Structure and hygiene largely compliant, but the module is <b>NOT compliant</b> on two rules: the ≥700-line god-file threshold — <b>9 files</b> (ChapterArtifactEngine 1,258 · TranslationTrace 1,013 · TranslationPipelineDiagnostics 953 · ReaderTranslationCoordinator 853 · TranslationProcessor 852 · QnnDiagnostics 840 · TextLayoutPlanner 780 · TranslationRequestCoordinator 775 · LiteRTMangaInpaintingEngine 757) — and the 3-line comment cap (114 inline runs + 803 block comments over cap). Recorded as explicit open backlog; naming (2 generic <code>*Manager</code> names left) and hygiene (0 TODO/FIXME) pass. Full scorecard: ledger Section I(h).</p>
+<p class="small muted">~34 verified steps were committed locally during the wave under the agreed per-verified-step policy (write-drain queue, batch admission routing, permit promotion, batch chapter execution, governor split, accounting consolidation, retry/planner deletions, chroma/CTC/deepl/watermark merges, fatal-error share, model deployment, reader seams, Paddle dispatch, and more). Nothing has been pushed.</p>
+</section>
+
 <section id="gates">
 <h2>Your gates</h2>
 <ul class="small">
-  <li><b>Approve this plan</b> (or amend) → Stage 0 baseline begins immediately after.</li>
-  <li><b>D2 fix</b> — the only behavior-changing item (online colorize key collision). Say the word and it becomes Stage 7 with its own migration notes.</li>
-  <li><b>Git</b> — everything stays uncommitted per AGENTS.md §8; you decide local commits / pushes per action, as before.</li>
+  <li><b>D2 migration design</b> — the only behavior-changing item left. Both candidate schemes were rejected on evidence; it needs a migration design for persisted keys before any code moves. Say the word and it becomes its own gated stage.</li>
+  <li><b>Structural wave 3 — continue or stop</b> — the AGENTS.md scorecard (ledger I(h)) makes the backlog explicit: the <b>9 god files ≥700L</b> (ChapterArtifactEngine 1,258 … LiteRTMangaInpaintingEngine 757), the <b>3-line comment cap</b> debt (917 measured over-cap runs: 114 inline + 803 block), the diagnostics-condense redesign, and the engine-ownership lease. Also open: disposition of the 13 injected-provider accessors. BatchAdmission/ChapterDeletionProtection landed in <code>74c9d2fc</code>.</li>
+  <li><b>Git policy — already agreed</b> — verified steps commit locally as we go; nothing pushes without your explicit request. HEAD is <code>74c9d2fc</code>, with this docs commit directly on top; local only.</li>
 </ul>
 </section>
 
