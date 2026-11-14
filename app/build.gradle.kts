@@ -620,8 +620,15 @@ fun verifyAsset(apkName: String, zip: ZipFile, relativePath: String, expectedSha
 // libraries from local files (-Pmodels.mcv2.npu.w8a8 / -Pmodels.mcv2.npu.libs),
 // each byte-verified against the device-validated handoff so bad staging fails the build.
 val defaultNpuLibs = rootProject.file("models_local/qnn-libs")
-val mcv2NpuW8a8ModelPath = providers.gradleProperty("models.mcv2.npu.w8a8")
-val upscalingNpuModelPath = providers.gradleProperty("models.upscaling.npu")
+// -Pmodels.exclude=true builds a code-only APK: engines fall back to models
+// already cached on device, so the model-asset staging and its APK byte check
+// are disabled while the QNN runtime libraries stay staged (the NPU route
+// needs them at runtime and remains hash-verified).
+val modelsExcluded = providers.gradleProperty("models.exclude").orNull?.toBoolean()
+    ?: providers.gradleProperty("models.skip").orNull?.toBoolean()
+    ?: false
+val mcv2NpuW8a8ModelPath = providers.gradleProperty("models.mcv2.npu.w8a8").filter { !modelsExcluded }
+val upscalingNpuModelPath = providers.gradleProperty("models.upscaling.npu").filter { !modelsExcluded }
 val mcv2NpuLibraryDirectoryPath = providers.gradleProperty("models.mcv2.npu.libs")
     .orElse(providers.provider { if (defaultNpuLibs.isDirectory) "models_local/qnn-libs" else null })
 val mcv2NpuAssetDirectory = layout.buildDirectory.dir("generated/mcv2-npu-debug-assets")
