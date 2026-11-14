@@ -6,13 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * TachiyomiAT: in-memory, per-attempt pipeline stage signals for live reader
- * feedback (the status pill). Atomic primitives — never persisted, never part
- * of the durable translation store. Carriers carry the attempt token so a
- * stale reporter callback arriving after a retry started can never overwrite
- * the newer attempt's stage (spec §8 stale-callback rule).
- */
+/** Per-attempt reader status-pill signals; never persisted; attempt tokens fence stale callbacks (spec §8). */
 internal data class PageStageSignal(
     val stage: TranslationStageSignal,
     val attemptToken: Long,

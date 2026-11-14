@@ -82,11 +82,7 @@ internal fun TranslationProgressSnapshot.withDurablePause(
     store: ChapterTranslationStore,
 ): TranslationProgressSnapshot = withDurablePause(store.durableFailuresSnapshot())
 
-/**
- * Terminal snapshot truth for a live store (the registry-hit branch of durable
- * terminal reconstruction): totals from the manifest, pause details from the
- * store's accepted status snapshot.
- */
+/** Terminal snapshot truth for a live store (registry-hit branch): manifest totals, store snapshot pause details. */
 internal fun ChapterTranslationStore.terminalProgressSnapshot(
     chapterId: Long,
     chapterState: Translation.State,
@@ -145,10 +141,7 @@ internal fun TranslationProgressSnapshot.projectQueueStatus(
     else -> copy(state = queueStatus)
 }
 
-/**
- * Returns the chapter's 1-based position among outstanding QUEUE/TRANSLATING entries and the
- * total. Returns null when the chapter is not part of outstanding work.
- */
+/** The chapter's 1-based position among QUEUE/TRANSLATING entries and the total; null when not outstanding. */
 internal fun translationQueuePosition(
     queue: List<Translation>,
     chapterId: Long,
@@ -162,10 +155,7 @@ internal fun translationQueuePosition(
     return (index + 1) to outstanding.size
 }
 
-/**
- * Whether a durable artifact status is a reconstructible terminal outcome. Live queue and
- * translation states are never reconstructed; a crash mid-run must not look like active work.
- */
+/** True for reconstructible terminal durable states; live states never reconstruct — a crash must not look active. */
 internal fun isReconstructibleDurableState(state: Translation.State?): Boolean = when (state) {
     Translation.State.TRANSLATED,
     Translation.State.READY_WITH_WARNINGS,
@@ -206,14 +196,7 @@ internal suspend fun reconstructDurableTerminalSnapshot(
     }
 }
 
-/**
- * Reader-facing flow graph for progress projection.
- *
- * The store owns page/display/status truth; this class only combines queue,
- * tracker, and request orchestration around that unified store projection.
- * Orchestration state arrives through providers so the projection can combine existing owners
- * without taking ownership of their stores or scopes.
- */
+/** Projects reader progress from provider-owned queue, tracker and request state; stores own page and status truth. */
 internal class TranslationProgressProjection(
     private val activeStoresProvider: () -> ActiveChapterStoreRegistry,
     private val batchTrackerRegistryProvider: () -> TranslationBatchTrackerRegistry,
@@ -306,12 +289,7 @@ internal class TranslationProgressProjection(
         }.distinctUntilChanged()
     }
 
-    /**
-     * Live batch progress for [chapterId]. This is the one projection shared
-     * by manga, reader, and notification surfaces. It starts with an immediate
-     * request acknowledgement, follows queue status changes, then switches to
-     * the live tracker or shared store without consulting download-cache state.
-     */
+    /** Shared progress follows request acknowledgement, queue, then tracker or store; never reads the download cache. */
     fun observeBatchProgress(
         chapterId: Long,
         durableStateHint: Translation.State? = null,
@@ -367,12 +345,9 @@ internal class TranslationProgressProjection(
                     flowOf(terminal)
                 } else {
                     val queued = getQueuedTranslationOrNull(chapterId)
-                    //  restart-retry fix: after a restart there is no queue
-                    // entry and no live tracker, so the fallback used to hard-
-                    // code NOT_TRANSLATED — hiding a durably FAILED chapter's
-                    // terminal state from the sheet (and its Retry affordance).
-                    // The caller's projected persisted state is the honest
-                    // fallback; a queued/live status always wins.
+                    // restart-retry fix: after a restart there is no queue entry or live tracker, so the fallback
+                    // used to hard-code NOT_TRANSLATED, hiding a durably FAILED chapter's terminal state (and Retry
+                    // affordance). The caller's projected persisted state is the honest fallback; queued/live wins.
                     val state = queueStatus
                         ?: queued?.status
                         ?: durableStateHint
@@ -404,11 +379,9 @@ internal class TranslationProgressProjection(
                         }
                     } else if (store == null) {
                         flow {
-                            // Registry miss with no queue owner — reconstruct a completed/failed chapter's terminal
-                            // detail from the durable store/artifacts so
-                            // re-entry and eviction keep truthful totals and
-                            // reasons. Read-through only: no store is created
-                            // and nothing is cached here.
+                            // Registry miss with no queue owner — reconstruct a completed/failed
+                            // chapter's terminal detail from durable store/artifacts so re-entry and eviction keep
+                            // truthful totals and reasons. Read-through only: no store created, nothing cached.
                             emit(
                                 reconstructDurableTerminalSnapshot(chapterId)
                                     ?: TranslationProgressSnapshot.empty(chapterId, state),

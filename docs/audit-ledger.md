@@ -386,3 +386,7 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 ### (n) Batch coordinator comment cleanup
 
 - Seventeen comment blocks were shortened across six coordinator files, without changing code. Ten existing longer blocks in the seven-file scope were retained because they document decision tables, cancellation/lock contracts, and persistence behavior; they remain open against the comment cap.
+
+### (o) Reader and progress comment cleanup
+
+- Twelve comment blocks were shortened across five coordinator files, without changing code. Five existing longer explanations in the six-file scope remain open where they carry source-loading, finality, or durable-read context that should not be lost.
