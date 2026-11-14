@@ -378,3 +378,7 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 ### (l) Maintainability takes priority
 
 - The user clarified that file size is a signal, not a goal by itself: a split must have a coherent architectural responsibility and improve readability for developers new to the project. Avoid creating small files solely to reduce line counts; preserve useful concurrency and lifecycle rationale when shortening comments. The 1,000-line upper limit remains the stated guideline.
+
+### (m) Pending-request comment cleanup
+
+- Six over-cap comments in the request coordinator and pending-request store were condensed without changing code. Five pre-existing longer comments were retained because they explain admission, cancellation, or persistence invariants; they remain open against the comment cap and have not been approved as exceptions.

@@ -5,10 +5,7 @@ import androidx.core.content.edit
 import eu.kanade.translation.model.TranslationRequestFailureKind
 import eu.kanade.translation.model.TranslationRequestPhase
 
-/**
- * One durable pending-request record. Older phase-and-reason entries read with
- * generation 0, no group or timestamps, and failure kind [TranslationRequestFailureKind.NONE].
- */
+/** One durable pending-request record; legacy entries read generation 0, no group/timestamps, failureKind NONE. */
 data class TranslationPendingRequestRecord(
     val chapterId: Long,
     val phase: TranslationRequestPhase,
@@ -62,11 +59,7 @@ class TranslationPendingRequestStore(
         )
     }
 
-    /**
-     * The durable per-chapter generation counter. Equal to the live record's
-     * generation while a request exists; survives [remove] as a tombstone so
-     * re-requests always observe a fresh generation.
-     */
+    /** Live record generation; survives [remove] as a tombstone to fence re-requests. */
     @Synchronized
     fun generation(chapterId: Long): Long = preferences.getLong(generationKey(chapterId), 0L)
 
