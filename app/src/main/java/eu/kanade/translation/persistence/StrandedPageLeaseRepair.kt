@@ -80,11 +80,7 @@ internal fun strandedSweepPageUpdate(
     return ::update
 }
 
-/**
- * The sweep's AUTO lease acquisition (traced as READER_STRANDED_SWEEP).
- * Returns the granted lease, or null when denied (another origin owns the
- * page and AUTO never preempts).
- */
+/** Sweep AUTO lease acquisition; null when denied (another origin owns the page and AUTO never preempts). */
 internal suspend fun acquireStrandedSweepLease(
     store: ChapterTranslationStore,
     pageKey: String,
@@ -98,12 +94,7 @@ internal suspend fun acquireStrandedSweepLease(
     return (acquisition as? LeaseAcquisition.Granted)?.lease
 }
 
-/**
- * The resumed half of the sweep: mutates [pageKey] fencing on the EXACT
- * [lease] evidence captured at acquisition, then releases only that acquired
- * token. Returns
- * true only when the guarded write was accepted.
- */
+/** Mutates [pageKey] fenced on the EXACT [lease] evidence, releases only that token; true when accepted. */
 internal suspend fun mutatePageUnderAcquiredSweepLease(
     store: ChapterTranslationStore,
     pageKey: String,
@@ -127,11 +118,7 @@ internal suspend fun mutatePageUnderAcquiredSweepLease(
     }
 }
 
-/**
- * Full single-page sweep repair: acquire AUTO, mutate fenced on the acquired
- * evidence, release only the acquired token. Returns true when the page was
- * repaired.
- */
+/** Full sweep repair: acquire AUTO, mutate fenced on acquired evidence, release only that token; true when repaired. */
 internal suspend fun repairStrandedPageWithAcquiredAutoLease(
     store: ChapterTranslationStore,
     pageKey: String,

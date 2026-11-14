@@ -11,13 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Chapter-keyed owner of active translation stores.
- *
- * A reader must select a store by its own chapter ID; publishing another chapter's store can
- * never change that selected source. The map flow exists only to rebind a selected chapter when
- * its store is registered or removed.
- */
+/** Chapter-keyed owner of active stores; a reader's selected source never follows another chapter's store publish. */
 internal class ActiveChapterStoreRegistry {
     private val stores = LinkedHashMap<Long, ChapterTranslationStore>()
     private val fileStores = LinkedHashMap<String, ChapterTranslationStore>()
@@ -52,11 +46,7 @@ internal class ActiveChapterStoreRegistry {
         return true
     }
 
-    /**
-     * Opens one chapter store without holding the registry monitor across disk I/O.
-     * Concurrent reader and batch callers share the same per-chapter opening lock,
-     * then recheck the registry before invoking [create].
-     */
+    /** Opens without holding the registry monitor across disk I/O; callers share a per-chapter lock and recheck. */
     suspend fun getOrCreate(
         chapterId: Long,
         fileKey: String? = null,
@@ -130,10 +120,7 @@ internal class ActiveChapterStoreRegistry {
     /** The currently selected chapter source, or null when that chapter is not active. */
     fun observe(chapterId: Long): StateFlow<Map<String, PageTranslationView>>? = get(chapterId)?.state
 
-    /**
-     * Rebinds only when this [chapterId]'s source changes. Updates from another chapter's store
-     * cannot be emitted through this flow.
-     */
+    /** Rebinds only when this [chapterId]'s source changes; another chapter's store updates are never emitted. */
     fun select(chapterId: Long): Flow<Map<String, PageTranslationView>> = snapshots.flatMapLatest { map ->
         map[chapterId]?.state ?: flowOf(emptyMap())
     }

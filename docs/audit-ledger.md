@@ -390,3 +390,7 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 ### (o) Reader and progress comment cleanup
 
 - Twelve comment blocks were shortened across five coordinator files, without changing code. Five existing longer explanations in the six-file scope remain open where they carry source-loading, finality, or durable-read context that should not be lost.
+
+### (p) Persistence comment cleanup
+
+- Twenty-one comment blocks were shortened across six persistence files, without changing code. Fifteen longer blocks remain open because they carry crash recovery, deletion, lease fencing, and retention contracts. Publication and recovery rationale was checked and preserved.

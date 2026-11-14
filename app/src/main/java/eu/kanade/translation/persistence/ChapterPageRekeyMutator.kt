@@ -316,12 +316,7 @@ internal class ChapterPageRekeyMutator(private val store: ChapterTranslationStor
         )
     }
 
-    /**
-     * Caller holds [store.mutex]. True only when the record at [pageKey] carries no
-     * payload a move would destroy: no blocks, no cleaned/render image, no
-     * stage output, no fingerprints, no committed display, no artifact or
-     * journal immutables. Pre-registration placeholders qualify.
-     */
+    /** Holds [store.mutex]; true only when [pageKey] carries no payload a move would destroy; placeholders qualify. */
     private fun isPayloadlessPlaceholderLocked(pageKey: String): Boolean {
         if (store.committedDisplay.containsKey(pageKey)) return false
         if (store.retiredCleanedImages.containsKey(pageKey)) return false
