@@ -1,4 +1,4 @@
-package eu.kanade.translation.processing.batch
+package eu.kanade.translation.coordinator
 
 import eu.kanade.tachiyomi.source.model.Page
 import io.kotest.matchers.shouldBe

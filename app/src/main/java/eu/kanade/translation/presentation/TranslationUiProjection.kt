@@ -23,15 +23,6 @@ object TranslationUiProjection {
         else -> Translation.State.NOT_TRANSLATED
     }
 
-    /** Reader auto-delete must not evict files needed by any batch intent. */
-    fun protectsChapterFromDeletion(
-        queuedState: Translation.State?,
-        hasPendingRequest: Boolean,
-    ): Boolean = hasPendingRequest ||
-        queuedState == Translation.State.QUEUE ||
-        queuedState == Translation.State.TRANSLATING ||
-        queuedState == Translation.State.PAUSED
-
     /**
      *  stranded-state reconciliation. A batch cancelled mid-run removes its
      * queue entry; `statusFlow()` then drops the entry WITHOUT a terminal

@@ -44,6 +44,7 @@ import eu.kanade.tachiyomi.util.removeCovers
 import eu.kanade.tachiyomi.util.system.activeNetworkState
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.TranslationManager
+import eu.kanade.translation.coordinator.BatchAdmissionDecision
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.engines.inpainting.InpaintingMode
 import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
@@ -1391,7 +1392,7 @@ class MangaScreenModel(
         // what exists with honest partial manifest accounting.
         data class PartialDownloadTranslation(
             val group: List<ChapterList.Item>,
-            val decisions: Map<Long, eu.kanade.translation.processing.batch.BatchAdmissionDecision>,
+            val decisions: Map<Long, BatchAdmissionDecision>,
         ) : Dialog
 
         // BALANCE/QUALITY start blocked because the selected neural model's
