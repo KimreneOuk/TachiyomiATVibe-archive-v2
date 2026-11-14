@@ -87,9 +87,6 @@ internal class ReaderTranslationCoordinator(
     private val sessionBindingMutex = Mutex()
     private val readerGeneration = AtomicLong()
     private val chapterCancellations = ConcurrentHashMap.newKeySet<String>()
-    private val viewportLocks = ConcurrentHashMap<String, Mutex>()
-    private val viewportRevisions = ConcurrentHashMap<String, AtomicLong>()
-    private val viewportStates = ConcurrentHashMap<String, ViewportState>()
     private val chapterCancellationJobs = ConcurrentHashMap<String, Job>()
     private val chapterCancellationLock = Any()
     private val outcomes = ReaderOutcomeStore()
@@ -178,17 +175,30 @@ internal class ReaderTranslationCoordinator(
         },
     )
 
+    // Viewport demand and revision fencing live in the controller; queue,
+    // session, and worker state stay here behind these gates.
+    private val viewport = ReaderViewportController(
+        scope = scope,
+        resolveSession = ::sessionFor,
+        isPausedForSwitch = { batchSwitchPauseRequested },
+        isBatchActive = isBatchActiveForChapter,
+        isAutoTranslateEnabled = isAutoTranslateEnabled,
+        isAutoEnabled = { it in autoEnabledChapters },
+        setAutoEnabled = { chapterKey, enabled -> setAutoEnabled(chapterKey, enabled) },
+        enqueueAuto = { request -> enqueuePage(request) },
+        trimWindow = { chapterKey, keys -> updateViewportWindow(chapterKey, keys) },
+        releaseIfIdle = { releaseSessionIfIdle() },
+        forEachBoundChapter = { action ->
+            sessionBindings.values.forEach { binding ->
+                binding.session.chapter.id?.let { action(it, binding.token) }
+            }
+        },
+    )
+
     private data class SessionBinding(
         val token: ReaderSessionToken,
         val session: TranslationSession,
         val computeClass: TranslatorComputeClass,
-    )
-
-    private data class ViewportState(
-        val token: ReaderSessionToken,
-        val pageIndex: Int,
-        val pageCount: Int,
-        val resolve: (Int) -> ReaderPageWork?,
     )
 
     init {
@@ -235,8 +245,7 @@ internal class ReaderTranslationCoordinator(
             if (shouldRelease) {
                 sessionBindings.clear()
                 activeSessionChapterKey = null
-                viewportStates.clear()
-                viewportRevisions.clear()
+                viewport.reset()
                 sessions.finishSession(TranslationSessionState.READER_SESSION)
             }
         }
@@ -258,8 +267,7 @@ internal class ReaderTranslationCoordinator(
                 queuedKeys.clear()
                 automaticQueuedKeys.clear()
                 autoEnabledChapters.clear()
-                viewportStates.clear()
-                viewportRevisions.clear()
+                viewport.reset()
                 sessionBindings.clear()
                 activeSessionChapterKey = null
                 updatePendingCountLocked()
@@ -453,87 +461,19 @@ internal class ReaderTranslationCoordinator(
         pageIndex: Int,
         pageCount: Int,
         resolve: (Int) -> ReaderPageWork?,
-    ) {
-        val session = sessionFor(token) ?: return
-        val chapterId = session.chapter.id ?: return
-        val chapterKey = chapterId.toString()
-        if (batchSwitchPauseRequested || isBatchActiveForChapter(chapterKey) || !isAutoTranslateEnabled()) return
-        viewportStates[chapterKey] = ViewportState(token, pageIndex, pageCount, resolve)
-        val revision = viewportRevisions.computeIfAbsent(chapterKey) { AtomicLong() }.incrementAndGet()
-        setAutoEnabled(chapterKey, true)
-        if (batchSwitchPauseRequested || !isAutoTranslateEnabled()) {
-            setAutoEnabled(chapterKey, false)
-            return
-        }
-        scope.launch {
-            var releaseNeeded = false
-            viewportLocks.computeIfAbsent(chapterKey) { Mutex() }.withLock {
-                if (batchSwitchPauseRequested ||
-                    viewportRevisions[chapterKey]?.get() != revision ||
-                    sessionFor(token) == null
-                ) {
-                    return@withLock
-                }
-                if (!isAutoTranslateEnabled() || chapterKey !in autoEnabledChapters) {
-                    releaseNeeded = true
-                    return@withLock
-                }
-                val visibleOrNear = (pageIndex..minOf(pageIndex + 1, pageCount - 1))
-                    .mapNotNull(resolve)
-                    .distinctBy { it.pageKey }
-                if (batchSwitchPauseRequested ||
-                    viewportRevisions[chapterKey]?.get() != revision ||
-                    sessionFor(token) == null
-                ) {
-                    return@withLock
-                }
-                if (!isAutoTranslateEnabled() || chapterKey !in autoEnabledChapters) {
-                    releaseNeeded = true
-                    return@withLock
-                }
-                updateViewportWindow(chapterKey, visibleOrNear.mapTo(linkedSetOf()) { it.pageKey })
-                visibleOrNear.forEach { work ->
-                    enqueuePage(
-                        PageRequest(
-                            session = session,
-                            chapterKey = chapterKey,
-                            pageKey = work.pageKey,
-                            isManual = false,
-                            streamFn = work.streamFn,
-                        ),
-                    )
-                }
-            }
-            if (releaseNeeded) {
-                releaseSessionIfIdle()
-            }
-        }
-    }
+    ) = viewport.updateViewport(token, pageIndex, pageCount, resolve)
 
     fun setAutoEnabled(token: ReaderSessionToken, enabled: Boolean): Boolean {
         val chapterKey = sessionFor(token)?.chapter?.id?.toString() ?: return false
         return setAutoEnabled(chapterKey, enabled)
     }
 
-    fun reconcile(token: ReaderSessionToken, resolve: (Int) -> ReaderPageWork?) {
-        val chapterKey = sessionFor(token)?.chapter?.id?.toString() ?: return
-        val state = viewportStates[chapterKey]?.takeIf { it.token == token } ?: return
-        updateViewport(token, state.pageIndex, state.pageCount, resolve)
-    }
+    fun reconcile(token: ReaderSessionToken, resolve: (Int) -> ReaderPageWork?) =
+        viewport.reconcile(token, resolve)
 
-    fun reconcileChapter(chapterKey: String) {
-        val state = viewportStates[chapterKey] ?: return
-        reconcile(state.token, state.resolve)
-    }
+    fun reconcileChapter(chapterKey: String) = viewport.reconcileChapter(chapterKey)
 
-    fun reconcileAll(admissionGuard: (Long) -> Boolean = { true }) {
-        sessionBindings.values.forEach { binding ->
-            val chapterId = binding.session.chapter.id ?: return@forEach
-            if (!admissionGuard(chapterId)) return@forEach
-            val state = viewportStates[chapterId.toString()] ?: return@forEach
-            reconcile(binding.token, state.resolve)
-        }
-    }
+    fun reconcileAll(admissionGuard: (Long) -> Boolean = { true }) = viewport.reconcileAll(admissionGuard)
 
     /**
      * Transient COLORING stage signal for reader-direct colorize runs, which
@@ -710,8 +650,7 @@ internal class ReaderTranslationCoordinator(
         chapterCancellations.add(chapterKey)
         try {
             invalidateSession(chapterKey)
-            viewportStates.remove(chapterKey)
-            viewportRevisions.remove(chapterKey)
+            viewport.drop(chapterKey)
             mutex.withLock {
                 val queued = (manualQueue.keys + autoQueue.keys).filter { key ->
                     key.startsWith("$chapterKey:")
@@ -862,9 +801,7 @@ internal class ReaderTranslationCoordinator(
         sessionBindings.clear()
         chapterCancellations.clear()
         outcomes.clearAll()
-        viewportStates.clear()
-        viewportRevisions.clear()
-        viewportLocks.clear()
+        viewport.clear()
         sessionSwitchProtocol.clear()
         pendingSessionPreparations.set(0)
         batchSwitchPauseRequested = false
