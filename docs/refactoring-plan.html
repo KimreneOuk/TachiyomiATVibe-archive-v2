@@ -268,12 +268,34 @@
 <p class="small muted">~34 verified steps were committed locally during the wave under the agreed per-verified-step policy (write-drain queue, batch admission routing, permit promotion, batch chapter execution, governor split, accounting consolidation, retry/planner deletions, chroma/CTC/deepl/watermark merges, fatal-error share, model deployment, reader seams, Paddle dispatch, and more). Nothing has been pushed.</p>
 </section>
 
+<section id="reconciliation-wave3">
+<h2>Wave-3 reconciliation — landed units</h2>
+<p class="small muted">Coordinator-written from the delivered post-cleanup structure audit, child reports, and parent-run gates. Child agents edited; the parent ran <code>:app:testStandardDebugUnitTest</code>, reviewed every diff, and removed two new over-cap comment headers before commit. Nothing pushed. Full detail: ledger Section J.</p>
+<div class="grid2">
+  <div class="card"><div class="stat">2</div><b>verified local commits</b><br><span class="muted small"><code>fe6fa840</code> engine split · <code>963fa551</code> page model + mask regions + LiteRT assets + dead-surface cleanup</span></div>
+  <div class="card"><div class="stat">9 → 7</div><b>god files ≥700 code</b><br><span class="muted small">After the first two commits; wave 3b also cleared LiteRT and TRC, leaving five</span></div>
+</div>
+<div class="wrap"><table>
+<tr><th>Unit</th><th>Status</th><th>Measured result / note</th></tr>
+<tr><td class="mono">ChapterArtifactEngine split</td><td>DONE <code>fe6fa840</code></td><td class="small">Engine 1,258 → 283 code; CandidateTransactions 606, Rekey 190, Retention 159. Gate 287/1,784/0/1.</td></tr>
+<tr><td class="mono">PageTranslationView split</td><td>DONE <code>963fa551</code></td><td class="small">Interfaces 94 code; PublishedPageTranslation 340; PageTranslationValueSemantics 252. Audit grouping corrected: serializer is 10 lines, not 284; the @Serializable annotation moved with the model.</td></tr>
+<tr><td class="mono">TextLayoutMaskRegions</td><td>DONE <code>963fa551</code></td><td class="small">Planner 989 → 838 raw / ~664 code; new file 152 raw / ~119 code. Four dead forwarders deleted; TextLineBreaker calls FontFittingAlgorithms directly. centeredExtentOverlapsObstacle stays in the planner.</td></tr>
+<tr><td class="mono">LiteRT asset manager</td><td>DONE, threshold NOT yet crossed</td><td class="small">Engine 961 → 812 raw / 742 code; asset manager 160 raw / ~146 code. Patch-clusterer extraction landed in a73aebe7, bringing the engine below 700.</td></tr>
+<tr><td class="mono">Dead-surface cleanup</td><td>DONE <code>963fa551</code></td><td class="small">7 files, +20/−89: ProductionTextMeasurer, TranslationQueueStatusProjection, BatchPhase deleted; both releaseAllPageLeases, authorizeCleanedImageDeletion, translateChapters removed. Gate 287/1,784/0/1.</td></tr>
+<tr><td class="mono">ReaderTranslationCoordinator</td><td>R1 EXTRACTED, GATE PASSED</td><td class="small">R1 ReaderOutcomeStore (expected ~825), then R2 WorkerLoop and R3 ViewportController → ~683. Session-binding/cancellation controllers rejected as redesigns.</td></tr>
+<tr><td class="mono">TranslationRequestCoordinator</td><td>T1 EXTRACTED, GATE PASSED</td><td class="small">T1 PendingRequestLedger alone → ~560–595; compound locked handoff/retryRekey operations preserved; fence-test fields move to the ledger. T2 StartupReconciliation optional.</td></tr>
+</table></div>
+<p class="small muted"><b>Still open:</b> 7 god files (TranslationTrace, TranslationPipelineDiagnostics, ReaderTranslationCoordinator, TranslationProcessor, QnnDiagnostics, TranslationRequestCoordinator, LiteRTMangaInpaintingEngine); the 3-line comment cap (917 baseline over-cap runs, no new over-cap headers committed, exact recount pending); deferred Findings 3/8/9/10/11/12; D2 migration, TranslationProcessor/colorizeOnly, diagnostics condense, colorization lease, batch failure semantics. Device validation unchanged.</p>
+</section>
+
+<p class="small muted"><b>3b worktree update:</b> All three extractions landed locally in <code>a73aebe7</code>. LiteRT is 723 raw / 665 non-blank, Reader is 941 raw / 828 code, and TRC is approximately 532 code. The initial combined gate exposed a missing coordinator callable-reference facade; it was restored, and the rerun passed (288 suites / 1,787 tests / 0 failures / 1 skipped); independent review passed with no actionable findings. Reader R2 and R3 remain necessary.</p>
+
 <section id="gates">
 <h2>Your gates</h2>
 <ul class="small">
   <li><b>D2 migration design</b> — the only behavior-changing item left. Both candidate schemes were rejected on evidence; it needs a migration design for persisted keys before any code moves. Say the word and it becomes its own gated stage.</li>
-  <li><b>Structural wave 3 — continue or stop</b> — the AGENTS.md scorecard (ledger I(h)) makes the backlog explicit: the <b>9 god files ≥700L</b> (ChapterArtifactEngine 1,258 … LiteRTMangaInpaintingEngine 757), the <b>3-line comment cap</b> debt (917 measured over-cap runs: 114 inline + 803 block), the diagnostics-condense redesign, and the engine-ownership lease. Also open: disposition of the 13 injected-provider accessors. BatchAdmission/ChapterDeletionProtection landed in <code>74c9d2fc</code>.</li>
-  <li><b>Git policy — already agreed</b> — verified steps commit locally as we go; nothing pushes without your explicit request. HEAD is <code>74c9d2fc</code>, with this docs commit directly on top; local only.</li>
+  <li><b>Structural wave 3 — approved and in progress</b> — two verified local commits landed (<code>fe6fa840</code>, <code>963fa551</code>); 9 → 7 god files. Remaining backlog: the refreshed god-file list in ledger Section J, the <b>3-line comment cap</b> debt (917 baseline over-cap runs: 114 inline + 803 block), the diagnostics-condense redesign, and the engine-ownership lease. Also open: disposition of the 13 injected-provider accessors. 3b (LiteRT patch clusterer, ReaderOutcomeStore, PendingRequestLedger) passed the combined gate; independent review passed with no actionable findings.</li>
+  <li><b>Git policy — already agreed</b> — verified steps commit locally as we go; nothing pushes without your explicit request. HEAD is <code>a73aebe7</code> before this docs update; local only.</li>
 </ul>
 </section>
 
