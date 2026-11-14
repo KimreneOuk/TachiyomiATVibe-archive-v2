@@ -296,6 +296,10 @@
 
 <p class="small muted"><b>Current size checkpoint:</b> At <code>4360c324</code>, four files remain at or above 700 code lines: TranslationTrace (1,013), TranslationPipelineDiagnostics (953), TranslationProcessor (852), and QnnDiagnostics (840). All are deferred; Reader is 695. Comment-cap debt remains open: a preliminary standalone-comment scan finds 912 over-cap runs, pending methodology validation.</p>
 
+<p class="small muted"><b>Revised file-size limit:</b> The user set the upper limit to 1,000 lines, superseding the earlier 700-line threshold. Using the existing code-line measure, only TranslationTrace (1,013) exceeds it; diagnostics redesign remains deferred for risk. Comment-cap cleanup continues separately.</p>
+
+<p class="small muted"><b>Architectural priority:</b> Favor cohesive responsibilities and a codebase approachable to new developers. Do not create small files solely to reduce line counts; file-size limits are a review signal, and useful invariants should survive comment cleanup.</p>
+
 <section id="gates">
 <h2>Your gates</h2>
 <ul class="small">
