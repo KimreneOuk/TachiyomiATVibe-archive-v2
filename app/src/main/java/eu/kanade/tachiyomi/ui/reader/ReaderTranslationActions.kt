@@ -493,10 +493,7 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
         imageUrl: String,
     ): () -> InputStream {
         val sPage = Page(page.index, page.url, imageUrl)
-        if (!chapterCache.isImageInCache(imageUrl)) {
-            val response = source.getImage(sPage)
-            chapterCache.putImageToCache(imageUrl, response)
-        }
+        chapterCache.getOrDownloadImage(imageUrl) { source.getImage(sPage) }
         return { chapterCache.getImageFile(imageUrl).inputStream() }
     }
 

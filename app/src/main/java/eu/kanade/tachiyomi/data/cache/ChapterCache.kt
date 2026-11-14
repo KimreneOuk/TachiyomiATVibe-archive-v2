@@ -6,6 +6,8 @@ import com.jakewharton.disklrucache.DiskLruCache
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.saveTo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import logcat.LogPriority
@@ -29,6 +31,7 @@ class ChapterCache(
     private val context: Context,
     private val json: Json,
 ) {
+    enum class ImageCacheResult { CACHED, DOWNLOADED }
 
     /** Cache class used for cache management. */
     private val diskCache = DiskLruCache.open(
@@ -42,6 +45,7 @@ class ChapterCache(
      * Returns directory of cache.
      */
     private val cacheDir: File = diskCache.directory
+    private val imageDownloads = ImageDownloadCoordinator()
 
     /**
      * Returns real size of directory.
@@ -132,15 +136,21 @@ class ChapterCache(
         return File(diskCache.directory, imageName)
     }
 
-    /**
-     * Add image to cache.
-     *
-     * @param imageUrl url of image.
-     * @param response http response from page.
-     * @throws IOException image error.
-     */
+    suspend fun getOrDownloadImage(imageUrl: String, download: suspend () -> Response): ImageCacheResult =
+        withContext(Dispatchers.IO) {
+            if (isImageInCache(imageUrl)) return@withContext ImageCacheResult.CACHED
+            imageDownloads.withKey(DiskUtil.hashKeyForDisk(imageUrl)) {
+                if (isImageInCache(imageUrl)) {
+                    ImageCacheResult.CACHED
+                } else {
+                    download().use { response -> putImageToCache(imageUrl, response) }
+                    ImageCacheResult.DOWNLOADED
+                }
+            }
+        }
+
     @Throws(IOException::class)
-    fun putImageToCache(imageUrl: String, response: Response) {
+    private fun putImageToCache(imageUrl: String, response: Response) {
         // Initialize editor (edits the values for an entry).
         var editor: DiskLruCache.Editor? = null
 
@@ -155,7 +165,6 @@ class ChapterCache(
             diskCache.flush()
             editor.commit()
         } finally {
-            response.body.close()
             editor?.abortUnlessCommitted()
         }
     }

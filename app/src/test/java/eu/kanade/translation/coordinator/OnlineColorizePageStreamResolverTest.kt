@@ -10,7 +10,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
-import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
@@ -34,6 +33,10 @@ class OnlineColorizePageStreamResolverTest {
 
     private suspend fun planFor(pages: List<Page>): OnlineColorizePageStreamResolver.Plan {
         coEvery { source.getPageList(any()) } returns pages
+        coEvery { chapterCache.getOrDownloadImage(any(), any()) } coAnswers {
+            secondArg<suspend () -> okhttp3.Response>().invoke()
+            ChapterCache.ImageCacheResult.DOWNLOADED
+        }
         return resolver().resolve(manga = mockk(relaxed = true), chapter = mockk(relaxed = true), source = source)
             ?: error("page list plan must resolve")
     }
@@ -81,7 +84,7 @@ class OnlineColorizePageStreamResolverTest {
         plan.prepareStream("42")
 
         coVerify(exactly = 1) { source.getImage(any()) }
-        verify(exactly = 1) { chapterCache.putImageToCache("https://cdn.example/img/p42.jpg?token=x", any()) }
+        coVerify(exactly = 1) { chapterCache.getOrDownloadImage("https://cdn.example/img/p42.jpg?token=x", any()) }
         plan.streamFor("42").shouldBeInstanceOf<InputStream>()
     }
 
@@ -139,18 +142,14 @@ class OnlineColorizePageStreamResolverTest {
     }
 
     @Test
-    fun `transient cache-editor conflict retries and succeeds`() = runTest {
-        // The reader downloading the same URL holds DiskLruCache's single
-        // editor; the first put fails with its "Unable to edit key" marker and
-        // the second attempt lands once the reader closes its editor.
+    fun `transient download failure retries and succeeds`() = runTest {
         val plan = planFor(listOf(Page(0, url = "a", imageUrl = "https://cdn/4.jpg")))
         val image = mockk<okhttp3.Response>(relaxed = true)
-        coEvery { source.getImage(any()) } returns image
-        every { chapterCache.isImageInCache("https://cdn/4.jpg") } returns false
         var attempts = 0
-        every { chapterCache.putImageToCache("https://cdn/4.jpg", image) } answers {
+        coEvery { source.getImage(any()) } coAnswers {
             attempts++
-            if (attempts == 1) throw IOException("Unable to edit key")
+            if (attempts == 1) throw IOException("temporary network failure")
+            image
         }
         val cachedFile = File.createTempFile("p4x", ".jpg").apply {
             writeBytes(byteArrayOf(1))
@@ -166,9 +165,7 @@ class OnlineColorizePageStreamResolverTest {
     @Test
     fun `download failing every attempt surfaces as a typed fetch failure`() = runTest {
         val plan = planFor(listOf(Page(0, url = "a", imageUrl = "https://cdn/5.jpg")))
-        coEvery { source.getImage(any()) } returns mockk(relaxed = true)
-        every { chapterCache.isImageInCache(any()) } returns false
-        every { chapterCache.putImageToCache(any(), any()) } throws IOException("Unable to edit key")
+        coEvery { source.getImage(any()) } throws IOException("network failure")
 
         val error = assertThrows<IOException> { plan.prepareStream("5.jpg") }
 

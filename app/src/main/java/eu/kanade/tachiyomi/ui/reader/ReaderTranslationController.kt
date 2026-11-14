@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.PageColorizeOutcome
 import eu.kanade.translation.TranslationManager
+import eu.kanade.translation.coordinator.ReaderAdmission
 import eu.kanade.translation.coordinator.ReaderPageWork
 import eu.kanade.translation.coordinator.ReaderSessionToken
 import eu.kanade.translation.coordinator.ReaderSubmission
@@ -424,14 +425,14 @@ internal class ReaderTranslationController(
         val source = sourceManager.get(manga.source) as? HttpSource ?: return null
         val domainChapter = chapter.chapter.toDomainChapter() ?: return null
         val chapterKey = chapterId.toString()
-        val expectedKey = "${source.id}:${manga.id}:$chapterId"
-        val session = readerCoordinator.sessionForChapter(chapterKey)
-            ?.takeIf { it.key == expectedKey }
-            ?: readerCoordinator.openSession(manga, domainChapter, source)
-            ?: return null
         val computeClass = currentTranslatorComputeClass()
         val previousToken = readerCoordinator.sessionTokenForChapter(chapterKey)
-        val token = readerCoordinator.bindSession(session, computeClass) ?: return null
+        // Store resolution and binding are one admission transaction, atomic
+        // against store eviction under the chapter's admission lock.
+        val token = when (val admission = readerCoordinator.admitReaderSessionUse(manga, domainChapter, source, computeClass)) {
+            is ReaderAdmission.Admitted -> admission.token
+            ReaderAdmission.StoreUnavailable, ReaderAdmission.SessionDenied -> return null
+        }
         val pages = chapter.pages.orEmpty()
         if (previousToken != token || autoReadinessLoader !== chapter.pageLoader) {
             installReaderSourceReadiness(chapter, token)
@@ -852,8 +853,16 @@ internal class ReaderTranslationController(
         val chapter = getCurrentChapter() ?: return
         if (chapterPageIndex < 0) return
         viewModelScope.launch {
-            updateTranslationWorkingSet(chapter, chapterPageIndex, dispatchRefresh = true)
-            translateCurrentPageForAuto()
+            // Join a still-running teardown (bounded) so the one-shot resume
+            // re-drive is not spent on a bind refusal mid-teardown.
+            readerCoordinator.awaitPendingReaderStop()
+            // The join can outlast a chapter switch: re-drive only what the
+            // reader still shows, never the pre-join capture.
+            val liveChapter = getCurrentChapter()
+            if (liveChapter === chapter && chapterPageIndex >= 0) {
+                updateTranslationWorkingSet(liveChapter, chapterPageIndex, dispatchRefresh = true)
+                translateCurrentPageForAuto()
+            }
         }
     }
 

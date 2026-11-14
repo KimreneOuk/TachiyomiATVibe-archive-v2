@@ -203,6 +203,7 @@ internal class ChapterBatchExecutor(
         var failedCount = 0
         for ((pageIndex, pageKey) in remainingKeys.withIndex()) {
             telemetry.pageStart(pageIndex, pageKey)
+            val pageStarted = System.nanoTime()
             try {
                 prepareStream?.invoke(pageKey)
                 telemetry.stageDecode()
@@ -224,7 +225,9 @@ internal class ChapterBatchExecutor(
                 publish(failProgress, onProgress)
                 return failProgress
             }
+            val fetchFinished = System.nanoTime()
             val decoded = processor.decodeImage(pageKey, { streamProvider(pageKey) }) { recognitionEngineProvider() }
+            val decodeFinished = System.nanoTime()
             if (decoded == null) {
                 val err = "Failed to decode page image for $pageKey during colorize pass"
                 logcat(LogPriority.ERROR) { "BatchColorizeOnly: $err" }
@@ -261,6 +264,11 @@ internal class ChapterBatchExecutor(
                 prior.sourceFingerprint == decoded.sourceFingerprint
             ) {
                 processor.releaseDecoded(decoded)
+                logcat(LogPriority.INFO) {
+                    "[ColorizeTiming] chapter=$chapterKey page=$pageKey result=reused " +
+                        "fetchMs=${(fetchFinished - pageStarted) / 1_000_000} " +
+                        "decodeMs=${(decodeFinished - fetchFinished) / 1_000_000}"
+                }
                 completedCount++
                 telemetry.pageReused()
                 publish(Progress(chapterKey, completedCount, totalCount, "COLORING"), onProgress)
@@ -307,11 +315,21 @@ internal class ChapterBatchExecutor(
                 processor.releaseDecoded(decoded)
             }
 
+            val colorFinished = System.nanoTime()
             val commit = try {
                 processor.handOffColoredBitmapForDisplay(page)
                 store.updatePageFromCurrentSnapshot(pageKey, "batch:colorize-commit") { page }
             } finally {
                 processor.releasePageBitmaps(page)
+            }
+            val committed = System.nanoTime()
+            logcat(LogPriority.INFO) {
+                "[ColorizeTiming] chapter=$chapterKey page=$pageKey model=${coloringEngine.javaClass.simpleName} " +
+                    "fetchMs=${(fetchFinished - pageStarted) / 1_000_000} " +
+                    "decodeMs=${(decodeFinished - fetchFinished) / 1_000_000} " +
+                    "colorAndPublishMs=${(colorFinished - decodeFinished) / 1_000_000} " +
+                    "commitMs=${(committed - colorFinished) / 1_000_000} " +
+                    "totalMs=${(committed - pageStarted) / 1_000_000} status=${page.coloringStatus}"
             }
             if (commit is ChapterTranslationStore.PatchResult.Rejected || page.coloringStatus != StageStatus.READY) {
                 val error = if (commit is ChapterTranslationStore.PatchResult.Rejected) {

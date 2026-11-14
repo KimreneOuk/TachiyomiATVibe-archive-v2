@@ -1,6 +1,7 @@
 package eu.kanade.translation.coordinator
 
 import eu.kanade.translation.model.SinglePageOutcome
+import eu.kanade.translation.persistence.ChapterTranslationStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -19,7 +20,7 @@ internal interface ReaderWorkerGateway {
     suspend fun claimNext(): ReaderTranslationCoordinator.PageRequest?
     fun isBatchYielding(chapterKey: String): Boolean
     fun isFinalInStore(request: ReaderTranslationCoordinator.PageRequest): Boolean
-    fun publishOutcome(chapterKey: String, pageKey: String, outcome: SinglePageOutcome)
+    fun publishOutcome(chapterKey: String, pageKey: String, outcome: SinglePageOutcome, identity: ChapterTranslationStore.Identity?)
     fun setActiveKey(pageKey: String)
     fun clearActiveKey(pageKey: String)
     fun isPausedForSwitch(): Boolean
@@ -70,6 +71,7 @@ internal class ReaderWorkerLoop(
                                 nextRequest.chapterKey,
                                 nextRequest.pageKey,
                                 SinglePageOutcome.Completed,
+                                nextRequest.session.store.currentIdentity,
                             )
                             continue
                         }
@@ -87,7 +89,14 @@ internal class ReaderWorkerLoop(
                                 }
                                 SinglePageOutcome.Failed(nextRequest.pageKey, t.message ?: "Translation failed")
                             }
-                            if (isActive) gateway.publishOutcome(nextRequest.chapterKey, nextRequest.pageKey, outcome)
+                            if (isActive) {
+                                gateway.publishOutcome(
+                                    nextRequest.chapterKey,
+                                    nextRequest.pageKey,
+                                    outcome,
+                                    nextRequest.session.store.currentIdentity,
+                                )
+                            }
                         }
                         requestJob = job
                         requestJobs[fullKey] = job

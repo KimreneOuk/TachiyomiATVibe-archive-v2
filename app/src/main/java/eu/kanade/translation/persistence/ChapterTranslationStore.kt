@@ -175,6 +175,15 @@ class ChapterTranslationStore internal constructor(
 
     val currentGeneration: Long get() = generation
 
+    /** Process-stable identity: generation restarts at 0 for every store instance, this never does. */
+    val instanceId: Long = nextInstanceId.getAndIncrement()
+
+    /** Identity outcomes are tagged with; equality means the origin store state still exists. */
+    val currentIdentity: Identity get() = Identity(instanceId, generation)
+
+    /** Stable instance id plus the within-instance generation, compared as one fencing identity. */
+    data class Identity(val instanceId: Long, val generation: Long)
+
     /**
      * Frozen snapshot of the last displayable page state, plus the identity
      * that lets the store decide when a promotion supersedes an older bundle.
@@ -879,6 +888,8 @@ class ChapterTranslationStore internal constructor(
     }
 
     companion object {
+        private val nextInstanceId = java.util.concurrent.atomic.AtomicLong()
+
         /** Open mechanics live on the opener collaborator; these shells keep existing callers unaffected. */
 
         /** Reads only the small manifest header; page snapshots stay unopened. */
