@@ -129,12 +129,7 @@ internal class TranslationRequestCoordinator(
         }
     }
 
-    /**
-     * True when the live request for [chapterId] is still a live (non-terminal)
-     * request carrying [generation]. A request that reached an explicit
-     * terminal phase (cancel/failure notifications) never satisfies a fence —
-     * a user retry allocates a new generation.
-     */
+    /** True when the live request is non-terminal and carries [generation]; terminal phases never satisfy fences. */
     fun isTranslationRequestCurrent(chapterId: Long, generation: Long): Boolean =
         ledger.isCurrent(chapterId, generation)
 
@@ -579,10 +574,7 @@ internal class TranslationRequestCoordinator(
         ledger.state.value.containsKey(chapterId) ||
             ledger.durableChapterIds().contains(chapterId)
 
-    /**
-     * A chapter remains protected from reader auto-delete while either its
-     * queued batch or its durable post-download intent may still need files.
-     */
+    /** Protected from reader auto-delete while its queued batch or durable post-download intent may need files. */
     fun isChapterTranslationProtected(chapterId: Long): Boolean {
         val queuedState = queuedTranslationOrNull(chapterId)?.status
         return ChapterDeletionProtection.protects(
@@ -618,12 +610,8 @@ internal class TranslationRequestCoordinator(
         autoStart: Boolean = true,
     ) {
         val chapterId = chapter.id ?: return
-        // A retained download re-key mapping MUST be reconciled (or honestly
-        // absent) before the request may advance to PREPARING/batch admission.
-        // The reconcile runs OUTSIDE the request mutation lock (store-level
-        // synchronization only) so no nested lock can deadlock; the fenced
-        // block below re-validates the request afterwards, so a cancel/pause
-        // racing the reconcile still wins.
+        // Reconcile any retained re-key before PREPARING or admission, outside the mutation lock to avoid deadlock.
+        // Store synchronization protects reconciliation; the fence below rechecks the request so cancel or pause wins.
         if (hasPendingDownloadRekeyFn(chapterId) && !reconcilePendingDownloadRekeyFn(chapterId)) {
             logcat(LogPriority.WARN) {
                 "TachiyomiAT download re-key reconciliation not clean for chapter $chapterId; " +
@@ -635,13 +623,9 @@ internal class TranslationRequestCoordinator(
             )
             return
         }
-        // Atomic fence (post-review fix): the generation check and the
-        // PREPARING write happen under the SAME mutation lock, so a cancel
-        // landing between check and write is serialized (either the cancel
-        // runs first and the callback is dropped, or the callback's PREPARING
-        // write runs first and the cancel removes the request) — the request
-        // can never be resurrected. Admission then re-validates the captured
-        // generation under the same lock inside translateChapter.
+        // The generation check and PREPARING write share a lock: cancellation either drops the callback
+        // first or removes its write afterward, so the request cannot be resurrected.
+        // Admission revalidates the captured generation under that same lock.
         val generation = ledger.beginHandoffIfCurrent(chapterId) ?: return
         submitTranslation(manga, chapter, generation, autoStart)
     }
