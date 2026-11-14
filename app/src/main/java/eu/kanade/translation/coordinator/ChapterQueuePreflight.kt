@@ -8,10 +8,7 @@ package eu.kanade.translation.coordinator
  * since cancellation can discard in-flight OCR or inpainting work.
  */
 sealed interface ChapterQueuePreflight {
-    /**
-     * No conflict: the chapter can be queued immediately. Stale QUEUE entries
-     * of the same source (if any) are evicted automatically by translateChapter.
-     */
+    /** No conflict: queue immediately; stale same-source QUEUE entries are evicted by translateChapter. */
     data object NoConflict : ChapterQueuePreflight
 
     /**

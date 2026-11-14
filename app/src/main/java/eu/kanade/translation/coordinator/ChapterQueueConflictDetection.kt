@@ -2,10 +2,7 @@ package eu.kanade.translation.coordinator
 
 import eu.kanade.translation.model.Translation
 
-/**
- * Queue fields needed to apply same-source admission rules without constructing
- * a full [Translation] and its source dependency.
- */
+/** Queue fields for same-source admission rules, without constructing a full [Translation] or its source. */
 data class QueuedChapterView(
     val chapterId: Long,
     val chapterName: String,
@@ -13,12 +10,7 @@ data class QueuedChapterView(
     val status: Translation.State,
 )
 
-/**
- * Returns the first active same-source chapter that conflicts with a new request.
- *
- * Queued entries are handled separately: removing a not-yet-started item keeps
- * its artifacts, while cancelling a running item can discard native stage work.
- */
+/** Running conflicts may discard native work if cancelled; queued entries can be removed with artifacts intact. */
 fun findRunningSameSourceConflict(
     queue: List<QueuedChapterView>,
     requestedChapterId: Long,
@@ -30,10 +22,7 @@ fun findRunningSameSourceConflict(
     .filter { it.status == Translation.State.TRANSLATING }
     .firstOrNull()
 
-/**
- * Selects queued same-source chapters to remove when admitting [keepChapterId].
- * Eviction drops only the queue entry and leaves each chapter's artifacts intact.
- */
+/** Queued same-source chapters to remove when admitting [keepChapterId]; eviction keeps each chapter's artifacts. */
 fun staleQueuedChaptersToEvict(
     queue: List<QueuedChapterView>,
     keepChapterId: Long,

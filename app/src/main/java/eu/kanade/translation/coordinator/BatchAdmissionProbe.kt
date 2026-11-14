@@ -31,14 +31,7 @@ sealed class BatchAdmissionDecision {
 
 internal object BatchAdmissionProbe {
 
-    /**
-     * Cross-checks the on-disk page count against the (possibly absent)
-     * fetched source page list. A `pages.size == downloadedPageCount` match is
-     * [BatchAdmissionDecision.Complete]; a mismatch is
-     * [BatchAdmissionDecision.Partial] carrying the SOURCE total and the
-     * downloaded count; an absent or empty list degrades to
-     * [BatchAdmissionDecision.UnknownCount].
-     */
+    /** Cross-checks on-disk count vs the fetched source list per the [BatchAdmissionDecision] outcome table. */
     fun evaluate(
         downloadedPageCount: Int,
         sourcePageList: List<Page>?,
@@ -52,19 +45,10 @@ internal object BatchAdmissionProbe {
     }
 }
 
-/**
- * The partial-download choice is typed so the screen model's dialog and the
- * queued admission stamp cannot drift apart. The dialog's copy is defined in
- * the screen model.
- */
+/** Typed so the screen model's dialog and the queued admission stamp cannot drift apart. */
 enum class PartialDownloadChoice { FINISH_DOWNLOAD_FIRST, TRANSLATE_WHAT_EXISTS }
 
-/**
- * Per-chapter probe outcome carried into queue admission: the resolved
- * cross-check the queued [eu.kanade.translation.model.Translation] stamps so
- * pre-registration can record honest totals. An absent context
- * (`sourceCountKnown = false`) is the legacy no-cross-check path.
- */
+/** Probe outcome for honest pre-registration totals; sourceCountKnown=false is the legacy no-cross-check path. */
 data class BatchAdmissionContext(
     val probedSourcePageCount: Int?,
     val sourceCountKnown: Boolean,

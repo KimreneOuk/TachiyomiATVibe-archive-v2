@@ -24,10 +24,7 @@ import tachiyomi.domain.manga.model.Manga
 import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.InputStream
 
-/**
- * Executes single-chapter translation batch runs, handling store resolution,
- * page stream enumeration, pre-registration, tracker lifecycle, and reconciliation.
- */
+/** Runs one chapter: resolves its store and page streams, pre-registers pages, manages trackers and reconciles. */
 internal class BatchChapterPipeline(
     private val context: Context,
     private val provider: TranslationFileProvider,
@@ -82,10 +79,9 @@ internal class BatchChapterPipeline(
                 translation.manga.title,
                 translation.source,
             )
-            // Chapter files may be gone (deleted mid-translation) or never
-            // existed for a streamed chapter. A TRANSLATION run needs the
-            // downloaded bytes, so it fails cleanly; a COLORIZE-ONLY run can
-            // stream every page from the source instead.
+            // Chapter files may be gone (deleted mid-translation) or never existed for a streamed
+            // chapter: a TRANSLATION run needs the downloaded bytes and fails cleanly, while a
+            // COLORIZE-ONLY run can stream every page from the source instead.
             if (chapterPath == null && !translation.colorizeOnly) {
                 logcat(LogPriority.ERROR) {
                     "TachiyomiAT chapter files not found for ${translation.chapter.name}"
@@ -160,19 +156,14 @@ internal class BatchChapterPipeline(
                 streams = getChapterPages(chapterPath)
             }
             try {
-                // Chapter batches are deterministic natural-order traversals.
-                // Reader viewport/last-read position is intentionally not a
-                // batch scheduling input; resume is decided per stage by the
-                // pipeline planner while pages remain 1..N.
+                // Chapter batches are deterministic natural-order traversals: reader
+                // viewport/last-read position is intentionally NOT a scheduling input;
+                // resume is decided per stage by the pipeline planner while pages remain 1..N.
                 val orderedStreams = streams.toList()
                 batchOrderedPageKeys = orderedStreams.map { it.first }
-                // A rejected pre-registration is an explicit
-                // pipeline error. Fail the chapter with a typed terminal tracker
-                // snapshot instead of running a live tracker whose totals would
-                // silently stay zero.
-                // The queued source-count cross-check is carried through
-                // pre-registration so the manifest's trusted total is the
-                // SOURCE total (or honestly unknown), never the found count.
+                // A rejected pre-registration is an explicit pipeline error: fail with a typed terminal snapshot,
+                // not a live tracker whose totals silently stay zero. The source-count cross-check keeps the
+                // manifest's trusted total the SOURCE total (or honestly unknown), never the found count.
                 val preRegistration = store.preRegisterPages(
                     batchOrderedPageKeys,
                     translation.probedSourcePageCount,

@@ -382,3 +382,7 @@ Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile
 ### (m) Pending-request comment cleanup
 
 - Six over-cap comments in the request coordinator and pending-request store were condensed without changing code. Five pre-existing longer comments were retained because they explain admission, cancellation, or persistence invariants; they remain open against the comment cap and have not been approved as exceptions.
+
+### (n) Batch coordinator comment cleanup
+
+- Seventeen comment blocks were shortened across six coordinator files, without changing code. Ten existing longer blocks in the seven-file scope were retained because they document decision tables, cancellation/lock contracts, and persistence behavior; they remain open against the comment cap.

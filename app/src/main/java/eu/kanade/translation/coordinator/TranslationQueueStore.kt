@@ -32,13 +32,7 @@ class TranslationQueueStore(
 ) {
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /**
-     * Persists the ordered list of chapter ids. Clears the store first so
-     * removals are reflected (a removed chapter id is simply absent from
-     * [chapterIds]). Cheap: one editor batch regardless of queue length.
-     * [colorizeOnlyIds] marks which of those chapters run colorize-only, so a
-     * restart restores the queue in the mode it was admitted with.
-     */
+    /** Saves ordered ids in one batch, clearing removed entries and preserving [colorizeOnlyIds] across restarts. */
     fun save(chapterIds: List<Long>, colorizeOnlyIds: Set<Long> = emptySet()) {
         preferences.edit(commit = true) {
             clear()
@@ -49,10 +43,7 @@ class TranslationQueueStore(
         }
     }
 
-    /**
-     * Returns the persisted chapter ids in queue order. Returns an empty list
-     * if nothing is persisted (first launch, or queue was cleared).
-     */
+    /** Persisted chapter ids in queue order; empty list when nothing is persisted (first launch or cleared). */
     fun load(): List<Long> {
         val result = mutableListOf<Long>()
         var i = 0
@@ -71,10 +62,7 @@ class TranslationQueueStore(
             ?.mapNotNullTo(mutableSetOf()) { it.toLongOrNull() }
             .orEmpty()
 
-    /**
-     * Removes all persisted entries. Called when the queue legitimately
-     * empties (all chapters translated or explicitly cleared).
-     */
+    /** Removes all persisted entries; called when the queue legitimately empties (translated or explicitly cleared). */
     fun clear() {
         preferences.edit(commit = true) { clear() }
     }
