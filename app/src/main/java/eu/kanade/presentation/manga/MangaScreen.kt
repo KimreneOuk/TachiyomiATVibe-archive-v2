@@ -451,6 +451,7 @@ private fun MangaScreenSmallImpl(
                             chapterCount = chapters.size,
                             missingChapterCount = missingChapterCount,
                             onClick = onFilterClicked,
+                            loading = state.isRefreshingData && state.chapters.isEmpty(),
                         )
                     }
 
@@ -703,6 +704,7 @@ fun MangaScreenLargeImpl(
                                     chapterCount = chapters.size,
                                     missingChapterCount = missingChapterCount,
                                     onClick = onFilterButtonClicked,
+                                    loading = state.isRefreshingData && state.chapters.isEmpty(),
                                 )
                             }
 
