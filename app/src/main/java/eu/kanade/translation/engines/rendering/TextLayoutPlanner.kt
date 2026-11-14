@@ -716,6 +716,7 @@ object TextLayoutPlanner {
         maxLines: Int,
         measurer: TextMeasurer,
     ): Float = CollisionRelaxation.minWidthForLines(text, font, maxLines, measurer)
+
     /**
      * The rendered pixel extent of a finalized [layout], centered on its origin
      * (or within its clip rect when clipped). Used as the obstacle footprint for
@@ -835,4 +836,3 @@ object TextLayoutPlanner {
     internal fun computeStrokeWidth(fontSizePx: Float, scale: Float): Float =
         FontFittingAlgorithms.computeStrokeWidth(fontSizePx, scale)
 }
-

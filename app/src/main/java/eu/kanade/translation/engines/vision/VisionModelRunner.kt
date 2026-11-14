@@ -3,9 +3,9 @@
 import ai.onnxruntime.OrtSession
 import com.google.ai.edge.litert.Environment
 import eu.kanade.translation.engines.runtime.litert.LiteRtVisionRunner
+import eu.kanade.translation.processing.memory.DirectBufferPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.DirectBufferPool
 import java.io.File
 import java.nio.FloatBuffer
 

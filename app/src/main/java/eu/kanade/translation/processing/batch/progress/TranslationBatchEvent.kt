@@ -1,8 +1,6 @@
 package eu.kanade.translation.processing.batch.progress
 
-import eu.kanade.translation.model.BatchPhase
 import eu.kanade.translation.model.Translation
-
 
 /**
  * Input to the batch-progress projection. Pipeline/store own all actual page state.

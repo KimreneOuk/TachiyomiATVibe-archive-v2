@@ -31,8 +31,8 @@ class ReaderPageWarmWindowTest {
         ReaderPageWarmWindow.attachRadiusFor(eu.kanade.tachiyomi.ui.reader.setting.ReadingMode.WEBTOON) shouldBe 4
         ReaderPageWarmWindow.evictionRadiusFor(eu.kanade.tachiyomi.ui.reader.setting.ReadingMode.WEBTOON) shouldBe 10
 
-        ReaderPageWarmWindow.attachRadiusFor(eu.kanade.tachiyomi.ui.reader.setting.ReadingMode.RIGHT_TO_LEFT) shouldBe 2
-        ReaderPageWarmWindow.evictionRadiusFor(eu.kanade.tachiyomi.ui.reader.setting.ReadingMode.RIGHT_TO_LEFT) shouldBe 5
+        ReaderPageWarmWindow.attachRadiusFor(eu.kanade.tachiyomi.ui.reader.setting.ReadingMode.LEFT_TO_RIGHT) shouldBe 2
+        ReaderPageWarmWindow.evictionRadiusFor(eu.kanade.tachiyomi.ui.reader.setting.ReadingMode.LEFT_TO_RIGHT) shouldBe 5
     }
 
     @Test

@@ -11,8 +11,8 @@ import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.coordinator.CompletedDownloadRekeyCoordinator
 import eu.kanade.translation.coordinator.DownloadPageStreamResolver
 import eu.kanade.translation.coordinator.DownloadRekeyOutcome
-import eu.kanade.translation.coordinator.ReaderTranslationCoordinator
 import eu.kanade.translation.coordinator.ReaderSessionIntent
+import eu.kanade.translation.coordinator.ReaderTranslationCoordinator
 import eu.kanade.translation.coordinator.SessionAdmission
 import eu.kanade.translation.coordinator.TranslationPendingRequestStore
 import eu.kanade.translation.coordinator.TranslationProgressProjection
@@ -162,7 +162,9 @@ class TranslationManager private constructor(
      */
     internal var colorizationEngine: PageColorizationEngine?
         get() = colorizationOwner.engine
-        set(value) { colorizationOwner.engine = value }
+        set(value) {
+            colorizationOwner.engine = value
+        }
 
     internal val testReaderCoordinator: ReaderTranslationCoordinator? get() = testConstruction?.readerCoordinator
     internal val testReaderStoreResolver: (suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore?)?

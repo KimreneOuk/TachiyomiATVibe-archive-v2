@@ -25,9 +25,9 @@ import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.SettingsIconGrid
 import tachiyomi.presentation.core.components.material.IconToggleButton
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.collectAsState
 
 private val ReadingModesWithoutDefault = listOf(
-    ReadingMode.RIGHT_TO_LEFT,
     ReadingMode.LEFT_TO_RIGHT,
     ReadingMode.WEBTOON,
 )
@@ -39,11 +39,13 @@ fun ReadingModeSelectDialog(
     onChange: (StringResource) -> Unit,
 ) {
     val manga by screenModel.mangaFlow.collectAsState()
+    val defaultMode by screenModel.preferences.defaultReadingMode().collectAsState()
     val readingMode = remember(manga) { ReadingMode.fromPreference(manga?.readingMode?.toInt()) }
 
     AdaptiveSheet(onDismissRequest = onDismissRequest) {
         DialogContent(
             readingMode = readingMode,
+            defaultMode = ReadingMode.defaultFromPreference(defaultMode),
             onChangeReadingMode = {
                 screenModel.onChangeReadingMode(it)
                 onChange(it.stringRes)
@@ -56,13 +58,20 @@ fun ReadingModeSelectDialog(
 @Composable
 private fun DialogContent(
     readingMode: ReadingMode,
+    defaultMode: ReadingMode,
     onChangeReadingMode: (ReadingMode) -> Unit,
 ) {
-    var selected by remember { mutableStateOf(readingMode) }
+    var selected by remember(readingMode, defaultMode) {
+        mutableStateOf(if (readingMode == ReadingMode.DEFAULT) defaultMode else readingMode)
+    }
 
     ModeSelectionDialog(
         onUseDefault = { onChangeReadingMode(ReadingMode.DEFAULT) }.takeIf { readingMode != ReadingMode.DEFAULT },
-        onApply = { onChangeReadingMode(selected) },
+        onApply = {
+            onChangeReadingMode(
+                if (readingMode == ReadingMode.DEFAULT && selected == defaultMode) ReadingMode.DEFAULT else selected,
+            )
+        },
     ) {
         SettingsIconGrid(MR.strings.pref_category_reading_mode) {
             items(ReadingModesWithoutDefault) { mode ->
@@ -88,11 +97,13 @@ private fun DialogContentPreview() {
             Column {
                 DialogContent(
                     readingMode = ReadingMode.DEFAULT,
+                    defaultMode = ReadingMode.LEFT_TO_RIGHT,
                     onChangeReadingMode = {},
                 )
 
                 DialogContent(
                     readingMode = ReadingMode.LEFT_TO_RIGHT,
+                    defaultMode = ReadingMode.LEFT_TO_RIGHT,
                     onChangeReadingMode = {},
                 )
             }

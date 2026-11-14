@@ -33,7 +33,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -65,7 +68,6 @@ import eu.kanade.presentation.reader.appbars.ReaderAppBars
 import eu.kanade.presentation.reader.components.TranslationCompareHandle
 import eu.kanade.presentation.reader.components.ZoomResetAffordance
 import eu.kanade.presentation.reader.sheet.ReaderSettingsSheet
-import eu.kanade.presentation.reader.sheet.ReaderTranslationSheet
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.coil.TachiyomiImageDecoder
 import eu.kanade.tachiyomi.data.notification.NotificationReceiver
@@ -472,6 +474,7 @@ class ReaderActivity : BaseActivity() {
 
         binding.dialogRoot.setComposeContent {
             val state by viewModel.state.collectAsState()
+            var lastSettingsPane by rememberSaveable { mutableStateOf(ReaderSettingsDestination.READER) }
             val settingsScreenModel = remember {
                 ReaderSettingsScreenModel(
                     readerState = viewModel.state,
@@ -551,7 +554,7 @@ class ReaderActivity : BaseActivity() {
                     onSelectOriginal = { viewModel.setCurrentPageShowTranslated(false) },
                     onSelectTranslated = { viewModel.setCurrentPageShowTranslated(true) },
                     onToggleAutoTranslate = { viewModel.setAutoTranslate(!autoTranslate) },
-                    onOpenSettings = { viewModel.openTranslationSettingsDialog() },
+                    onOpenSettings = { viewModel.openReaderSettings(ReaderSettingsDestination.VISION) },
                     onColorizeChapter = { viewModel.colorizeCurrentChapter() },
                     onColorizePage = { viewModel.colorizeCurrentPage() },
                     onPeekChange = { viewModel.setPeekOriginal(it) },
@@ -601,12 +604,11 @@ class ReaderActivity : BaseActivity() {
                 onClickToggleFullscreen = {
                     readerPreferences.fullscreen().set(!isFullscreen)
                 },
-                onClickSettings = viewModel::openSettingsDialog,
-                onClickTranslationSettings = viewModel::openTranslationSettingsDialog,
+                onClickSettings = { viewModel.openReaderSettings(lastSettingsPane) },
                 translationState = translationState,
                 translationBatchProgress = translationBatchProgress,
                 isBatchSession = isBatchSession,
-                onClickTranslate = { viewModel.openTranslationSettingsDialog() },
+                onClickTranslate = { viewModel.openReaderSettings(ReaderSettingsDestination.ENGINES) },
             )
 
             // TachiyomiAT: appears only while the page underfoot is zoomed;
@@ -641,17 +643,13 @@ class ReaderActivity : BaseActivity() {
                         },
                     )
                 }
-                is ReaderViewModel.Dialog.Settings -> {
+                is ReaderViewModel.Dialog.ReaderSettings -> {
+                    val dialogDestination = (state.dialog as ReaderViewModel.Dialog.ReaderSettings).destination
                     ReaderSettingsSheet(
+                        destination = dialogDestination,
                         screenModel = settingsScreenModel,
-                        onDismissRequest = onDismissRequest,
-                        onShowMenus = { setMenuVisibility(true) },
-                        onHideMenus = { setMenuVisibility(false) },
-                    )
-                }
-                is ReaderViewModel.Dialog.TranslationSettings -> {
-                    ReaderTranslationSheet(
-                        state = translationSettingsState,
+                        translationState = translationSettingsState,
+                        onPaneSelected = { lastSettingsPane = it },
                         onDismissRequest = onDismissRequest,
                         onShowMenus = { setMenuVisibility(true) },
                         onHideMenus = { setMenuVisibility(false) },
@@ -668,7 +666,6 @@ class ReaderActivity : BaseActivity() {
                         onTranslationInpaintingModeChange = { viewModel.setTranslationInpaintingMode(it) },
                         onTranslationInpaintingNeuralModelChange = { viewModel.setTranslationInpaintingNeuralModel(it) },
                         onColorizationEnabledChange = { viewModel.setTranslationColorizationEnabled(it) },
-                        onAutoColorizeChange = { viewModel.setAutoColorize(it) },
                         onColorizationModelChange = { viewModel.setTranslationColorizationModel(it) },
                         onColorCombineModeChange = { viewModel.setTranslationColorCombineMode(it) },
                         onUpscalingEnabledChange = { viewModel.setTranslationUpscalingEnabled(it) },

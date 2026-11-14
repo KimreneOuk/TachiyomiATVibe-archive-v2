@@ -111,11 +111,7 @@ class PagerConfig(
     private fun zoomTypeFromPreference(value: Int) {
         imageZoomType = when (value) {
             // Auto
-            1 -> when (viewer) {
-                is L2RPagerViewer -> ReaderPageImageView.ZoomStartPosition.LEFT
-                is R2LPagerViewer -> ReaderPageImageView.ZoomStartPosition.RIGHT
-                else -> ReaderPageImageView.ZoomStartPosition.CENTER
-            }
+            1 -> ReaderPageImageView.ZoomStartPosition.LEFT
             // Left
             2 -> ReaderPageImageView.ZoomStartPosition.LEFT
             // Right
@@ -130,12 +126,7 @@ class PagerConfig(
             field = value.also { it.invertMode = this.tappingInverted }
         }
 
-    override fun defaultNavigation(): ViewerNavigation {
-        return when (viewer) {
-            is VerticalPagerViewer -> LNavigation()
-            else -> RightAndLeftNavigation()
-        }
-    }
+    override fun defaultNavigation(): ViewerNavigation = RightAndLeftNavigation()
 
     override fun updateNavigation(navigationMode: Int) {
         navigator = when (navigationMode) {

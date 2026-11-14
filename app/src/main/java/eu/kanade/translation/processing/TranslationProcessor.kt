@@ -16,10 +16,10 @@ import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.StageStatus
 import eu.kanade.translation.model.isTextlessTerminal
 import eu.kanade.translation.persistence.ChapterTranslationStore
+import eu.kanade.translation.persistence.CleanedPublication
 import eu.kanade.translation.persistence.LeaseAcquisition
 import eu.kanade.translation.persistence.PageWriteOrigin
 import eu.kanade.translation.persistence.TranslationFileProvider
-import eu.kanade.translation.persistence.CleanedPublication
 import eu.kanade.translation.processing.DecodedPage
 import eu.kanade.translation.processing.EngineLane
 import eu.kanade.translation.processing.PageDecode

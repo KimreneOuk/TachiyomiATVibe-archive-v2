@@ -1,20 +1,20 @@
 package eu.kanade.translation.persistence
 
+import android.graphics.Bitmap
+import com.hippo.unifile.UniFile
+import eu.kanade.translation.engines.inpainting.InpaintingMode
+import eu.kanade.translation.engines.inpainting.stampName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.io.InputStream
-import android.graphics.Bitmap
-import com.hippo.unifile.UniFile
-import eu.kanade.translation.engines.inpainting.InpaintingMode
-import eu.kanade.translation.engines.inpainting.stampName
 import tachiyomi.domain.translation.NeuralInpaintModel
+import java.io.InputStream
 import java.security.DigestOutputStream
-import java.util.UUID
 import java.security.MessageDigest
+import java.util.UUID
 
 /** Stable byte identity for a cleaned image whose legacy name is not content-addressed. */
 @Serializable

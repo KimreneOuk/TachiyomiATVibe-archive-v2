@@ -24,6 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import tachiyomi.i18n.MR
+import tachiyomi.presentation.core.i18n.stringResource
 
 /**
  * Sheet header: leading icon badge, title with optional subtitle and a close button.
@@ -78,7 +80,7 @@ fun SheetHeader(
         }
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(48.dp)
                 .clip(DesignTokens.ShapeSquircle)
                 .background(DesignTokens.CardFill)
                 .border(1.dp, DesignTokens.CardBorder, DesignTokens.ShapeSquircle),
@@ -86,11 +88,11 @@ fun SheetHeader(
         ) {
             IconButton(
                 onClick = onClose,
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Close,
-                    contentDescription = "Close",
+                    contentDescription = stringResource(MR.strings.action_close),
                     tint = DesignTokens.TextMuted,
                     modifier = Modifier.size(18.dp),
                 )

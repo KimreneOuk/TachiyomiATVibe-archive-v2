@@ -47,8 +47,11 @@ fun ReaderSetupTab(
     modifier: Modifier = Modifier,
 ) {
     val manga by screenModel.mangaFlow.collectAsState()
-    val currentReadingMode = remember(manga) {
-        ReadingMode.fromPreference(manga?.readingMode?.toInt())
+    val defaultReadingMode by screenModel.preferences.defaultReadingMode().collectAsState()
+    val currentReadingMode = remember(manga, defaultReadingMode) {
+        ReadingMode.fromPreference(manga?.readingMode?.toInt()).let {
+            if (it == ReadingMode.DEFAULT) ReadingMode.defaultFromPreference(defaultReadingMode) else it
+        }
     }
 
     val customBrightness by screenModel.preferences.customBrightness().collectAsState()
@@ -70,8 +73,10 @@ fun ReaderSetupTab(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             SelectionTile(
-                selected = currentReadingMode == ReadingMode.LEFT_TO_RIGHT || currentReadingMode == ReadingMode.DEFAULT,
-                onClick = { screenModel.onChangeReadingMode(ReadingMode.LEFT_TO_RIGHT) },
+                selected = currentReadingMode == ReadingMode.LEFT_TO_RIGHT,
+                onClick = {
+                    if (currentReadingMode != ReadingMode.LEFT_TO_RIGHT) screenModel.onChangeReadingMode(ReadingMode.LEFT_TO_RIGHT)
+                },
                 title = stringResource(ATMR.strings.reader_mode_manga),
                 subtitle = stringResource(ATMR.strings.reader_mode_manga_summary),
                 icon = Icons.Outlined.MenuBook,
@@ -79,7 +84,9 @@ fun ReaderSetupTab(
             )
             SelectionTile(
                 selected = currentReadingMode == ReadingMode.WEBTOON,
-                onClick = { screenModel.onChangeReadingMode(ReadingMode.WEBTOON) },
+                onClick = {
+                    if (currentReadingMode != ReadingMode.WEBTOON) screenModel.onChangeReadingMode(ReadingMode.WEBTOON)
+                },
                 title = stringResource(ATMR.strings.reader_mode_webtoon),
                 subtitle = stringResource(ATMR.strings.reader_mode_webtoon_summary),
                 icon = Icons.Outlined.ViewAgenda,

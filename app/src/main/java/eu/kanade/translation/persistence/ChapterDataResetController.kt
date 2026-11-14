@@ -194,5 +194,4 @@ internal class ChapterDataResetController(
             }
         }
     }
-
 }

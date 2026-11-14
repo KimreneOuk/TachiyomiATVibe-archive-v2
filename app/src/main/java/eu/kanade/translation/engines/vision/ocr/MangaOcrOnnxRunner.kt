@@ -4,9 +4,9 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
 import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
+import eu.kanade.translation.processing.memory.DirectBufferPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.DirectBufferPool
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader

@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,13 +34,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import tachiyomi.i18n.MR
-import tachiyomi.i18n.at.ATMR
 import tachiyomi.presentation.core.i18n.stringResource
 
 /**
  * Compact contextual action menu anchored above the navigation dock. Scoped
- * to the four frequent actions; rotation and crop borders live in the reader
- * settings sheet. Dismisses when an item is picked or controls hide.
+ * to the three frequent actions; translation and vision settings open from
+ * the dock button, the floater, or the settings sheet's other panes.
+ * Dismisses when an item is picked or controls hide.
  */
 @Composable
 fun ReaderQuickActionsMenu(
@@ -51,7 +50,6 @@ fun ReaderQuickActionsMenu(
     fullscreen: Boolean,
     onClickFullscreen: () -> Unit,
     onClickSettings: () -> Unit,
-    onClickTranslationSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
@@ -76,11 +74,6 @@ fun ReaderQuickActionsMenu(
                 icon = Icons.Outlined.Settings,
                 label = stringResource(MR.strings.action_settings),
                 onClick = onClickSettings,
-            )
-            MenuActionRow(
-                icon = Icons.Outlined.Translate,
-                label = stringResource(ATMR.strings.reader_compare_open_settings),
-                onClick = onClickTranslationSettings,
             )
             MenuActionRow(
                 iconPainter = painterResource(readingMode.iconRes),

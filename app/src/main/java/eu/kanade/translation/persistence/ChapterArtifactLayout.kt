@@ -49,7 +49,6 @@ class ChapterArtifactLayout(chapterBaseName: String) {
     private val contextDirectoryName = "$artifactRootDirectoryName/context"
     private val generationDirectoryName = "$artifactRootDirectoryName/generations"
 
-
     fun stageArtifactFile(pageKey: String, stage: ArtifactStage, fingerprint: String): String =
         listOf(
             artifactDirectoryName,
@@ -98,8 +97,6 @@ class ChapterArtifactLayout(chapterBaseName: String) {
     // Equal content maps to an equal name, so re-publication is idempotent and
     // first admission can use renameNoReplace. The caller supplies the
     // semantic content fingerprint; the name hashes it.
-
-
 
     val contextRootDirectory: String get() = contextDirectoryName
 

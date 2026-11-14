@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.SearchableConfigSelectorBox
 import eu.kanade.presentation.components.SelectorOption
+import tachiyomi.i18n.at.ATMR
+import tachiyomi.presentation.core.i18n.stringResource
 
 /**
  * Card with searchable from/to language boxes and an animated swap button.
@@ -71,7 +73,7 @@ fun LanguagePairSelector(
                     selectedLabel = currentFromLabel,
                     options = fromOptions,
                     onSelect = onFromLanguageChange,
-                    placeholder = "From",
+                    placeholder = stringResource(ATMR.strings.translation_language_from),
                     matchAnchorWidth = false,
                 )
             }
@@ -98,7 +100,7 @@ fun LanguagePairSelector(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.SwapHoriz,
-                        contentDescription = "Swap Languages",
+                        contentDescription = stringResource(ATMR.strings.translation_swap_languages),
                         tint = DesignTokens.AccentPrimary,
                         modifier = Modifier
                             .size(20.dp)
@@ -112,7 +114,7 @@ fun LanguagePairSelector(
                     selectedLabel = currentToLabel,
                     options = toOptions,
                     onSelect = onToLanguageChange,
-                    placeholder = "To",
+                    placeholder = stringResource(ATMR.strings.translation_language_to),
                     matchAnchorWidth = false,
                 )
             }

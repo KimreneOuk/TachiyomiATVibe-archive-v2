@@ -8,9 +8,9 @@ import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
+import eu.kanade.translation.processing.memory.BitmapPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.Closeable
 import java.io.File
 import kotlin.math.max

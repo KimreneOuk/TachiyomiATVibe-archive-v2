@@ -85,7 +85,8 @@ internal class NpuMangaColorizationEngine(
     @Synchronized
     override fun currentStamp(): String? {
         val base = stamp ?: return null
-        return base + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising())
+        return base + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising()) +
+            MangaColorizationImageProcessing.lookStampSuffix(colorCombineMode())
     }
 
     @Synchronized

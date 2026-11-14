@@ -11,9 +11,6 @@ import androidx.compose.ui.unit.dp
  * Design tokens dynamic bridge to the active Tachiyomi Material 3 theme.
  */
 object DesignTokens {
-    val CanvasDimmer = Color.Black.copy(alpha = 0.65f)
-    val CanvasDimmerZero = Color.Transparent
-
     val SheetBackground: Color
         @Composable
         @ReadOnlyComposable

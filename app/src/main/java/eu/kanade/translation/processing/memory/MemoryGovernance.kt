@@ -4,10 +4,10 @@ import android.content.Context
 import coil3.imageLoader
 import eu.kanade.translation.engines.runtime.EngineMemoryBudget
 import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
+import eu.kanade.translation.processing.memory.BitmapPool
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecision
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.BitmapPool
 
 /**
  * Applies memory-budget decisions before bitmap decode and native analysis.

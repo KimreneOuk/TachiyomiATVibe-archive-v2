@@ -16,9 +16,9 @@ import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
 import eu.kanade.translation.engines.runtime.onnx.QnnContextCacheManager
 import eu.kanade.translation.engines.vision.VisionModelRunner
 import eu.kanade.translation.model.BubbleMaskRle
+import eu.kanade.translation.processing.memory.BitmapPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.File
 import java.nio.FloatBuffer
 

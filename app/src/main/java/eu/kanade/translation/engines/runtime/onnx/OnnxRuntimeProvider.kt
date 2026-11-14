@@ -8,8 +8,6 @@ import tachiyomi.core.common.util.system.logcat
 import java.io.File
 import java.util.Locale
 
-
-
 object OnnxRuntimeProvider {
 
     internal fun logCompiledProviders(reason: String) {

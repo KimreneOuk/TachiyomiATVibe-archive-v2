@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.SearchableConfigSelectorBox
+import eu.kanade.presentation.components.designsystem.ActionCard
 import eu.kanade.presentation.components.designsystem.DesignTokens
 import eu.kanade.presentation.components.designsystem.SectionHeading
 import eu.kanade.presentation.components.designsystem.SelectionTile
@@ -84,19 +85,19 @@ internal fun TranslationOcrInpaintSection(
             SelectionTile(
                 selected = currentInpaint.equals("FAST", ignoreCase = true),
                 onClick = { onTranslationInpaintingModeChange("FAST") },
-                title = "FAST",
+                title = stringResource(ATMR.strings.pref_inpainting_mode_fast),
                 modifier = Modifier.weight(1f),
             )
             SelectionTile(
                 selected = currentInpaint.equals("BALANCE", ignoreCase = true),
                 onClick = { onTranslationInpaintingModeChange("BALANCE") },
-                title = "BALANCE",
+                title = stringResource(ATMR.strings.pref_inpainting_mode_balance),
                 modifier = Modifier.weight(1f),
             )
             SelectionTile(
                 selected = currentInpaint.equals("QUALITY", ignoreCase = true),
                 onClick = { onTranslationInpaintingModeChange("QUALITY") },
-                title = "QUALITY",
+                title = stringResource(ATMR.strings.pref_inpainting_mode_quality),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -112,7 +113,7 @@ internal fun TranslationOcrInpaintSection(
                     ?: state.inpaintingNeuralModel.name,
                 options = neuralOptions,
                 onSelect = onTranslationInpaintingNeuralModelChange,
-                placeholder = "Select Neural Model",
+                placeholder = stringResource(ATMR.strings.pref_inpainting_neural_model),
             )
         }
     }
@@ -178,13 +179,13 @@ internal fun TranslationColorizationSection(
             }
         }
 
-        TranslationActionRow(
+        ActionCard(
             icon = Icons.Outlined.Palette,
             title = stringResource(ATMR.strings.reader_colorize_page),
             subtitle = stringResource(ATMR.strings.reader_colorize_page_summary),
             onClick = onColorizePageClick,
         )
-        TranslationActionRow(
+        ActionCard(
             icon = Icons.Outlined.Palette,
             title = stringResource(ATMR.strings.reader_colorize_chapter),
             subtitle = stringResource(ATMR.strings.reader_colorize_summary),

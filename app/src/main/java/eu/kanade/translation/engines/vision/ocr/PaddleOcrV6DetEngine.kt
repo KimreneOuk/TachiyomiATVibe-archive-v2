@@ -10,10 +10,10 @@ import eu.kanade.translation.engines.runtime.onnx.OnnxRuntimeProvider
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrProviderOverride
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrProviderResolution
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrSessionFactory
-import logcat.LogPriority
-import tachiyomi.core.common.util.system.logcat
 import eu.kanade.translation.processing.memory.BitmapPool
 import eu.kanade.translation.processing.memory.DirectBufferPool
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 import java.io.Closeable
 import java.io.File
 import java.nio.FloatBuffer
