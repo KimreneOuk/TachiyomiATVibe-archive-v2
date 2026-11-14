@@ -196,6 +196,5 @@ class ChapterTranslationStatusOffMainThreadTest {
         getQueuedTranslationOrNull = getQueuedTranslationOrNull,
         persistedChapterStatus = persistedChapterStatus,
         openOrCreateStoreSuspend = { _, _, _, _, _, _ -> null },
-        observeActiveDisplayStore = { null },
     )
 }

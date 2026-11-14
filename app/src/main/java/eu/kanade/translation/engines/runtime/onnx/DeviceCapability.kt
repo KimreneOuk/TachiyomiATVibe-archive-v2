@@ -4,10 +4,12 @@ import android.os.Build
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 
+typealias PaddleOcrDeviceProfile = eu.kanade.translation.engines.vision.ocr.paddle.batch.PaddleOcrDeviceProfile
+
 object DeviceCapability {
 
-    private val socManufacturer: String by lazy { readSocManufacturer() }
-    private val socModel: String by lazy { readSocModel() }
+    val socManufacturer: String by lazy { readSocManufacturer() }
+    val socModel: String by lazy { readSocModel() }
 
     val isQualcommSnapdragon: Boolean by lazy {
         socManufacturer.contains("qualcomm", ignoreCase = true) ||

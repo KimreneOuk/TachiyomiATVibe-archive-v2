@@ -149,11 +149,7 @@ internal class NpuMangaColorizationEngine(
             letterbox.height,
         )
         return try {
-            MangaColorizationImageProcessing.combineColoredWithSource(
-                source,
-                coloredWork,
-                colorCombineMode().shadingStrength,
-            )
+            MangaColorizationImageProcessing.applyLook(source, coloredWork, colorCombineMode())
         } finally {
             coloredWork.recycle()
         }

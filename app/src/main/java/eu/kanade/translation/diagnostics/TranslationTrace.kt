@@ -881,7 +881,7 @@ class TranslationRunTrace internal constructor(
     private val retries = AtomicInteger(0)
 
     // The scheduler starts the run before the resume plan is known. The ONNX
-    // phase resolves PageWorkPlanner.plan and installs it here for the
+    // phase resolves the resume plan and installs it here for the
     // terminal run_end summary.
     private val planRef = AtomicReference(plan)
 

@@ -203,7 +203,7 @@ class ChapterPageRekeyMutatorArtifactTest {
         val io = FakeChapterDocumentIo()
         val store = store(seedCommittedArtifact(io))
         var reachedPublicationBoundary = false
-        store.testSeams.afterRekeyManifestPublicationBeforeLiveSwap = {
+        store.afterRekeyManifestPublicationBeforeLiveSwap = {
             store.readArtifactManifest().shouldNotBeNull().pages.keys shouldBe setOf(downloadedKey)
             store.state.value.keys shouldBe setOf(onlineKey)
             reachedPublicationBoundary = true

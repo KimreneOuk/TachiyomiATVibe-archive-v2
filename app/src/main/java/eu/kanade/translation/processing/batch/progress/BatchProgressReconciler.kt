@@ -2,12 +2,7 @@ package eu.kanade.translation.processing.batch.progress
 
 import eu.kanade.translation.model.PageTranslationView
 import eu.kanade.translation.model.Translation
-import eu.kanade.translation.model.hasRenderedResult
-import eu.kanade.translation.model.isStageFailed
-import eu.kanade.translation.model.isTextlessTerminal
 import eu.kanade.translation.persistence.ChapterPageReconciler
-import eu.kanade.translation.processing.batch.BatchPass1Outcome
-import eu.kanade.translation.processing.batch.BatchPass1Status
 
 data class ReconciliationResult(
     val chapterStatus: Translation.State,
@@ -29,11 +24,15 @@ data class ReconciliationResult(
 
 object BatchProgressReconciler {
 
+    /**
+     * Legacy projection that wraps [ChapterPageReconciler.reconcile].
+     * Pinned by [BatchPostPassProjectionTest] as a bug anchor characterizing
+     * why COMPLETED batch runs require [reconcileFlaggedCompleted].
+     */
     fun reconcile(
         pageMap: Map<String, PageTranslationView>,
         orderedKeys: List<String>,
         activeGeneration: Long,
-        pauseOutcome: BatchPass1Outcome? = null,
     ): ReconciliationResult {
         val expectedKeys = orderedKeys.distinct()
         val unexpectedPageKeys = ChapterPageReconciler.findUnexpectedPageKeys(pageMap, expectedKeys)
@@ -47,14 +46,6 @@ object BatchProgressReconciler {
                 partialCount = 0,
                 paused = false,
             )
-        }
-
-        pauseOutcome?.takeIf {
-            it.status == BatchPass1Status.PAUSED ||
-                it.status == BatchPass1Status.FAILED ||
-                it.status == BatchPass1Status.PERSISTENCE_REJECTED
-        }?.let { pausedOutcome ->
-            return reconcilePaused(pageMap, expectedKeys, pausedOutcome, unexpectedPageKeys)
         }
 
         val projection = ChapterPageReconciler.reconcile(
@@ -74,36 +65,6 @@ object BatchProgressReconciler {
         )
     }
 
-    /**
-     *   the completion projection for a COMPLETED batch outcome
-     * (both engine lanes). The chapter coordinator routes through this reconciler.
-     * commits translations WITHOUT an in-pass render — a healthy page ends
-     * translation-terminal (READY/PARTIAL, committed bundle in the artifact
-     * manifest) with `renderStatus == PENDING` and no cleaned image, so the
-     * stricter [reconcile] done-predicate (`hasRenderedResult`) counts every
-     * translatable page stranded and reports the chapter ERROR. At a
-     * COMPLETED outcome the coordinator has already resolved every expected
-     * page to a terminal state per `t924PageTerminalAtFinalize` (unresolved
-     * pages make the chapter a retryable ERROR BEFORE finalize), so the
-     * live completed outcome reports that this request reached its terminal
-     * boundary:
-     *
-     *  - every expected page counts done — including pages MISSING from
-     *    [pageMap] entirely (the current coordinator resolved the expected
-     *    work set before reporting completion; durable chapter status is
-     *    projected separately from page records and the trusted expected count);
-     *  - pages with `translationStatus == PARTIAL` count into the partial
-     *    bucket (chapter READY_WITH_WARNINGS) instead of done;
-     *  - no stranded pages and no failures are ever manufactured here.
-     *
-     * Use ONLY for COMPLETED outcomes — the strict [reconcile] remains the
-     * projection for non-terminal shapes (the pause branch and the durable
-     * durable status projector, which reads page records and the trusted
-     * expected page count).
-     * [activeGeneration] is accepted for signature parity with [reconcile]
-     * and is deliberately unused: a COMPLETED run is generation-agnostic
-     * for this live progress snapshot.
-     */
     /**
      * [includeColoringFailures] is set for COLORIZE-ONLY runs: a page whose
      * durable coloring failed is a flagged page needing attention (chapter
@@ -168,92 +129,6 @@ object BatchProgressReconciler {
             failedCount = if (includeColoringFailures) coloringFailedCount else 0,
             partialCount = partialCount,
             terminalCount = if (includeColoringFailures) coloringFailedCount else 0,
-        )
-    }
-
-    private fun reconcilePaused(
-        pageMap: Map<String, PageTranslationView>,
-        expectedKeys: List<String>,
-        outcome: BatchPass1Outcome,
-        unexpectedPageKeys: Set<String>,
-    ): ReconciliationResult {
-        val retryable = outcome.retryablePageKeys.ifEmpty {
-            outcome.anchorPageKey?.let(::setOf).orEmpty()
-        }
-        val anchorIndex = outcome.anchorPageKey?.let(expectedKeys::indexOf)?.takeIf { it >= 0 }
-        var doneCount = 0
-        var failedCount = 0
-        var partialCount = 0
-        var pendingCount = 0
-        var terminalCount = 0
-        val persistenceRejected = outcome.status == BatchPass1Status.PERSISTENCE_REJECTED
-
-        expectedKeys.forEachIndexed { index, pageKey ->
-            val page = pageMap[pageKey]
-            when {
-                pageKey in retryable -> {
-                    if (persistenceRejected) {
-                        // The rejected publication gives us no durable truth for
-                        // this anchor. Keep it pending in the in-memory report;
-                        // never infer completion or a retryable durable failure.
-                        pendingCount++
-                    } else if (page?.translationStatus == eu.kanade.translation.model.StageStatus.PARTIAL) {
-                        partialCount++
-                    }
-                }
-                anchorIndex != null && index > anchorIndex -> {
-                    // A pause owns only its first unresolved anchor. Tail pages
-                    // remain pending; pre-existing terminal failures are still
-                    // reported, but no missing page is synthesized as failed.
-                    when {
-                        page == null -> pendingCount++
-                        page.isStageFailed -> {
-                            failedCount++
-                            terminalCount++
-                        }
-                        page.hasRenderedResult || page.isTextlessTerminal -> doneCount++
-                        else -> pendingCount++
-                    }
-                }
-                page == null -> pendingCount++
-                page.isStageFailed -> {
-                    failedCount++
-                    terminalCount++
-                }
-                page.hasRenderedResult || page.isTextlessTerminal -> doneCount++
-                page.translationStatus == eu.kanade.translation.model.StageStatus.PARTIAL -> {
-                    partialCount++
-                }
-                else -> pendingCount++
-            }
-        }
-
-        return ReconciliationResult(
-            chapterStatus = when {
-                //  field fix (Chapter 21): a persistence-rejected run
-                // stopped with unresolved work (tail pages cancelled). It must
-                // surface as a retryable ERROR — the old in-memory
-                // READY_WITH_WARNINGS rendered as a completed chapter with no
-                // Retry affordance. [nonDurableFailure] stays true so callers
-                // still skip tail reconciliation and never synthesize
-                // durable failures the store does not own.
-                persistenceRejected -> Translation.State.ERROR
-                outcome.status == BatchPass1Status.FAILED || terminalCount > 0 -> Translation.State.ERROR
-                else -> Translation.State.PAUSED
-            },
-            strandedPages = emptyMap(),
-            unexpectedPageKeys = unexpectedPageKeys,
-            doneCount = doneCount,
-            failedCount = failedCount,
-            partialCount = partialCount,
-            paused = outcome.status == BatchPass1Status.PAUSED && terminalCount == 0,
-            anchorPageKey = outcome.anchorPageKey,
-            pendingCount = pendingCount,
-            retryableCount = if (persistenceRejected) 0 else retryable.size,
-            terminalCount = terminalCount,
-            nextEligibleRetryAtEpochMs = outcome.nextEligibleRetryAtEpochMs,
-            pauseReason = outcome.reason,
-            nonDurableFailure = persistenceRejected,
         )
     }
 }

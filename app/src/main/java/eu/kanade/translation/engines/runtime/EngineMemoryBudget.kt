@@ -114,31 +114,14 @@ object EngineMemoryBudget {
             if (sessionCount > 0) AOT_INFERENCE_SYSTEM_RESERVE_BYTES else 0L
     }
 
-    data class NnapiMemorySnapshot(
-        val availableHeapBytes: Long,
-        val systemHeadroomBytes: Long?,
+    /** Process-global system memory facts read through a single ActivityManager site. */
+    data class SystemMemoryFacts(
+        val availMemBytes: Long,
+        val thresholdBytes: Long,
         val lowMemory: Boolean,
     )
 
-    fun nnapiMemorySnapshot(): NnapiMemorySnapshot {
-        val heap = heapSnapshot().availableHeapBytes
-        val app = try {
-            Injekt.get<Application>()
-        } catch (_: Throwable) {
-            return NnapiMemorySnapshot(heap, null, false)
-        }
-        val activityManager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            ?: return NnapiMemorySnapshot(heap, null, false)
-        val memInfo = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memInfo)
-        return NnapiMemorySnapshot(
-            availableHeapBytes = heap,
-            systemHeadroomBytes = max(0L, memInfo.availMem - memInfo.threshold),
-            lowMemory = memInfo.lowMemory,
-        )
-    }
-
-    fun systemHeadroomBytes(): Long? {
+    fun systemMemoryFacts(): SystemMemoryFacts? {
         val app = try {
             Injekt.get<Application>()
         } catch (_: Throwable) {
@@ -147,7 +130,32 @@ object EngineMemoryBudget {
         val activityManager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
         val memInfo = ActivityManager.MemoryInfo()
         activityManager.getMemoryInfo(memInfo)
-        return if (memInfo.lowMemory) 0L else max(0L, memInfo.availMem - memInfo.threshold)
+        return SystemMemoryFacts(
+            availMemBytes = memInfo.availMem,
+            thresholdBytes = memInfo.threshold,
+            lowMemory = memInfo.lowMemory,
+        )
+    }
+
+    data class NnapiMemorySnapshot(
+        val availableHeapBytes: Long,
+        val systemHeadroomBytes: Long?,
+        val lowMemory: Boolean,
+    )
+
+    fun nnapiMemorySnapshot(): NnapiMemorySnapshot {
+        val heap = heapSnapshot().availableHeapBytes
+        val facts = systemMemoryFacts() ?: return NnapiMemorySnapshot(heap, null, false)
+        return NnapiMemorySnapshot(
+            availableHeapBytes = heap,
+            systemHeadroomBytes = max(0L, facts.availMemBytes - facts.thresholdBytes),
+            lowMemory = facts.lowMemory,
+        )
+    }
+
+    fun systemHeadroomBytes(): Long? {
+        val facts = systemMemoryFacts() ?: return null
+        return if (facts.lowMemory) 0L else max(0L, facts.availMemBytes - facts.thresholdBytes)
     }
 
     fun logSnapshot(tag: String, width: Int? = null, height: Int? = null, extra: String = "") {
@@ -165,20 +173,9 @@ object EngineMemoryBudget {
             null
         }
 
-        val app = try {
-            Injekt.get<Application>()
-        } catch (_: Throwable) {
-            null
-        }
-        val activityManager = app?.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        var lowMem = false
-        var sysAvail = 0L
-        if (activityManager != null) {
-            val memInfo = ActivityManager.MemoryInfo()
-            activityManager.getMemoryInfo(memInfo)
-            lowMem = memInfo.lowMemory
-            sysAvail = memInfo.availMem
-        }
+        val facts = systemMemoryFacts()
+        val lowMem = facts?.lowMemory ?: false
+        val sysAvail = facts?.availMemBytes ?: 0L
 
         val dims = if (width != null && height != null) " page=${width}x$height" else ""
         logcat(LogPriority.INFO) {

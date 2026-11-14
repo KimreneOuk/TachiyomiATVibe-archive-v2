@@ -49,7 +49,6 @@ class ChapterArtifactLayout(chapterBaseName: String) {
     private val contextDirectoryName = "$artifactRootDirectoryName/context"
     private val generationDirectoryName = "$artifactRootDirectoryName/generations"
 
-    private val envelopePlanDirectoryName = "$artifactRootDirectoryName/envelopes"
 
     fun stageArtifactFile(pageKey: String, stage: ArtifactStage, fingerprint: String): String =
         listOf(
@@ -100,10 +99,7 @@ class ChapterArtifactLayout(chapterBaseName: String) {
     // first admission can use renameNoReplace. The caller supplies the
     // semantic content fingerprint; the name hashes it.
 
-    val envelopePlansRootDirectory: String get() = envelopePlanDirectoryName
 
-    fun envelopePlanFile(contentFingerprint: String): String =
-        contentAddressedFile(envelopePlanDirectoryName, contentFingerprint)
 
     val contextRootDirectory: String get() = contextDirectoryName
 
@@ -120,7 +116,6 @@ class ChapterArtifactLayout(chapterBaseName: String) {
         pageSnapshotDirectoryName,
         contextDirectoryName,
         generationDirectoryName,
-        envelopePlanDirectoryName,
     )
 
     /** True when [path] is equal to or contained inside a managed directory. */

@@ -92,28 +92,6 @@ class ChapterArtifactLayoutTest {
             "c_artifacts/pages",
             "c_artifacts/context",
             "c_artifacts/generations",
-            "c_artifacts/envelopes",
         )
     }
-
-    @Test
-    fun `envelope plan names are content-addressed, deterministic, and managed`() {
-        val layout = ChapterArtifactLayout("c")
-        val fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        val segment = "f-${sha256Hex(fingerprint)}"
-
-        val envelope = layout.envelopePlanFile(fingerprint)
-        envelope shouldBe "c_artifacts/envelopes/$segment.json"
-        envelope shouldBe layout.envelopePlanFile(fingerprint)
-        layout.isManagedPath(envelope) shouldBe true
-
-        // Distinct content fingerprints never share a plan name.
-        val other = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        layout.envelopePlanFile(other) shouldNotBe envelope
-    }
-
-    private fun sha256Hex(value: String): String =
-        java.security.MessageDigest.getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
 }

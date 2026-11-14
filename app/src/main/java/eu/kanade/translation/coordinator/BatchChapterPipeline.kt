@@ -1,4 +1,4 @@
-package eu.kanade.translation.coordinator
+﻿package eu.kanade.translation.coordinator
 
 import android.content.Context
 import android.os.BatteryManager
@@ -21,7 +21,7 @@ import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
-import tachiyomi.domain.translation.pools.BitmapPool
+import eu.kanade.translation.processing.memory.BitmapPool
 import java.io.InputStream
 
 /**

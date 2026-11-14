@@ -461,95 +461,6 @@ object StageFingerprints {
         return fingerprintIndexed(fields)
     }
 
-    // -------------------------------------------------------------------------
-    // Envelope composite fingerprints use the same canonical encoding as
-    // other persisted fingerprints. The encoding is length-prefixed UTF-8
-    // fields hashed with lowercase SHA-256; golden fixtures pin the values.
-    // -------------------------------------------------------------------------
-
-    /**
-     * Envelope policy composite (schemas contract §1.5): identity of the
-     * measured-experiment envelope-planner policy
-     * constants only. A policy-only change changes this value (and the plan
-     * input identity) while deliberately NOT invalidating compatible
-     * translations (invalidation matrix row 7 — policy is never an input of
-     * [translationProvenanceFingerprint]).
-     */
-    fun envelopePolicyFingerprint(
-        maxBlocksPerEnvelope: Int,
-        maxContributingPages: Int,
-        maxEstimatedInputTokens: Int,
-        maxEstimatedOutputTokens: Int,
-        preferSceneBreaks: Boolean,
-    ): String = fingerprintIndexed(
-        listOf(
-            "envelope-policy",
-            maxBlocksPerEnvelope,
-            maxContributingPages,
-            maxEstimatedInputTokens,
-            maxEstimatedOutputTokens,
-            preferSceneBreaks,
-        ),
-    )
-
-    /**
-     * Per-envelope contributing corpus fingerprint:
-     * the contributing pages of ONE envelope, in planned order, each as
-     * `pageKey to pageOcrContentFingerprint`. Payload order is hashed
-     * verbatim — callers must pass the canonical planned order, with core
-     * pages before context-overlap pages.
-     */
-    fun envelopeContributingCorpusFingerprint(
-        contributingPages: List<Pair<String, String>>,
-    ): String {
-        val fields = mutableListOf<Any?>("envelope-contributing")
-        contributingPages.forEachIndexed { index, (pageKey, contentFingerprint) ->
-            fields += "page[$index]"
-            fields += pageKey
-            fields += contentFingerprint
-        }
-        return fingerprintIndexed(fields)
-    }
-
-    /**
-     * 08 `EnvelopePlan.planInputFingerprint`: corpus slice + planner
-     * version + envelope policy + the pending-block set, in canonical page
-     * then reading order. Callers pass only pages that carry pending blocks
-     * (textless pages contribute nothing) — the composite hashes exactly the
-     * planner's pending universe.
-     */
-    fun envelopePlanInputFingerprint(
-        corpusFingerprint: String,
-        plannerVersion: Int,
-        policyFingerprint: String,
-        pages: List<EnvelopePlanInputPage>,
-    ): String {
-        val fields = mutableListOf<Any?>(
-            "envelope-plan-input",
-            corpusFingerprint,
-            plannerVersion,
-            policyFingerprint,
-        )
-        pages.forEachIndexed { pageIndex, page ->
-            fields += "page[$pageIndex]"
-            fields += page.pageKey
-            page.orderedStableBlockIds.forEachIndexed { blockIndex, blockId ->
-                fields += "block[$blockIndex]"
-                fields += blockId
-            }
-        }
-        return fingerprintIndexed(fields)
-    }
-
-    /**
-     * 10 `EnvelopePlan.planFingerprint`: SHA-256 over the canonical
-     * re-encoded JSON of the plan DTO with operational fields zeroed and the
-     * `planFingerprint` itself blanked (a value cannot contain its own hash).
-     * Callers own the hashing view; this is the byte-level core only.
-     */
-    fun envelopePlanContentFingerprint(canonicalPlanJson: String): String =
-        sha256Hex(canonicalPlanJson.toByteArray(Charsets.UTF_8))
-
     /** Convenience mapping of a live OCR snapshot onto [OcrBlockContent] order. */
     fun pageOcrContentBlocks(page: PageTranslationView): List<OcrBlockContent> =
         page.blocks.map { block ->
@@ -633,7 +544,6 @@ object StageFingerprints {
 
     /**
      * Raw SHA-256 over [bytes], lowercase hex — the byte-level core under
-     * [envelopePlanContentFingerprint] and
      * [sourceExcerptHash] (/SC-10).
      */
     fun sha256Hex(bytes: ByteArray): String =
@@ -664,25 +574,10 @@ data class OcrBlockContent(
  * One contributing page's actually-translated content for
  * [StageFingerprints.translationProvenanceFingerprint]. The
  * hashes are over the NFC/LF-normalized source text actually sent (use
- * [StageFingerprints.sourceExcerptHash]); envelope ids and envelope policy
- * are deliberately absent ( matrix row 7).
+ * [StageFingerprints.sourceExcerptHash]).
  */
 data class TranslationProvenancePage(
     val pageOcrContentFingerprint: String,
     val orderedStableBlockIds: List<String>,
     val orderedBlockSourceTextHashes: List<String>,
-)
-
-/**
- * One pending page's planning-facing input for
- * [StageFingerprints.envelopePlanInputFingerprint].
- * Only the block ids matter to the composite — text, geometry and content
- * fingerprints enter through [StageFingerprints.ocrCorpusFingerprint]
- * (`corpusFingerprint`) instead, so this carrier keeps the plan input a
- * function of the pending-block SET plus corpus identity.
- */
-data class EnvelopePlanInputPage(
-    val pageKey: String,
-    /** Ordered (reading-order) stable block ids pending on this page. */
-    val orderedStableBlockIds: List<String>,
 )

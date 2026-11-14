@@ -1,6 +1,5 @@
 package eu.kanade.translation.processing.batch.progress
 
-import eu.kanade.translation.model.AiPageProgressState
 import eu.kanade.translation.model.BatchPhase
 import eu.kanade.translation.model.Translation
 import io.kotest.matchers.collections.shouldContainExactly
@@ -21,12 +20,10 @@ class TranslationBatchEventContractTest {
         val names = TranslationBatchEvent::class.sealedSubclasses.map { it.simpleName }.toSet()
 
         names shouldContainExactly setOf(
-            "PagePhase",
-            "AiPageProgress",
             "BatchAborted",
             "BatchFinished",
             "BatchPaused",
-            //   the coordinator's rebuild-window events (envelope
+            // the coordinator's rebuild-window events (envelope
             // plan build / commit).
             "EnvelopePlanProgress",
             "EnvelopePlanCommitted",
@@ -44,34 +41,6 @@ class TranslationBatchEventContractTest {
     @Test
     fun `EnvelopePlanCommitted is a singleton event`() {
         TranslationBatchEvent.EnvelopePlanCommitted shouldBe TranslationBatchEvent.EnvelopePlanCommitted
-    }
-
-    @Test
-    fun `PagePhase constructs with required fields and compiles as a subtype`() {
-        val event = TranslationBatchEvent.PagePhase(
-            pageKey = "001.jpg",
-            pageIndex = 0,
-            phase = BatchPhase.OCR,
-            status = PhaseStatus.RUNNING,
-        )
-        // Defaults: elapsedMs = 0L, heapMiB = null, reason = null.
-        event.elapsedMs shouldBe 0L
-        event.heapMiB shouldBe null
-        event.reason shouldBe null
-        event shouldBe TranslationBatchEvent.PagePhase("001.jpg", 0, BatchPhase.OCR, PhaseStatus.RUNNING)
-    }
-
-    @Test
-    fun `AiPageProgress constructs every observable provider state`() {
-        val event = TranslationBatchEvent.AiPageProgress(
-            pageKey = "001.jpg",
-            pageIndex = 0,
-            state = AiPageProgressState.BUFFERED,
-            reason = "barrier",
-        )
-
-        event.state shouldBe AiPageProgressState.BUFFERED
-        event.reason shouldBe "barrier"
     }
 
     @Test

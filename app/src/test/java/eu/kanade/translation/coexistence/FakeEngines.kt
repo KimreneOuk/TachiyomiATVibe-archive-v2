@@ -1,6 +1,7 @@
 package eu.kanade.translation.coexistence
 
 import android.graphics.Bitmap
+import eu.kanade.translation.engines.runtime.EngineMemoryBudget
 import eu.kanade.translation.engines.translator.TextTranslator
 import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
 import eu.kanade.translation.model.PageTranslation
@@ -9,7 +10,6 @@ import eu.kanade.translation.model.TextRecognizerLanguage
 import eu.kanade.translation.model.TextTranslatorLanguage
 import eu.kanade.translation.model.TranslationBlock
 import eu.kanade.translation.processing.DecodedPage
-import eu.kanade.translation.processing.memory.TranslationMemoryBudget
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecision
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecisionKind
 import io.mockk.every
@@ -83,7 +83,7 @@ internal object FakeCoexistence {
             sampledBitmapBytes = 0L,
             sourcePixels = 0L,
             sampledPixels = 0L,
-            snapshot = TranslationMemoryBudget.snapshot(),
+            snapshot = EngineMemoryBudget.heapSnapshot(),
         ),
         sourceBytesSize = 4L,
         sourceFingerprint = "fp-$pageKey",

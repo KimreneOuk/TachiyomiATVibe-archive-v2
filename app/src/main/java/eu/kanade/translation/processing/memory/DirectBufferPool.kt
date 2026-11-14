@@ -1,4 +1,4 @@
-package tachiyomi.domain.translation.pools
+﻿package eu.kanade.translation.processing.memory
 
 import java.nio.FloatBuffer
 import java.util.Collections

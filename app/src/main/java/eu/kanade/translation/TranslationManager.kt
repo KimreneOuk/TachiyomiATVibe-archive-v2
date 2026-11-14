@@ -11,18 +11,15 @@ import eu.kanade.translation.coordinator.CompletedDownloadRekeyCoordinator
 import eu.kanade.translation.coordinator.DownloadPageStreamResolver
 import eu.kanade.translation.coordinator.DownloadRekeyOutcome
 import eu.kanade.translation.coordinator.ReaderTranslationCoordinator
+import eu.kanade.translation.coordinator.ReaderSessionIntent
 import eu.kanade.translation.coordinator.SessionAdmission
 import eu.kanade.translation.coordinator.TranslationPendingRequestStore
 import eu.kanade.translation.coordinator.TranslationProgressProjection
 import eu.kanade.translation.coordinator.TranslationRequestCoordinator
 import eu.kanade.translation.coordinator.TranslationSessionCoordinator
-import eu.kanade.translation.engines.coloring.MangaLightHybridColorizationEngine
-import eu.kanade.translation.engines.coloring.NpuMangaColorizationEngine
 import eu.kanade.translation.engines.coloring.PageColorizationEngine
 import eu.kanade.translation.engines.inpainting.InpaintingHardwareOverride
 import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
-import eu.kanade.translation.engines.upscaling.PageUpscalingEngine
-import eu.kanade.translation.engines.upscaling.UpscalingModelCatalog
 import eu.kanade.translation.model.PageTranslationView
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationProgressSnapshot
@@ -47,13 +44,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.launch
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
-import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.TranslationPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -149,30 +142,27 @@ class TranslationManager private constructor(
     )
 
     /**
-     * Manager-owned colorization engine attached to the processor, chosen by
-     * the colorization-model pref. Construction is cheap (sessions build
-     * lazily at the first COLOR stage); test constructions stay detached so
-     * fakes never colorize.
+     * Owns the manager-attached colorization and upscaling engines: model
+     * selection by pref, live swap (attach before close), and the preference
+     * watchers. Engines are built only outside test constructions; fakes
+     * never colorize.
      */
-    internal var colorizationEngine: PageColorizationEngine? =
-        if (testConstruction == null) {
-            buildColorizationEngine(currentColorizationModel())
-                .also { processor.colorizationEngine = it }
-        } else {
-            null
-        }
+    internal val colorizationOwner = TranslationManagerColorization(
+        context = context,
+        preferences = translationPreferences,
+        attachColorization = { processor.colorizationEngine = it },
+        attachUpscaling = { processor.upscalingEngine = it },
+    ).also { if (testConstruction == null) it.attachInitialEngines() }
 
     /**
-     * Optional page upscaling engine (QuickSRNetLarge). Attached to the processor;
-     * availability is gated upstream by [UpscalingModelCatalog].
+     * Manager-level colorization engine reference backed by
+     * [colorizationOwner]; the read path behind [isColorizationReady] and the
+     * seam test constructions use to attach a fake engine.
      */
-    internal var upscalingEngine: PageUpscalingEngine? =
-        if (testConstruction == null) {
-            UpscalingModelCatalog.createEngine(context)
-                .also { processor.upscalingEngine = it }
-        } else {
-            null
-        }
+    internal var colorizationEngine: PageColorizationEngine?
+        get() = colorizationOwner.engine
+        set(value) { colorizationOwner.engine = value }
+
     internal val testReaderCoordinator: ReaderTranslationCoordinator? get() = testConstruction?.readerCoordinator
     internal val testReaderStoreResolver: (suspend (Manga, Chapter, HttpSource) -> ChapterTranslationStore?)?
         get() = testConstruction?.readerStoreResolver
@@ -184,39 +174,11 @@ class TranslationManager private constructor(
     internal val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
-        // Swaps the engine live when the user picks another colorization model;
-        // the old engine's own run lock serializes the close against an
-        // in-flight COLOR stage.
+        // Live engine swap on colorization-model / denoising changes; the old
+        // engine's own run lock serializes the close against an in-flight COLOR stage.
         if (testConstruction == null) {
-            applicationScope.launch {
-                translationPreferences.translationColorizationModel().changes()
-                    .distinctUntilChanged()
-                    .drop(1)
-                    .collect(::swapColorizationEngine)
-            }
-            applicationScope.launch {
-                translationPreferences.preferFfdnetDenoising().changes()
-                    .distinctUntilChanged()
-                    .drop(1)
-                    .collect { swapColorizationEngine(currentColorizationModel()) }
-            }
+            colorizationOwner.watchPreferenceChanges(applicationScope)
         }
-    }
-
-    private fun currentColorizationModel(): ColorizationModel =
-        translationPreferences.translationColorizationModel().get()
-
-    private fun buildColorizationEngine(model: ColorizationModel): PageColorizationEngine = when (model) {
-        ColorizationModel.MANGA_COLORIZATION_V2_NPU_W8A8 -> NpuMangaColorizationEngine(context, translationPreferences)
-        ColorizationModel.MANGA_LIGHT_SAM_NPU_GPU -> MangaLightHybridColorizationEngine(context, translationPreferences)
-    }
-
-    private fun swapColorizationEngine(model: ColorizationModel) {
-        val previous = colorizationEngine
-        val next = buildColorizationEngine(model)
-        processor.colorizationEngine = next
-        colorizationEngine = next
-        previous?.close()
     }
 
     internal val activeStores = ActiveChapterStoreRegistry()
@@ -266,10 +228,6 @@ class TranslationManager private constructor(
     val pendingTranslationRequests: StateFlow<Map<Long, TranslationRequestState>>
         get() = requestCoordinator.pendingTranslationRequests
 
-    /** Reader-visible native lane stall projection. */
-    val nativeStall: StateFlow<eu.kanade.translation.engines.translator.NativeStallState?>
-        get() = processor.nativeStall
-
     init {
         initializeTranslationManager()
     }
@@ -291,6 +249,17 @@ class TranslationManager private constructor(
      * genuinely unwinds.
      */
     suspend fun switchReaderSession(chapterId: Long?): SessionAdmission = readerCoordinator.switchReaderSession(chapterId)
+
+    /**
+     * Requests reader session admission for [chapterId].
+     */
+    fun admitReaderSession(
+        chapterId: Long?,
+        confirmBatchSwitch: Boolean = false,
+    ): SessionAdmission = sessionCoordinator.requestReaderSession(ReaderSessionIntent(chapterId, confirmBatchSwitch))
+
+    fun admitReaderSession(intent: ReaderSessionIntent): SessionAdmission =
+        sessionCoordinator.requestReaderSession(intent)
 
     fun queueTranslationAfterDownload(manga: Manga, chapter: Chapter) = requestCoordinator.queueTranslationAfterDownload(manga, chapter)
 

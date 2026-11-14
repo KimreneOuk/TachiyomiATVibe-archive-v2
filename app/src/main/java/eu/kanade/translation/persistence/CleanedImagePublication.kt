@@ -1,177 +1,20 @@
 package eu.kanade.translation.persistence
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import logcat.LogPriority
-import tachiyomi.core.common.util.system.logcat
 import java.io.InputStream
+import android.graphics.Bitmap
+import com.hippo.unifile.UniFile
+import eu.kanade.translation.engines.inpainting.InpaintingMode
+import eu.kanade.translation.engines.inpainting.stampName
+import tachiyomi.domain.translation.NeuralInpaintModel
+import java.security.DigestOutputStream
+import java.util.UUID
 import java.security.MessageDigest
-
-/** File-system-independent publication ordering used by both translation paths. */
-class CleanedImagePublisher(
-    private val files: Files,
-) {
-    interface Files {
-        fun writeVerifiedVersionedFile(): String
-        fun delete(name: String): Boolean
-    }
-
-    /**
-     * Publishes one verified cleaned-image file, then commits its name to the
-     * store. The previous file is deleted only after the commit is accepted
-     * AND [mayDeletePrevious] allows it: a file that still backs a committed
-     * display bundle (last-known-good) must survive until a newer bundle
-     * promotes, so the reader never resolves a deleted file (lifecycle
-     * contract §15).
-     *
-     * Retain-on-uncertainty failure matrix:
-     * - write failure: nothing was committed, nothing to clean.
-     * - commit throws or is cancelled: the commit outcome is UNCERTAIN — the
-     *   store may have accepted [newName] before the failure landed — so the
-     *   new file is RETAINED. It is never deleted here and never registered
-     *   into retirement (no blind registration of an uncertain name); if the
-     *   store never accepted it, the file is unbounded uncollected debt,
-     *   logged truthfully and reclaimed only by a future explicit sweep. No
-     *   path claims the file was cleaned when it was retained.
-     * - store REJECTS the commit: a [ChapterTranslationStore.PatchResult.Rejected]
-     *   alone does NOT establish that [newName] was never accepted as live
-     *   (e.g. the lazy hash-patch path rejects a name an earlier publication
-     *   already accepted). The physical delete therefore requires
-     *   [mayDeleteRejected] to return true, which the caller may only do when
-     *   it INDEPENDENTLY knows the name was never accepted as live (a fresh
-     *   private versioned name whose single possible acceptance is this very
-     *   commit) AND the store's mutex-held
-     *   [ChapterTranslationStore.authorizeCleanedImageDeletion] authorizes it
-     *   at that point in time. The delete runs AFTER that call returns —
-     *   outside the store lock, so it can interleave with later mutations;
-     *   that residual race is exactly why independent never-accepted
-     *   provenance, not the point-in-time check alone, is required. Any other
-     *   rejected name is retained and logged as uncollected debt.
-     */
-    suspend fun publish(
-        chapter: String,
-        pageKey: String,
-        previousName: String?,
-        commit: suspend (newName: String) -> ChapterTranslationStore.PatchResult,
-        mayDeletePrevious: (String) -> Boolean = { true },
-        retirePrevious: ((String, () -> Unit) -> Unit)? = null,
-        /**
-         * Return true ONLY when the caller independently knows [newName] was
-         * never accepted as live (fresh private versioned name whose single
-         * possible acceptance is this commit, which just returned Rejected)
-         * AND the store's mutex-held authorization passes. A
-         * [ChapterTranslationStore.PatchResult.Rejected] result alone is NOT
-         * sufficient knowledge; unknown provenance must return false (retain).
-         */
-        mayDeleteRejected: suspend (String) -> Boolean = { false },
-    ): Result {
-        val newName = try {
-            files.writeVerifiedVersionedFile()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            logcat(LogPriority.ERROR, failure) {
-                "TachiyomiAT cleaned publication failed: chapter=$chapter pageKey=$pageKey phase=write"
-            }
-            return Result.WriteFailed(failure)
-        }
-        val patch = try {
-            commit(newName)
-        } catch (cancelled: CancellationException) {
-            // Retain-on-uncertainty: deleting here could orphan the store's
-            // live pointer if the commit was accepted before the cancellation
-            // landed. The file is retained and NOT registered into retirement.
-            logcat(LogPriority.ERROR) {
-                "TachiyomiAT cleaned publication cancelled during commit: chapter=$chapter " +
-                    "pageKey=$pageKey new=$newName retained=true commitOutcome=uncertain " +
-                    "(uncollected debt if the store never accepted)"
-            }
-            throw cancelled
-        } catch (failure: Throwable) {
-            // Same uncertainty as cancellation: retain, never claim cleanup.
-            logcat(LogPriority.ERROR, failure) {
-                "TachiyomiAT cleaned publication commit failed: chapter=$chapter pageKey=$pageKey " +
-                    "new=$newName retained=true commitOutcome=uncertain " +
-                    "(uncollected debt if the store never accepted)"
-            }
-            return Result.Rejected(
-                name = newName,
-                reason = failure.message ?: failure::class.java.simpleName,
-                unpublishedCleaned = false,
-            )
-        }
-        return when (patch) {
-            is ChapterTranslationStore.PatchResult.Accepted -> {
-                if (previousName != null && previousName != newName) {
-                    when {
-                        !mayDeletePrevious(previousName) -> logcat(LogPriority.INFO) {
-                            "TachiyomiAT cleaned publication retained previous file (committed display): " +
-                                "chapter=$chapter pageKey=$pageKey old=$previousName new=$newName"
-                        }
-                        retirePrevious != null -> retirePrevious(previousName) {
-                            files.delete(previousName)
-                        }
-                        !files.delete(previousName) -> logcat(LogPriority.WARN) {
-                            "TachiyomiAT cleaned publication old-file cleanup failed: chapter=$chapter " +
-                                "pageKey=$pageKey old=$previousName new=$newName"
-                        }
-                    }
-                }
-                Result.Published(newName, patch.snapshot)
-            }
-            is ChapterTranslationStore.PatchResult.Rejected -> {
-                // The seam — not the Rejected result itself — carries the
-                // never-accepted-live-name knowledge plus the store's
-                // mutex-held point-in-time authorization. Fail closed on any
-                // seam failure or false: the name is retained as uncollected
-                // debt and the log says exactly that.
-                val authorized = try {
-                    mayDeleteRejected(newName)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Throwable) {
-                    logcat(LogPriority.WARN, failure) {
-                        "TachiyomiAT cleaned publication rejected-name deletion authorization failed: " +
-                            "chapter=$chapter pageKey=$pageKey new=$newName retained=true"
-                    }
-                    false
-                }
-                val cleaned = if (authorized) {
-                    runCatching { files.delete(newName) }.getOrDefault(false)
-                } else {
-                    // Unbounded retained debt is a retention-worthy condition:
-                    // plan §10 requires it at ERROR, unlike the generic
-                    // rejected summary below.
-                    logcat(LogPriority.ERROR) {
-                        "TachiyomiAT cleaned publication rejected-name deletion not authorized: " +
-                            "chapter=$chapter pageKey=$pageKey new=$newName retained=true " +
-                            "uncollectedDebt=true reason=${patch.reason}"
-                    }
-                    false
-                }
-                logcat(LogPriority.WARN) {
-                    "TachiyomiAT cleaned publication rejected: chapter=$chapter pageKey=$pageKey " +
-                        "new=$newName reason=${patch.reason} unpublishedCleaned=$cleaned"
-                }
-                Result.Rejected(newName, patch.reason, cleaned)
-            }
-        }
-    }
-
-    sealed interface Result {
-        data class Published(
-            val name: String,
-            val snapshot: ChapterTranslationStore.PageSnapshot,
-        ) : Result
-        data class Rejected(val name: String, val reason: String, val unpublishedCleaned: Boolean) : Result
-        data class WriteFailed(val failure: Throwable) : Result
-    }
-}
 
 /** Stable byte identity for a cleaned image whose legacy name is not content-addressed. */
 @Serializable
@@ -265,5 +108,108 @@ internal object CleanedImageIdentity {
             digest.update(buffer, 0, count)
         }
         return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    }
+}
+
+/**
+ * JPEG quality for published cleaned/colored images. Line art survives 80
+ * without visible loss and cuts the colored-page file (and its SAF re-read on
+ * every open) roughly in half versus 90. Applies to newly written files only;
+ * existing artifacts keep their original bytes.
+ */
+internal const val CLEANED_JPEG_QUALITY = 80
+
+/** Owns verified cleaned-image files and retirement of superseded images. */
+internal class CleanedPublication(
+    private val provider: TranslationFileProvider,
+    private val currentInpaintingMode: () -> InpaintingMode,
+    private val currentNeuralInpaintModel: () -> NeuralInpaintModel = { NeuralInpaintModel.AOT_GAN },
+) {
+    internal fun currentInpaintingStamp(): String = currentInpaintingMode().stampName(
+        neuralModel = currentNeuralInpaintModel(),
+        neuralAvailable = true,
+    )
+
+    internal data class CleanedImageWriteResult(val name: String, val contentSha256: String)
+
+    internal fun writeVerifiedCleanedImage(
+        directory: UniFile,
+        pageKey: String,
+        bitmap: Bitmap,
+        name: String = newCleanedImageName(pageKey),
+    ): CleanedImageWriteResult {
+        val identityName = CleanedImageIdentity.sidecarName(name)
+        val existingImage = directory.findFile(name)?.takeIf(UniFile::exists)
+        val existingIdentity = directory.findFile(identityName)?.takeIf(UniFile::exists)
+        if (existingImage != null || existingIdentity != null) {
+            val sidecarBytes = runCatching { existingIdentity?.openInputStream()?.use { it.readBytes() } }.getOrNull()
+            val sidecar = runCatching {
+                sidecarBytes?.let { ArtifactDocumentJson.decodeFromString<CleanedImageIdentitySidecar>(it.decodeToString()) }
+            }.getOrNull()
+            check(
+                sidecar != null &&
+                    CleanedImageIdentity.verifyExisting(
+                        sidecarBytes = sidecarBytes,
+                        imageName = name,
+                        expectedContentSha256 = sidecar.contentSha256,
+                    ) { existingImage?.openInputStream() },
+            ) { "cleaned image name is already bound to different or unverified bytes" }
+            return CleanedImageWriteResult(name, sidecar.contentSha256)
+        }
+
+        val imageFile = checkNotNull(directory.createFile(name)) { "could not create final cleaned image" }
+        var identityFile: UniFile? = null
+        try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            imageFile.openOutputStream().use { output ->
+                DigestOutputStream(output, digest).use { digestOutput ->
+                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, CLEANED_JPEG_QUALITY, digestOutput)) {
+                        "JPEG encoding returned false"
+                    }
+                    digestOutput.flush()
+                }
+            }
+            check(imageFile.exists() && imageFile.length() > 0L) { "published cleaned image is unavailable" }
+            val hash = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            val identity = CleanedImageIdentitySidecar(pageKey = pageKey, imageName = name, contentSha256 = hash)
+            identityFile = checkNotNull(directory.createFile(identityName)) { "could not create cleaned image identity" }
+            identityFile!!.openOutputStream().use { output ->
+                output.write(CleanedImageIdentity.encode(identity))
+                output.flush()
+            }
+            check(identityFile!!.exists() && identityFile!!.length() > 0L) { "cleaned image identity is unavailable" }
+            return CleanedImageWriteResult(name, hash)
+        } catch (failure: Throwable) {
+            identityFile?.delete()
+            imageFile.delete()
+            throw failure
+        }
+    }
+
+    private fun newCleanedImageName(pageKey: String): String {
+        val safeName = pageKey.substringAfterLast('/').replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val version = "${System.currentTimeMillis().toString(36)}-${UUID.randomUUID().toString().replace("-", "")}"
+        return "$safeName.cleaned.$version.jpg"
+    }
+
+    /**
+     * Publishes a derived colored image through the same verified write (JPEG +
+     * sha256 identity sidecar) under a `.colored.` versioned name.
+     */
+    internal fun writeVerifiedColoredImage(
+        directory: UniFile,
+        pageKey: String,
+        bitmap: Bitmap,
+    ): CleanedImageWriteResult = writeVerifiedCleanedImage(
+        directory,
+        pageKey,
+        bitmap,
+        name = newColoredImageName(pageKey),
+    )
+
+    internal fun newColoredImageName(pageKey: String): String {
+        val safeName = pageKey.substringAfterLast('/').replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val version = "${System.currentTimeMillis().toString(36)}-${UUID.randomUUID().toString().replace("-", "")}"
+        return "$safeName.colored.$version.jpg"
     }
 }

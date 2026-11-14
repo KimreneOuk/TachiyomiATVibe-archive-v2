@@ -1,4 +1,4 @@
-package eu.kanade.translation
+﻿package eu.kanade.translation
 
 import android.content.Context
 import com.hippo.unifile.UniFile
@@ -37,7 +37,7 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.translation.TranslationPreferences
-import tachiyomi.domain.translation.pools.BitmapPool
+import eu.kanade.translation.processing.memory.BitmapPool
 import kotlin.concurrent.thread
 import java.io.InputStream
 import java.lang.reflect.Field

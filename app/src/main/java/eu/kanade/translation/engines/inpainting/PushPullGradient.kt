@@ -99,9 +99,9 @@ object PushPullGradient {
             }
         }
         if (count == 0) return medianArgb(pixels, 0, pixels.size)
-        val mr = histogramMedian(histR, count)
-        val mg = histogramMedian(histG, count)
-        val mb = histogramMedian(histB, count)
+        val mr = InpaintPixelOps.histogramMedian(histR, count)
+        val mg = InpaintPixelOps.histogramMedian(histG, count)
+        val mb = InpaintPixelOps.histogramMedian(histB, count)
         return (0xFF shl 24) or (mr shl 16) or (mg shl 8) or mb
     }
 
@@ -161,23 +161,13 @@ object PushPullGradient {
                     if (mask[i] == 0.toByte()) continue
                     val left = if (x > 0) i - 1 else i
                     val right = if (x < width - 1) i + 1 else i
-                    scratch[i] = avg4(pixels[rowUp + x], pixels[rowDown + x], pixels[left], pixels[right])
+                    scratch[i] = InpaintPixelOps.avg4(pixels[rowUp + x], pixels[rowDown + x], pixels[left], pixels[right])
                 }
             }
             for (i in 0 until n) {
                 if (mask[i] != 0.toByte()) pixels[i] = scratch[i]
             }
         }
-    }
-
-    private fun histogramMedian(hist: IntArray, count: Int): Int {
-        val half = count / 2
-        var acc = 0
-        for (v in 0..255) {
-            acc += hist[v]
-            if (acc > half) return v
-        }
-        return 255
     }
 
     private fun medianArgb(pixels: IntArray, from: Int, to: Int): Int {
@@ -193,9 +183,9 @@ object PushPullGradient {
             count++
         }
         if (count == 0) return 0xFFFFFFFF.toInt()
-        val mr = histogramMedian(histR, count)
-        val mg = histogramMedian(histG, count)
-        val mb = histogramMedian(histB, count)
+        val mr = InpaintPixelOps.histogramMedian(histR, count)
+        val mg = InpaintPixelOps.histogramMedian(histG, count)
+        val mb = InpaintPixelOps.histogramMedian(histB, count)
         return (0xFF shl 24) or (mr shl 16) or (mg shl 8) or mb
     }
 
@@ -284,11 +274,4 @@ object PushPullGradient {
 
     private fun lerp(a: Int, b: Int, t: Float): Int =
         (a + (b - a) * t).toInt().coerceIn(0, 255)
-
-    private fun avg4(a: Int, b: Int, c: Int, d: Int): Int {
-        val r = ((a shr 16 and 0xFF) + (b shr 16 and 0xFF) + (c shr 16 and 0xFF) + (d shr 16 and 0xFF) + 2) shr 2
-        val g = ((a shr 8 and 0xFF) + (b shr 8 and 0xFF) + (c shr 8 and 0xFF) + (d shr 8 and 0xFF) + 2) shr 2
-        val bb = ((a and 0xFF) + (b and 0xFF) + (c and 0xFF) + (d and 0xFF) + 2) shr 2
-        return (0xFF shl 24) or (r shl 16) or (g shl 8) or bb
-    }
 }

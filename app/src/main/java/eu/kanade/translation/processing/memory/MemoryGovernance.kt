@@ -1,16 +1,13 @@
-package eu.kanade.translation.processing.memory
+﻿package eu.kanade.translation.processing.memory
 
 import android.content.Context
-import android.graphics.Bitmap
 import coil3.imageLoader
 import eu.kanade.translation.engines.runtime.EngineMemoryBudget
 import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
-import eu.kanade.translation.engines.vision.ocr.RoiPageRecognitionEngine
-import eu.kanade.translation.processing.LowMemoryRecognitionDeferredException
 import eu.kanade.translation.processing.memory.TranslationMemoryBudget.DecodeDecision
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.pools.BitmapPool
+import eu.kanade.translation.processing.memory.BitmapPool
 
 /**
  * Applies memory-budget decisions before bitmap decode and native analysis.
@@ -24,49 +21,13 @@ internal object MemoryGovernance {
         } catch (_: Exception) {}
     }
 
-    fun preflightAnalyzeGate(
-        recognitionEngine: () -> PageRecognitionEngine,
-        bitmap: Bitmap,
-        fileName: String,
-    ) {
-        if (recognitionEngine() !is RoiPageRecognitionEngine) return
-        val decision = TranslationMemoryBudget.canStartAnalyze(bitmap.width, bitmap.height)
-        if (decision is TranslationMemoryBudget.MemoryPreflightDecision.Defer) {
-            EngineMemoryBudget.logSnapshot(
-                tag = "onnx_analyze_preflight_defer",
-                width = bitmap.width,
-                height = bitmap.height,
-                extra = "file=$fileName reason=${decision.reason}",
-            )
-            throw LowMemoryRecognitionDeferredException(fileName, bitmap.width, bitmap.height, decision.reason)
-        }
-    }
-
-    fun preflightInpaintGate(
-        recognitionEngine: () -> PageRecognitionEngine,
-        bitmap: Bitmap,
-        fileName: String,
-    ) {
-        if (recognitionEngine() !is RoiPageRecognitionEngine) return
-        val decision = TranslationMemoryBudget.canStartInpaint(bitmap.width, bitmap.height)
-        if (decision is TranslationMemoryBudget.MemoryPreflightDecision.Defer) {
-            EngineMemoryBudget.logSnapshot(
-                tag = "onnx_inpaint_preflight_defer",
-                width = bitmap.width,
-                height = bitmap.height,
-                extra = "file=$fileName reason=${decision.reason}",
-            )
-            throw LowMemoryRecognitionDeferredException(fileName, bitmap.width, bitmap.height, decision.reason)
-        }
-    }
-
     fun reclaimTranslationMemory(
         context: Context,
         recognitionEngine: () -> PageRecognitionEngine,
         reason: String,
         trimImageCache: Boolean,
     ) {
-        val before = TranslationMemoryBudget.snapshot()
+        val before = EngineMemoryBudget.heapSnapshot()
         BitmapPool.releaseAll()
         try {
             recognitionEngine().forceReleaseNativeBuffers()
@@ -81,7 +42,7 @@ internal object MemoryGovernance {
             }
         }
         System.gc()
-        val after = TranslationMemoryBudget.snapshot()
+        val after = EngineMemoryBudget.heapSnapshot()
         logcat(LogPriority.WARN) {
             "[translation_reclaim] reason=$reason trimImageCache=$trimImageCache " +
                 "heapBefore=${before.usedHeapBytes.toMiB()}MiB/${before.maxHeapBytes.toMiB()}MiB " +
@@ -111,15 +72,4 @@ internal object MemoryGovernance {
     }
 
     private fun Long.toMiB(): Long = this / (1024L * 1024L)
-
-    fun handleCriticalTranslationOom(
-        forceReleaseNativeBuffers: () -> Unit,
-        stage: String,
-        oom: OutOfMemoryError,
-    ) {
-        BitmapPool.releaseAll()
-        forceReleaseNativeBuffers()
-        System.gc()
-        EngineMemoryBudget.logSnapshot(tag = "oom_recovery", extra = "stage=$stage message=${oom.message}")
-    }
 }

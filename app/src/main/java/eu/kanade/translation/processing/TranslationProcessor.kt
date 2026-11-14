@@ -19,7 +19,7 @@ import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.persistence.LeaseAcquisition
 import eu.kanade.translation.persistence.PageWriteOrigin
 import eu.kanade.translation.persistence.TranslationFileProvider
-import eu.kanade.translation.processing.CleanedPublication
+import eu.kanade.translation.persistence.CleanedPublication
 import eu.kanade.translation.processing.DecodedPage
 import eu.kanade.translation.processing.EngineLane
 import eu.kanade.translation.processing.PageDecode
@@ -143,7 +143,6 @@ internal class TranslationProcessor(
     fun activeUpscalingEngine(): PageUpscalingEngine? =
         upscalingEngine?.takeIf { translationPreferences?.translationUpscalingEnabled()?.get() == true }
 
-    val nativeStall get() = nativeStallWatchdog.state
     fun permitHolderPageKeySnapshot(): String? = engineLane?.permitHolderPageKeySnapshot()
     val recognitionEngine: PageRecognitionEngine get() = requireEngineLane().recognitionEngine
     val textTranslator: TextTranslator get() = requireEngineLane().textTranslator

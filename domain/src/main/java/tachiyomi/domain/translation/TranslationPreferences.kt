@@ -2,7 +2,6 @@ package tachiyomi.domain.translation
 
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
-import tachiyomi.core.common.preference.getEnum
 
 /**
  * Top-level translation engine family. Standard translators do not use
@@ -54,219 +53,116 @@ enum class PaddleOcrExecutionProvider { CPU, QUALCOMM_QNN_GPU, QUALCOMM_QNN_HTP 
  */
 enum class TranslationReadingOrder { AUTO, RTL_MANGA, LTR_COMIC }
 
+/**
+ * Facade over the translation preference groups. Every member keeps its
+ * original name, key, default, and semantics; the definitions live in
+ * [AiEngineCredentials], [PipelinePrefs], and [ReaderUiPrefs].
+ */
 class TranslationPreferences(
     private val preferenceStore: PreferenceStore,
 ) {
 
-    /**
-     * Master gate for reader translation features (per-page translate
-     * buttons, auto mode). Defaults to false: the Translation settings sheet
-     * exposes a toggle, so translation is opt-in.
-     */
-    fun translationEnabled() = preferenceStore.getBoolean("translation_enabled", false)
+    private val aiEngineCredentials = AiEngineCredentials(preferenceStore)
+    private val pipelinePrefs = PipelinePrefs(preferenceStore)
+    private val readerUiPrefs = ReaderUiPrefs(preferenceStore)
 
-    /**
-     * Show a read-only confirmation popup (current source/target language,
-     * engine/model, OCR model, output tokens) before the manga-screen batch
-     * "Translate chapter" action runs. The reader per-page/on-the-fly path is
-     * unaffected. Defaults to true so users review their settings at least
-     * once; the popup's "Don't show this again" checkbox and the Translation
-     * settings sheet both toggle this off.
-     */
-    fun translationConfirmPretranslate() = preferenceStore.getBoolean("translation_confirm_pretranslate", true)
+    fun translationEnabled() = readerUiPrefs.translationEnabled()
 
-    /**
-     * Reader auto-translation: when enabled (and [translationEnabled] is on),
-     * the reader proactively translates the current page and pre-processes
-     * upcoming pages on each page change. Work is additive (never cancelled
-     * on scroll) and clamped to the current chapter.
-     */
-    fun autoTranslate() = preferenceStore.getBoolean("auto_translate", false)
+    fun translationConfirmPretranslate() = readerUiPrefs.translationConfirmPretranslate()
 
-    /**
-     * Reader auto-colorization: when enabled (and [translationColorizationEnabled] is on),
-     * the reader proactively colorizes the current page N and next page N+1 on viewport changes.
-     * Operates without requiring whole-chapter download, coexisting with autoTranslate.
-     */
-    fun autoColorize() = preferenceStore.getBoolean("auto_colorize", false)
+    fun autoTranslate() = readerUiPrefs.autoTranslate()
 
-    /**
-     * TachiyomiAT: translate button presentation on reader pages.
-     *
-     * One lightweight boolean encodes the two spec modes:
-     * - false (default) = ADAPTIVE: the button ghosts (dims) while reader
-     *   controls are hidden, and becomes fully visible when controls show.
-     * - true = WITH_CONTROLS: the button is hidden while reading and appears
-     *   only together with reader controls. The cancel affordance during an
-     *   active translation stays visible in both modes.
-     */
-    fun translateButtonWithControls() = preferenceStore.getBoolean("reader_translate_button_with_controls", false)
+    fun autoColorize() = readerUiPrefs.autoColorize()
 
-    fun translateFromLanguage() = preferenceStore.getString("translate_language_from", "CHINESE")
-    fun translateToLanguage() = preferenceStore.getString("translate_language_to", "ENGLISH")
+    fun translateButtonWithControls() = readerUiPrefs.translateButtonWithControls()
 
-    fun translationRequireCharging() = preferenceStore.getBoolean("translation_require_charging", false)
-    fun translationContinueInBackground() = preferenceStore.getBoolean("translation_continue_in_background", true)
+    fun translateFromLanguage() = readerUiPrefs.translateFromLanguage()
+    fun translateToLanguage() = readerUiPrefs.translateToLanguage()
 
-    fun translationInpaintingMode() = preferenceStore.getString("translation_inpainting_mode", "FAST")
+    fun translationRequireCharging() = pipelinePrefs.translationRequireCharging()
+    fun translationContinueInBackground() = pipelinePrefs.translationContinueInBackground()
+
+    fun translationInpaintingMode() = pipelinePrefs.translationInpaintingMode()
 
     fun translationInpaintingNeuralModel(): Preference<NeuralInpaintModel> =
-        preferenceStore.getEnum("translation_inpainting_neural_model", NeuralInpaintModel.DEFAULT)
+        pipelinePrefs.translationInpaintingNeuralModel()
 
-    /**
-     * Opt-in fallback: when QUALITY inpainting is selected but the neural AOT
-     * model is absent, fall back to FAST instead of failing. Default OFF — keeps
-     * the strict QUALITY behaviour unless the user explicitly accepts the
-     * quality trade-off.
-     */
-    fun translationInpaintQualityFallback() = preferenceStore.getBoolean("translation_inpaint_quality_fallback", false)
+    fun translationInpaintQualityFallback() = pipelinePrefs.translationInpaintQualityFallback()
 
-    /**
-     * Master gate for on-device colorization: when on, every translated page
-     * that produced a cleaned image is also colorized (post-inpaint stage).
-     * Default OFF — colorization is a multi-second model pass.
-     */
-    fun translationColorizationEnabled() = preferenceStore.getBoolean("translation_colorization_enabled", false)
+    fun translationColorizationEnabled() = pipelinePrefs.translationColorizationEnabled()
 
-    /** Which colorization engine runs when colorization is enabled. */
     fun translationColorizationModel(): Preference<ColorizationModel> =
-        preferenceStore.getEnum("translation_colorization_model", ColorizationModel.DEFAULT)
+        pipelinePrefs.translationColorizationModel()
 
-    /**
-     * Opt-in FFDNet denoising preprocessing before colorization.
-     * When true, replaces the gated bilateral filter with native-resolution FFDNet sigma=25
-     * (faithful to original qweasdd recipe, slower).
-     */
-    fun preferFfdnetDenoising() = preferenceStore.getBoolean("prefer_ffdnet_denoising", false)
+    fun preferFfdnetDenoising() = pipelinePrefs.preferFfdnetDenoising()
 
-    /** Chroma-combine look applied after colorization: faithful model render or vibrant prototype. */
     fun colorCombineMode(): Preference<ColorCombineMode> =
-        preferenceStore.getEnum("color_combine_mode", ColorCombineMode.DEFAULT)
+        pipelinePrefs.colorCombineMode()
 
-    /**
-     * Master gate for on-device QuickSRNetLarge page upscaling. Default OFF.
-     * While UpscalingModelCatalog.operational is false, enabling yields an
-     * explicit unsupported state: no upscaling runs and nothing claims success.
-     */
-    fun translationUpscalingEnabled() = preferenceStore.getBoolean("translation_upscaling_enabled", false)
+    fun translationUpscalingEnabled() = pipelinePrefs.translationUpscalingEnabled()
 
-    fun translationRecentLanguagesFrom() = preferenceStore.getString("translation_recent_languages_from", "")
-    fun translationRecentLanguagesTo() = preferenceStore.getString("translation_recent_languages_to", "")
+    fun translationRecentLanguagesFrom() = readerUiPrefs.translationRecentLanguagesFrom()
+    fun translationRecentLanguagesTo() = readerUiPrefs.translationRecentLanguagesTo()
 
-    fun translationOcrModel(languageName: String): Preference<OcrModel> {
-        val normalized = languageName.lowercase()
-        return preferenceStore.getEnum("translation_ocr_model_$normalized", defaultOcrModel(languageName))
-    }
+    fun translationOcrModel(languageName: String): Preference<OcrModel> =
+        pipelinePrefs.translationOcrModel(languageName)
 
     //region Category and engine selection
-    fun translationEngineCategory() = preferenceStore.getEnum(
-        "translation_engine_category",
-        TranslationEngineCategory.STANDARD,
-    )
-    fun translationStandardEngine() = preferenceStore.getEnum("translation_standard_engine", StandardEngine.MLKIT)
-    fun translationAiEngine() = preferenceStore.getEnum("translation_ai_engine", AiEngine.GEMINI)
+    fun translationEngineCategory() = pipelinePrefs.translationEngineCategory()
+    fun translationStandardEngine() = pipelinePrefs.translationStandardEngine()
+    fun translationAiEngine() = pipelinePrefs.translationAiEngine()
 
-    /**
-     * DeepL (Standard engine) API key. DeepL is the only Standard engine that
-     * requires credentials. Stored private (excluded from backups / masked in
-     * the UI) via the same __PRIVATE_ convention as the AI keys.
-     */
     fun translationDeeplApiKey() =
-        preferenceStore.getString("__PRIVATE_translation_deepl_api_key", "")
+        pipelinePrefs.translationDeeplApiKey()
     //endregion
 
     //region AI-only preferences
-
-    // API keys are private: the __PRIVATE_ prefix excludes them from backups
-    // and from any non-masked UI subtitle by convention.
     fun translationAiApiKeyGemini() =
-        preferenceStore.getString("__PRIVATE_translation_ai_api_key_gemini", "")
+        aiEngineCredentials.translationAiApiKeyGemini()
     fun translationAiApiKeyOpenrouter() =
-        preferenceStore.getString("__PRIVATE_translation_ai_api_key_openrouter", "")
+        aiEngineCredentials.translationAiApiKeyOpenrouter()
     fun translationAiApiKeyDeepseek() =
-        preferenceStore.getString("__PRIVATE_translation_ai_api_key_deepseek", "")
+        aiEngineCredentials.translationAiApiKeyDeepseek()
 
-    fun translationAiApiKey(engine: AiEngine): Preference<String> = when (engine) {
-        AiEngine.GEMINI -> translationAiApiKeyGemini()
-        AiEngine.OPENROUTER -> translationAiApiKeyOpenrouter()
-        AiEngine.DEEPSEEK -> translationAiApiKeyDeepseek()
-        AiEngine.LMSTUDIO -> preferenceStore.getString("__PRIVATE_translation_ai_api_key_lmstudio", "")
-    }
+    fun translationAiApiKey(engine: AiEngine): Preference<String> =
+        aiEngineCredentials.translationAiApiKey(engine)
 
     fun translationAiBaseUrlLmStudio() =
-        preferenceStore.getString("translation_ai_base_url_lmstudio", "")
+        aiEngineCredentials.translationAiBaseUrlLmStudio()
 
-    fun translationAiModelGemini() = preferenceStore.getString("translation_ai_model_gemini", "gemini-1.5-pro")
-    fun translationAiModelOpenrouter() = preferenceStore.getString("translation_ai_model_openrouter", "")
-    fun translationAiModelDeepseek() = preferenceStore.getString("translation_ai_model_deepseek", "deepseek-chat")
-    fun translationAiModelLmStudio() = preferenceStore.getString("translation_ai_model_lmstudio", "")
+    fun translationAiModelGemini() = aiEngineCredentials.translationAiModelGemini()
+    fun translationAiModelOpenrouter() = aiEngineCredentials.translationAiModelOpenrouter()
+    fun translationAiModelDeepseek() = aiEngineCredentials.translationAiModelDeepseek()
+    fun translationAiModelLmStudio() = aiEngineCredentials.translationAiModelLmStudio()
 
-    fun translationAiModel(engine: AiEngine): Preference<String> = when (engine) {
-        AiEngine.GEMINI -> translationAiModelGemini()
-        AiEngine.OPENROUTER -> translationAiModelOpenrouter()
-        AiEngine.DEEPSEEK -> translationAiModelDeepseek()
-        AiEngine.LMSTUDIO -> translationAiModelLmStudio()
-    }
+    fun translationAiModel(engine: AiEngine): Preference<String> =
+        aiEngineCredentials.translationAiModel(engine)
 
-    // Recent models are kept private as well to avoid leaking usage hints
-    // into backups. Stored as an ordered set (most-recent first within the
-    // serialised string).
     fun translationAiRecentModelsGemini() =
-        preferenceStore.getString("__PRIVATE_translation_ai_recent_models_gemini", "")
+        aiEngineCredentials.translationAiRecentModelsGemini()
     fun translationAiRecentModelsOpenrouter() =
-        preferenceStore.getString("__PRIVATE_translation_ai_recent_models_openrouter", "")
+        aiEngineCredentials.translationAiRecentModelsOpenrouter()
     fun translationAiRecentModelsDeepseek() =
-        preferenceStore.getString("__PRIVATE_translation_ai_recent_models_deepseek", "")
+        aiEngineCredentials.translationAiRecentModelsDeepseek()
     fun translationAiRecentModelsLmStudio() =
-        preferenceStore.getString("__PRIVATE_translation_ai_recent_models_lmstudio", "")
+        aiEngineCredentials.translationAiRecentModelsLmStudio()
 
-    fun translationAiRecentModels(engine: AiEngine): Preference<String> = when (engine) {
-        AiEngine.GEMINI -> translationAiRecentModelsGemini()
-        AiEngine.OPENROUTER -> translationAiRecentModelsOpenrouter()
-        AiEngine.DEEPSEEK -> translationAiRecentModelsDeepseek()
-        AiEngine.LMSTUDIO -> translationAiRecentModelsLmStudio()
-    }
+    fun translationAiRecentModels(engine: AiEngine): Preference<String> =
+        aiEngineCredentials.translationAiRecentModels(engine)
 
-    fun translationAiBaseUrl(engine: AiEngine): Preference<String>? = when (engine) {
-        AiEngine.LMSTUDIO -> translationAiBaseUrlLmStudio()
-        else -> null
-    }
+    fun translationAiBaseUrl(engine: AiEngine): Preference<String>? =
+        aiEngineCredentials.translationAiBaseUrl(engine)
 
-    fun translationAiTemperature() = preferenceStore.getString("translation_ai_temperature", "0.3")
-    fun translationAiOutputTokens() = preferenceStore.getString("translation_ai_output_tokens", "8192")
-    fun translationGeminiThinkingMode() = preferenceStore.getEnum(
-        "translation_gemini_thinking_mode",
-        GeminiThinkingMode.DISABLED,
-    )
+    fun translationAiTemperature() = aiEngineCredentials.translationAiTemperature()
+    fun translationAiOutputTokens() = aiEngineCredentials.translationAiOutputTokens()
+    fun translationGeminiThinkingMode() = aiEngineCredentials.translationGeminiThinkingMode()
 
-    /**
-     * TachiyomiAT: opt-in verbose logging for the translation pipeline. When on,
-     * the OCR/inpaint/translate/render stages emit per-stage and per-ROI INFO
-     * logs to logcat, plus heap snapshots. When off (default), only ERROR-level
-     * diagnostics are emitted, so the hot path isn't doing string interpolation
-     * + log dispatch on every stage of every page. Useful for debugging a flaky
-     * translation run without rebuilding.
-     */
-    fun translationDiagnostics() = preferenceStore.getBoolean("translation_diagnostics", false)
+    fun translationDiagnostics() = pipelinePrefs.translationDiagnostics()
 
-    /**
-     * TachiyomiAT: source-page reading order (RTL manga / LTR comic / auto from
-     * language). The recognition engine caches its resolved RTL/LTR decision
-     * once per instance, so changing this at runtime forces a recognition
-     * rebuild (see the engine-rebuild gate in TranslationPipeline).
-     */
-    fun translationReadingOrder() = preferenceStore.getEnum(
-        "translation_reading_order",
-        TranslationReadingOrder.RTL_MANGA,
-    )
+    fun translationReadingOrder() = pipelinePrefs.translationReadingOrder()
 
-    /**
-     * The batch progress sheet's Advanced view (pipeline stage
-     * cards, page grid, failure groups, queue detail) behind the simplified
-     * default. Persisted so the chosen depth survives sheet reopenings.
-     */
     fun translationProgressSheetAdvancedView() =
-        preferenceStore.getBoolean("translation_progress_sheet_advanced_view", false)
+        readerUiPrefs.translationProgressSheetAdvancedView()
 
     //endregion
 

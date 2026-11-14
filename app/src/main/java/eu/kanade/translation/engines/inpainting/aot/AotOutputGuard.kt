@@ -1,5 +1,7 @@
 package eu.kanade.translation.engines.inpainting.aot
 
+import eu.kanade.translation.engines.inpainting.InpaintPixelOps
+
 object AotOutputGuard {
 
     /**
@@ -35,8 +37,8 @@ object AotOutputGuard {
         width: Int,
         height: Int,
     ): GuardStats {
-        val n = minOf(inpaintedPixels.size, maskPixels.size, width * height)
-        if (n <= 0) return EMPTY_STATS
+        val n = width * height
+        if (n == 0 || inpaintedPixels.size < n || maskPixels.size < n) return EMPTY_STATS
 
         var count = 0
         var sumLuma = 0.0
@@ -47,7 +49,7 @@ object AotOutputGuard {
         var sumUnmaskedLuma = 0.0
 
         for (i in 0 until n) {
-            val isMasked = maskValue(maskPixels[i]) > MASK_THRESHOLD
+            val isMasked = InpaintPixelOps.maskValue(maskPixels[i]) > MASK_THRESHOLD
             val px = inpaintedPixels[i]
             val r = px shr 16 and 0xFF
             val g = px shr 8 and 0xFF
@@ -97,8 +99,6 @@ object AotOutputGuard {
         val uniformMidGray = stats.mean in MID_GRAY_MIN..MID_GRAY_MAX
         return uniformNearBlack || uniformMidGray || uniformNearWhite
     }
-
-    private fun maskValue(pixel: Int): Int = maxOf(pixel and 0xFF, pixel ushr 24)
 
     private val EMPTY_STATS = GuardStats(0.0, 0.0, 0.0, 0)
 

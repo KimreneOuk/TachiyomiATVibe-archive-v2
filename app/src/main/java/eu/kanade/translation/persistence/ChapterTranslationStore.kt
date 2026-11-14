@@ -1,5 +1,6 @@
 package eu.kanade.translation.persistence
 
+import eu.kanade.translation.persistence.ChapterArtifactEngine.TransactionOutcome
 import com.hippo.unifile.UniFile
 import eu.kanade.translation.model.PageStage
 import eu.kanade.translation.model.PageTranslation
@@ -11,6 +12,10 @@ import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.blockFingerprints
 import eu.kanade.translation.model.detachedCopy
 import eu.kanade.translation.model.hasRenderedResult
+import eu.kanade.translation.model.isColorizeOnlyComplete
+import eu.kanade.translation.model.isTextlessTerminal
+import eu.kanade.translation.model.isTranslationDisplayReady
+import kotlinx.coroutines.flow.update
 import eu.kanade.translation.model.toDraft
 import eu.kanade.translation.model.toPublishedPage
 import kotlinx.collections.immutable.PersistentMap
@@ -76,11 +81,22 @@ class ChapterTranslationStore internal constructor(
      */
     internal val mutex = Mutex()
 
+    /** JVM regression seam for the durable-publication/live-map-swap crash boundary. */
+    @Volatile
+    internal var afterRekeyManifestPublicationBeforeLiveSwap: (() -> Unit)? = null
+
+    private val publishedPageCopyCount = java.util.concurrent.atomic.AtomicInteger()
+
     /**
-     * Consolidated test-seam collaborator (Phase 7 S8). Declared before the
-     * init block because [publishPage] counts every publish through it.
+     * Test-only counter of page publishes: production publishes increment it
+     * so read-only-view tests can assert no-copy publication.
      */
-    internal val testSeams = ChapterStoreTestSeams(this)
+    internal val publishedPageCopies: Int
+        get() = publishedPageCopyCount.get()
+
+    internal fun countPublishedPageCopy() {
+        publishedPageCopyCount.incrementAndGet()
+    }
 
     internal val chapterKey: String?
         get() = artifactEngine?.layout?.chapterKey ?: artifactFileName?.substringBeforeLast('.')
@@ -262,17 +278,7 @@ class ChapterTranslationStore internal constructor(
      */
     private val bulkMutator = ChapterBulkMutator(this)
 
-    internal val displayPublication = ChapterDisplayPublication(this)
-
-    internal fun displaySnapshotLocked(changedPageKeys: Iterable<String> = emptyList()) {
-        displayPublication.displaySnapshotLocked(changedPageKeys)
-    }
-
-    internal fun promoteDisplayIfReadyLocked(pageKey: String, updated: PageTranslation) {
-        displayPublication.promoteDisplayIfReadyLocked(pageKey, updated)
-    }
     internal val pageMutations = ChapterPageMutations(this)
-    internal val stageMerges = ChapterStageMerges(this)
 
     /**
      * Typed result of [rekeyPages]. [Moved] with [Moved.skippedCollisions] > 0 is
@@ -355,7 +361,7 @@ class ChapterTranslationStore internal constructor(
                 CommittedPageDisplay(
                     page = publishPage(page),
                     pageVersion = page.pageVersion,
-                    displayFingerprint = displayPublication.displayFingerprintOf(page),
+                    displayFingerprint = displayFingerprintOf(page),
                     promotedAtEpochMs = page.updatedAt,
                 ),
             )
@@ -371,14 +377,14 @@ class ChapterTranslationStore internal constructor(
                     CommittedPageDisplay(
                         page = page,
                         pageVersion = page.pageVersion,
-                        displayFingerprint = displayPublication.displayFingerprintOf(page),
+                        displayFingerprint = displayFingerprintOf(page),
                         promotedAtEpochMs = page.updatedAt,
                     ),
                 )
             }
         }
         stateFlow.value = snapshotPages()
-        displayPublication.displaySnapshotLocked(pages.keys + committedDisplay.keys)
+        displaySnapshotLocked(pages.keys + committedDisplay.keys)
     }
 
     suspend fun snapshot(pageKey: String): PageSnapshot = mutex.withLock {
@@ -511,59 +517,267 @@ class ChapterTranslationStore internal constructor(
         }
 
 
-    suspend fun mergeOcr(
-        patch: OcrStagePatch,
-        description: String = "stage:ocr",
-    ): StagePatchResult = stageMerges.mergeOcr(patch, description)
+/**
+     * Atomic committed-display promotion: when the page just reached a fully
+     * displayable state (cleaned image file published and verified upstream by
+     * CleanedPublication, translation READY/PARTIAL, some
+     * translated text), the committed pointer swaps to a frozen snapshot of
+     * exactly that state. A superseded bundle\'s cleaned and colored files are retained
+     * until the pipeline drains them, never deleted under a live committed pointer.
+     */
+    internal fun promoteDisplayIfReadyLocked(pageKey: String, updated: PageTranslation) {
+        val published = pages[pageKey] ?: return
+        if (pageKey.isEmpty() ||
+            (!published.isTranslationDisplayReady && !published.isTextlessTerminal && !published.isColorizeOnlyComplete)
+        ) {
+            return
+        }
+        val fingerprint = displayFingerprintOf(published)
+        val existing = committedDisplay[pageKey]
+        if (existing != null && existing.displayFingerprint == fingerprint) return
+        if (existing != null) {
+            retiredCleanedImages
+                .retainSuperseded(pageKey, existing.page.cleanedImageName, published.cleanedImageName)
+            retiredColoredImages
+                .retainSuperseded(pageKey, existing.page.coloredImageName, published.coloredImageName)
+        }
+        committedDisplay = committedDisplay.put(
+            pageKey,
+            ChapterTranslationStore.CommittedPageDisplay(
+                page = published,
+                pageVersion = published.pageVersion,
+                displayFingerprint = fingerprint,
+                promotedAtEpochMs = published.updatedAt,
+            ),
+        )
+    }
 
-    suspend fun mergeTranslation(
-        patch: TranslationStagePatch,
-        description: String = "stage:translation",
-    ): StagePatchResult = stageMerges.mergeTranslation(patch, description)
+    /**
+     * Atomically updates only changed display keys; all other immutable values are shared.
+     * The fast-cancel path also calls this off-mutex, so the flow update must stay retry-safe.
+     */
+    internal fun displaySnapshotLocked(
+        changedPageKeys: Iterable<String>,
+    ) {
+        val keys = changedPageKeys.toList()
+        publishedDisplay.update { current ->
+            var updated = current
+            keys.forEach { pageKey ->
+                val page = pages[pageKey]
+                updated = if (page == null) {
+                    updated.remove(pageKey)
+                } else {
+                    updated.put(pageKey, committedDisplay[pageKey]?.page ?: page)
+                }
+            }
+            updated
+        }
+    }
 
-    suspend fun mergeRender(
-        patch: RenderStagePatch,
-        description: String = "stage:render",
-    ): StagePatchResult = stageMerges.mergeRender(patch, description)
+    internal fun displayFingerprintOf(page: PageTranslationView): String =
+        StageFingerprints.canonicalFingerprint(
+            buildList {
+                add(page.cleanedImageName)
+                add(page.inpaintRevision)
+                // A colorize-only re-publication changes only the colored image;
+                // including it keeps the promotion fingerprint honest for both bases.
+                add(page.coloredImageName)
+                addAll(page.blockFingerprints())
+            },
+        )
 
+    /** Resolves the reader-facing page state: committed bundle first, live candidate otherwise. */
     fun resolveDisplayPage(pageKey: String): PageTranslationView? =
-        displayPublication.resolveDisplayPage(pageKey)
+        committedDisplay[pageKey]?.page ?: pages[pageKey]
 
+    /**
+     * Lazily loads full page snapshot (including text blocks) from durable storage
+     * if the page is currently backed by a synthesized or empty placeholder.
+     */
     suspend fun getOrLoadPageSnapshot(pageKey: String): PageTranslation? =
-        displayPublication.getOrLoadPageSnapshot(pageKey)
+        mutex.withLock {
+            val current = pages[pageKey]
+            if (current != null && current.blocks.isNotEmpty()) {
+                return@withLock current.toDraft()
+            }
+            val record = artifactManifest?.pages?.get(pageKey)
+            val snapshotFileName = record?.candidate?.pageSnapshotFileName
+                ?: record?.committed?.pageSnapshotFileName
+            val engine = artifactEngine
+            if (snapshotFileName != null && engine != null) {
+                val loaded = engine.readPageSnapshot(snapshotFileName)
+                if (loaded != null) {
+                    val published = publishPage(loaded)
+                    pages = pages.put(pageKey, published)
+                    stateFlow.value = snapshotPages()
+                    if (record?.committed != null) {
+                        committedDisplay = committedDisplay.put(
+                            pageKey,
+                            ChapterTranslationStore.CommittedPageDisplay(
+                                page = published,
+                                pageVersion = loaded.pageVersion,
+                                displayFingerprint = displayFingerprintOf(loaded),
+                                promotedAtEpochMs = loaded.updatedAt,
+                            ),
+                        )
+                    }
+                    displaySnapshotLocked(listOf(pageKey))
+                    return@withLock loaded
+                }
+            }
+            current?.toDraft()
+        }
 
+    /** The frozen committed display bundle for [pageKey], if one exists. */
     internal fun committedDisplayPage(pageKey: String): PageTranslationView? =
-        displayPublication.committedDisplayPage(pageKey)
+        committedDisplay[pageKey]?.page
 
-    fun mayDeleteCleanedImage(pageKey: String, name: String): Boolean =
-        displayPublication.mayDeleteCleanedImage(pageKey, name)
+    /**
+     * True while [name] still backs the committed display bundle (or its
+     * retained predecessor) for [pageKey]; such files must not be deleted
+     * before a newer bundle promotes.
+     */
+    fun mayDeleteCleanedImage(pageKey: String, name: String): Boolean {
+        if (pages[pageKey]?.cleanedImageName == name || committedDisplay[pageKey]?.page?.cleanedImageName == name) {
+            return false
+        }
+        // Rekey can leave an already-queued retirement callback carrying the old
+        // pageKey after ownership has moved. Check every live/committed/retained
+        // reference before deleting the shared image or its identity sidecar.
+        return name !in referencedCleanedImageNames()
+    }
 
-    suspend fun authorizeCleanedImageDeletion(pageKey: String, name: String): Boolean =
-        displayPublication.authorizeCleanedImageDeletion(pageKey, name)
+    /**
+     * Point-in-time store authorization to physically delete a cleaned image
+     * name: the same predicate as [mayDeleteCleanedImage], evaluated under
+     * [mutex].
+     */
+    suspend fun authorizeCleanedImageDeletion(pageKey: String, name: String): Boolean = mutex.withLock {
+        mayDeleteCleanedImage(pageKey, name)
+    }
 
+    /** Protect a companion image still owned by a different page after page reset/deletion. */
     fun isCleanedImageReferencedByAnotherPage(pageKey: String, name: String): Boolean =
-        displayPublication.isCleanedImageReferencedByAnotherPage(pageKey, name)
+        pages.any { (owner, page) -> owner != pageKey && page.cleanedImageName == name } ||
+            committedDisplay.any { (owner, page) -> owner != pageKey && page.page.cleanedImageName == name } ||
+            retiredCleanedImages.any { (owner, names) -> owner != pageKey && name in names } ||
+            artifactManifest?.pages?.any { (owner, record) ->
+                owner != pageKey &&
+                    (record.committed?.displayBase?.fileName == name || record.previousCommitted?.displayBase?.fileName == name)
+            } == true
 
-    fun referencedCleanedImageNames(): Set<String> =
-        displayPublication.referencedCleanedImageNames()
+    /** All cleaned-image names still reachable from live, committed, or retired state. */
+    fun referencedCleanedImageNames(): Set<String> = buildSet {
+        pages.values.mapNotNullTo(this) { it.cleanedImageName }
+        committedDisplay.values.mapNotNullTo(this) { it.page.cleanedImageName }
+        retiredCleanedImages.values.forEach { addAll(it) }
+        artifactManifest?.pages?.values?.forEach { record ->
+            record.committed?.displayBase?.fileName?.let(::add)
+            record.previousCommitted?.displayBase?.fileName?.let(::add)
+        }
+    }
 
+    /** Atomically takes every superseded cleaned-image name for [pageKey]. */
     fun drainRetiredCleanedImages(pageKey: String): List<String> =
-        displayPublication.drainRetiredCleanedImages(pageKey)
+        retiredCleanedImages.remove(pageKey)?.toList().orEmpty()
 
-    fun mayDeleteColoredImage(pageKey: String, name: String): Boolean =
-        displayPublication.mayDeleteColoredImage(pageKey, name)
+    /** Colored-image counterpart of [mayDeleteCleanedImage]; the manifest records no colored names. */
+    fun mayDeleteColoredImage(pageKey: String, name: String): Boolean {
+        if (pages[pageKey]?.coloredImageName == name ||
+            committedDisplay[pageKey]?.page?.coloredImageName == name
+        ) {
+            return false
+        }
+        return name !in referencedColoredImageNames()
+    }
 
-    fun referencedColoredImageNames(): Set<String> =
-        displayPublication.referencedColoredImageNames()
+    internal fun referencedColoredImageNames(): Set<String> = buildSet {
+        pages.values.mapNotNullTo(this) { it.coloredImageName }
+        committedDisplay.values.mapNotNullTo(this) { it.page.coloredImageName }
+        retiredColoredImages.values.forEach { addAll(it) }
+    }
 
+    /** Atomically takes every superseded colored-image name for [pageKey]. */
     fun drainRetiredColoredImages(pageKey: String): List<String> =
-        displayPublication.drainRetiredColoredImages(pageKey)
+        retiredColoredImages.remove(pageKey)?.toList().orEmpty()
 
-    suspend fun demoteCommittedDisplay(pageKey: String, reason: String): String? =
-        displayPublication.demoteCommittedDisplay(pageKey, reason)
+    /** Retains [previous] for a later drain once a promotion stops displaying it. */
+    private fun ConcurrentHashMap<String, MutableSet<String>>.retainSuperseded(
+        pageKey: String,
+        previous: String?,
+        current: String?,
+    ) {
+        previous
+            ?.takeIf { it != current && it.isNotEmpty() }
+            ?.let { computeIfAbsent(pageKey) { ConcurrentHashMap.newKeySet() }.add(it) }
+    }
 
-    internal fun cancelArtifactCandidateLocked(pageKey: String): Boolean =
-        displayPublication.cancelArtifactCandidateLocked(pageKey)
+    /**
+     * Explicitly drops the committed display pointer — reserved for user
+     * resets (reset translation/inpaint data), never for candidate retries.
+     */
+    suspend fun demoteCommittedDisplay(pageKey: String, reason: String): String? {
+        if (isDefunct) return null
+        return mutex.withLock {
+            if (committedDisplay.containsKey(pageKey)) {
+                committedDisplay = committedDisplay.remove(pageKey)
+                retiredCleanedImages.remove(pageKey)
+                retiredColoredImages.remove(pageKey)
+                val demotion = demoteArtifactPageLocked(pageKey)
+                logcat(LogPriority.INFO) {
+                    "TachiyomiAT committed display demoted: pageKey=$pageKey reason=$reason"
+                }
+                displaySnapshotLocked(listOf(pageKey))
+                demotion
+            } else {
+                null
+            }
+        }
+    }
+
+    internal fun cancelArtifactCandidateLocked(pageKey: String): Boolean {
+        val artifact = artifactEngine ?: return true
+        val manifest = artifactManifest ?: return true
+        val candidate = manifest.pages[pageKey]?.candidate ?: return true
+        val outcome = artifact.candidates.cancelLiveCandidate(manifest, pageKey, candidate.generationId)
+        if (outcome is TransactionOutcome.Committed) {
+            artifactManifest = outcome.manifest
+            return true
+        } else if (outcome is TransactionOutcome.Rejected) {
+            publicationBridge.rebaseManifestAfterStaleRejection(artifact, outcome.reason)
+            logcat(LogPriority.WARN) {
+                "TachiyomiAT artifact candidate cancel rejected: pageKey=$pageKey reason=${outcome.reason}"
+            }
+        }
+        return false
+    }
+
+    /** Caller holds [mutex]; null when the destructive demotion is durably complete. */
+    private fun demoteArtifactPageLocked(pageKey: String): String? {
+        val artifact = artifactEngine ?: return null
+        val manifest = artifactManifest ?: return null
+        val outcome = artifact.candidates.demoteLivePage(manifest, pageKey)
+        return when (outcome) {
+            is TransactionOutcome.Committed -> {
+                artifactManifest = outcome.manifest
+                outcome.unverifiedBackupReason?.let { reason ->
+                    logcat(LogPriority.WARN) {
+                        "TachiyomiAT artifact display demotion published without a verified backup: " +
+                            "pageKey=$pageKey reason=$reason"
+                    }
+                    return "unverified backup after demotion: $reason"
+                }
+                null
+            }
+            is TransactionOutcome.Rejected -> {
+                publicationBridge.rebaseManifestAfterStaleRejection(artifact, outcome.reason)
+                logcat(LogPriority.WARN) {
+                    "TachiyomiAT artifact display demotion rejected: pageKey=$pageKey reason=${outcome.reason}"
+                }
+                outcome.reason
+            }
+        }
+    }
 
     internal fun shouldPersistUpdate(previous: PageTranslation?, updated: PageTranslation): Boolean =
         pageMutations.shouldPersistUpdate(previous, updated)
@@ -662,7 +876,7 @@ class ChapterTranslationStore internal constructor(
     internal fun snapshotPages(): PersistentMap<String, PublishedPageTranslation> = pages
 
     internal fun publishPage(draft: PageTranslation): PublishedPageTranslation {
-        testSeams.countPublishedPageCopy()
+        countPublishedPageCopy()
         return draft.toPublishedPage()
     }
 

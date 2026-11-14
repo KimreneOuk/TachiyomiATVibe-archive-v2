@@ -250,7 +250,6 @@ object QnnDiagnostics {
         var gpuStrictErr = ""
 
         try {
-            val t0 = System.nanoTime()
             val strictOpts = OrtSession.SessionOptions().apply {
                 addQnn(mapOf("backend_type" to "gpu"))
                 addConfigEntry("session.disable_cpu_ep_fallback", "1")
@@ -366,8 +365,10 @@ object QnnDiagnostics {
             val maskTensor = OnnxTensor.createTensor(env, maskDirect, longArrayOf(1, 1, 512, 512))
             val feed = mapOf("image" to imgTensor, "mask" to maskTensor)
 
-            repeat(3) { nnapiSession.run(feed).close() }
-            repeat(10) {
+            repeat(3) {
+                nnapiSession.run(feed).close()
+            }
+            repeat(3) {
                 val tStart = System.nanoTime()
                 nnapiSession.run(feed).close()
                 nnapiRuns.add((System.nanoTime() - tStart) / 1_000_000)
@@ -480,14 +481,14 @@ object QnnDiagnostics {
                 val diff = Math.abs(cpuOut[i].toDouble() - htpOut[i].toDouble())
                 sumAbsDiff += diff
                 if (diff > maxAbsDiff) maxAbsDiff = diff
-                sumSqDiff += (diff * diff)
+                sumSqDiff += diff * diff
             }
             val mae = sumAbsDiff / n
             val rmse = Math.sqrt(sumSqDiff / n)
             val psnr = if (rmse > 1e-9) 20.0 * Math.log10(2.0 / rmse) else 999.0
             logcat(LogPriority.INFO) {
                 "$TAG [R1_AOT_NUMERICS] count=$n mae=${String.format("%.6f", mae)} " +
-                    "maxAbsError=${String.format("%.6f", maxAbsDiff)} rmse=${String.format("%.6f", rmse)} " +
+                    "rmse=${String.format("%.6f", rmse)} maxDiff=${String.format("%.6f", maxAbsDiff)} " +
                     "psnr=${String.format("%.2f", psnr)}dB"
             }
         }
@@ -500,34 +501,11 @@ object QnnDiagnostics {
 
         if (aotCtxFile.exists() && aotQnnBin.exists() && aotQnnBin.length() > 0) {
             // Cold reload test from precompiled binary in fresh process
-            var aotCtxReloadMs = -1L
-            val aotCtxReloadRuns = mutableListOf<Long>()
-            try {
-                val t0 = System.nanoTime()
-                val opts = OnnxRuntimeProvider.createQnnHtpSessionOptions(contextCacheFile = null, strictCpuFallbackDisabled = true)
-                env.createSession(aotCtxFile.absolutePath, opts).use { reloadedSession ->
-                    aotCtxReloadMs = (System.nanoTime() - t0) / 1_000_000
-                    imgDirect.rewind()
-                    maskDirect.rewind()
-                    val imgTensor = OnnxTensor.createTensor(env, imgDirect, longArrayOf(1, 3, 512, 512))
-                    val maskTensor = OnnxTensor.createTensor(env, maskDirect, longArrayOf(1, 1, 512, 512))
-                    val feed = mapOf("image" to imgTensor, "mask" to maskTensor)
-                    repeat(3) { reloadedSession.run(feed).close() }
-                    repeat(10) {
-                        val t = System.nanoTime()
-                        reloadedSession.run(feed).close()
-                        aotCtxReloadRuns.add((System.nanoTime() - t) / 1_000_000)
-                    }
-                    imgTensor.close()
-                    maskTensor.close()
-                }
-            } catch (t: Throwable) {
-                logcat(LogPriority.WARN, t) { "$TAG [R1_AOT_EXISTING_CACHE] Reload failed: ${t.message}" }
-            }
-            val aotCtxStats = Stats.of(aotCtxReloadRuns)
+            val (reloadMs, reloadRuns) = measureAotContextReload(env, aotCtxFile, imgDirect, maskDirect, "[R1_AOT_EXISTING_CACHE]")
+            val aotCtxStats = Stats.of(reloadRuns)
             logcat(LogPriority.INFO) {
                 "$TAG [R1_AOT_CONTEXT_CACHE] isPrecompiledCold=true ctxFileSize=${aotCtxFile.length()}B qnnBinSize=${aotQnnBin.length()}B " +
-                    "reloadMs=$aotCtxReloadMs reloadedInferenceMedian=${aotCtxStats.median}ms min=${aotCtxStats.min} max=${aotCtxStats.max}"
+                    "reloadMs=$reloadMs reloadedInferenceMedian=${aotCtxStats.median}ms min=${aotCtxStats.min} max=${aotCtxStats.max}"
             }
         } else {
             var aotCtxGenMs = -1L
@@ -543,36 +521,15 @@ object QnnDiagnostics {
             val aotCtxSize = aotCtxFile.length()
             val aotQnnBinSize = if (aotQnnBin.exists()) aotQnnBin.length() else 0L
 
-            var aotCtxReloadMs = -1L
-            val aotCtxReloadRuns = mutableListOf<Long>()
-            if (aotCtxFile.exists()) {
-                try {
-                    val t0 = System.nanoTime()
-                    val opts = OnnxRuntimeProvider.createQnnHtpSessionOptions(contextCacheFile = null, strictCpuFallbackDisabled = true)
-                    env.createSession(aotCtxFile.absolutePath, opts).use { reloadedSession ->
-                        aotCtxReloadMs = (System.nanoTime() - t0) / 1_000_000
-                        imgDirect.rewind()
-                        maskDirect.rewind()
-                        val imgTensor = OnnxTensor.createTensor(env, imgDirect, longArrayOf(1, 3, 512, 512))
-                        val maskTensor = OnnxTensor.createTensor(env, maskDirect, longArrayOf(1, 1, 512, 512))
-                        val feed = mapOf("image" to imgTensor, "mask" to maskTensor)
-                        repeat(3) { reloadedSession.run(feed).close() }
-                        repeat(10) {
-                            val t = System.nanoTime()
-                            reloadedSession.run(feed).close()
-                            aotCtxReloadRuns.add((System.nanoTime() - t) / 1_000_000)
-                        }
-                        imgTensor.close()
-                        maskTensor.close()
-                    }
-                } catch (t: Throwable) {
-                    logcat(LogPriority.WARN, t) { "$TAG [R1_AOT_CACHE] Reload failed: ${t.message}" }
-                }
+            val (reloadMs, reloadRuns) = if (aotCtxFile.exists()) {
+                measureAotContextReload(env, aotCtxFile, imgDirect, maskDirect, "[R1_AOT_CACHE]")
+            } else {
+                Pair(-1L, emptyList())
             }
-            val aotCtxStats = Stats.of(aotCtxReloadRuns)
+            val aotCtxStats = Stats.of(reloadRuns)
             logcat(LogPriority.INFO) {
                 "$TAG [R1_AOT_CONTEXT_CACHE] isPrecompiledCold=false genMs=$aotCtxGenMs ctxFileSize=${aotCtxSize}B qnnBinSize=${aotQnnBinSize}B " +
-                    "reloadMs=$aotCtxReloadMs reloadedInferenceMedian=${aotCtxStats.median}ms min=${aotCtxStats.min} max=${aotCtxStats.max}"
+                    "reloadMs=$reloadMs reloadedInferenceMedian=${aotCtxStats.median}ms min=${aotCtxStats.min} max=${aotCtxStats.max}"
             }
         }
 
@@ -606,6 +563,40 @@ object QnnDiagnostics {
                 logcat(LogPriority.WARN, t) { "$TAG [R1] Sustained GPU test failed: ${t.message}" }
             }
         }
+    }
+
+    private fun measureAotContextReload(
+        env: OrtEnvironment,
+        ctxFile: File,
+        imgDirect: FloatBuffer,
+        maskDirect: FloatBuffer,
+        errorTag: String,
+    ): Pair<Long, List<Long>> {
+        var reloadMs = -1L
+        val reloadRuns = mutableListOf<Long>()
+        try {
+            val t0 = System.nanoTime()
+            val opts = OnnxRuntimeProvider.createQnnHtpSessionOptions(contextCacheFile = null, strictCpuFallbackDisabled = true)
+            env.createSession(ctxFile.absolutePath, opts).use { reloadedSession ->
+                reloadMs = (System.nanoTime() - t0) / 1_000_000
+                imgDirect.rewind()
+                maskDirect.rewind()
+                val imgTensor = OnnxTensor.createTensor(env, imgDirect, longArrayOf(1, 3, 512, 512))
+                val maskTensor = OnnxTensor.createTensor(env, maskDirect, longArrayOf(1, 1, 512, 512))
+                val feed = mapOf("image" to imgTensor, "mask" to maskTensor)
+                repeat(3) { reloadedSession.run(feed).close() }
+                repeat(10) {
+                    val t = System.nanoTime()
+                    reloadedSession.run(feed).close()
+                    reloadRuns.add((System.nanoTime() - t) / 1_000_000)
+                }
+                imgTensor.close()
+                maskTensor.close()
+            }
+        } catch (t: Throwable) {
+            logcat(LogPriority.WARN, t) { "$TAG $errorTag Reload failed: ${t.message}" }
+        }
+        return Pair(reloadMs, reloadRuns)
     }
 
     /**
@@ -716,8 +707,6 @@ object QnnDiagnostics {
                 "speedup=$speedup runs=${cpuRuns.joinToString()}"
         }
 
-        runPanelDetectorBenchmark(app)
-
         // 4. HTP Context Caching Benchmark on detector
         val cacheDir = File(model.parentFile, "qnn-cache-diag")
         val ctxFile = File(cacheDir, "${model.name}.qnnctx.bin")
@@ -772,6 +761,8 @@ object QnnDiagnostics {
             "$TAG [R2_CONTEXT_CACHE] genMs=$ctxGenMs ctxFileSize=${ctxSize}B qnnBinSize=${qnnBinSize}B " +
                 "reloadMs=$ctxReloadMs reloadedInferenceMedian=${ctxReloadStats.median}ms min=${ctxReloadStats.min} max=${ctxReloadStats.max}"
         }
+
+        runPanelDetectorBenchmark(app)
     }
 
     private fun runPanelDetectorBenchmark(app: Application) {
@@ -890,61 +881,64 @@ object QnnDiagnostics {
             logcat(LogPriority.INFO) { "$TAG [ISO] ================= Model: $modelName (${modelFile.length()}B) =================" }
 
             // 1. GPU Strict (disable_cpu_ep_fallback = 1)
-            var gpuStrictOk = false
-            var gpuStrictErr = ""
-            var gpuStrictInferMs = -1L
-            try {
-                val opts = OrtSession.SessionOptions().apply {
+            executeIsolationRun(
+                env = env,
+                modelFile = modelFile,
+                modelName = modelName,
+                backendName = "GPU",
+                strict = 1,
+                sessionOptions = OrtSession.SessionOptions().apply {
                     addQnn(mapOf("backend_type" to "gpu"))
                     addConfigEntry("session.disable_cpu_ep_fallback", "1")
-                }
-                env.createSession(modelFile.absolutePath, opts).use { session ->
-                    gpuStrictOk = true
-                    gpuStrictInferMs = testIsolationInference(env, session, modelName)
-                }
-            } catch (t: Throwable) {
-                gpuStrictErr = t.message ?: t.javaClass.simpleName
-            }
-            logcat(LogPriority.INFO) {
-                "$TAG [ISO_RESULT] model=$modelName backend=GPU strict=1 ok=$gpuStrictOk inferMs=$gpuStrictInferMs err=$gpuStrictErr"
-            }
+                },
+            )
 
             // 2. GPU Non-strict (disable_cpu_ep_fallback = 0)
-            var gpuFallbackOk = false
-            var gpuFallbackErr = ""
-            var gpuFallbackInferMs = -1L
-            try {
-                val opts = OrtSession.SessionOptions().apply {
+            executeIsolationRun(
+                env = env,
+                modelFile = modelFile,
+                modelName = modelName,
+                backendName = "GPU",
+                strict = 0,
+                sessionOptions = OrtSession.SessionOptions().apply {
                     addQnn(mapOf("backend_type" to "gpu"))
                     addConfigEntry("session.disable_cpu_ep_fallback", "0")
-                }
-                env.createSession(modelFile.absolutePath, opts).use { session ->
-                    gpuFallbackOk = true
-                    gpuFallbackInferMs = testIsolationInference(env, session, modelName)
-                }
-            } catch (t: Throwable) {
-                gpuFallbackErr = t.message ?: t.javaClass.simpleName
-            }
-            logcat(LogPriority.INFO) {
-                "$TAG [ISO_RESULT] model=$modelName backend=GPU strict=0 ok=$gpuFallbackOk inferMs=$gpuFallbackInferMs err=$gpuFallbackErr"
-            }
+                },
+            )
 
             // 3. HTP Strict (disable_cpu_ep_fallback = 1)
-            var htpStrictOk = false
-            var htpStrictErr = ""
-            var htpStrictInferMs = -1L
-            try {
-                val opts = OnnxRuntimeProvider.createQnnHtpSessionOptions(strictCpuFallbackDisabled = true)
-                env.createSession(modelFile.absolutePath, opts).use { session ->
-                    htpStrictOk = true
-                    htpStrictInferMs = testIsolationInference(env, session, modelName)
-                }
-            } catch (t: Throwable) {
-                htpStrictErr = t.message ?: t.javaClass.simpleName
+            executeIsolationRun(
+                env = env,
+                modelFile = modelFile,
+                modelName = modelName,
+                backendName = "HTP",
+                strict = 1,
+                sessionOptions = OnnxRuntimeProvider.createQnnHtpSessionOptions(strictCpuFallbackDisabled = true),
+            )
+        }
+    }
+
+    private fun executeIsolationRun(
+        env: OrtEnvironment,
+        modelFile: File,
+        modelName: String,
+        backendName: String,
+        strict: Int,
+        sessionOptions: OrtSession.SessionOptions,
+    ) {
+        var ok = false
+        var err = ""
+        var inferMs = -1L
+        try {
+            env.createSession(modelFile.absolutePath, sessionOptions).use { session ->
+                ok = true
+                inferMs = testIsolationInference(env, session, modelName)
             }
-            logcat(LogPriority.INFO) {
-                "$TAG [ISO_RESULT] model=$modelName backend=HTP strict=1 ok=$htpStrictOk inferMs=$htpStrictInferMs err=$htpStrictErr"
-            }
+        } catch (t: Throwable) {
+            err = t.message ?: t.javaClass.simpleName
+        }
+        logcat(LogPriority.INFO) {
+            "$TAG [ISO_RESULT] model=$modelName backend=$backendName strict=$strict ok=$ok inferMs=$inferMs err=$err"
         }
     }
 

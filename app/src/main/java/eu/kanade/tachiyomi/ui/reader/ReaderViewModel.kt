@@ -48,6 +48,7 @@ import eu.kanade.translation.model.shouldShowTranslationOverlay
 import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.processing.execution.TranslationStreamRegistry
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.channels.Channel
@@ -143,14 +144,25 @@ class ReaderViewModel @JvmOverloads constructor(
 
     internal val aiModelFetchState = MutableStateFlow<AiModelListState>(AiModelListState.Idle)
 
-    val translationSettingsState: kotlinx.coroutines.flow.StateFlow<TranslationSettingsState> = combine(
+    // Named intermediate flows for [translationSettingsState]: the same preference
+    // subscriptions and grouping as before, with named value carriers instead of
+    // nested Quad/Pair chains. The terminal combine + stateIn semantics are unchanged.
+
+    private val translationRequestOptionsFlow: Flow<TranslationRequestOptions> =
         combine(
             combine(
                 translationPreferences.translationEnabled().changes(),
                 translationPreferences.autoTranslate().changes(),
                 translationPreferences.translateFromLanguage().changes(),
                 translationPreferences.translateButtonWithControls().changes(),
-            ) { enabled, auto, from, buttonWithControls -> Quad(enabled, auto, from, buttonWithControls) },
+            ) { enabled, autoTranslate, translateFromLanguage, translateButtonWithControls ->
+                TranslationCoreSettings(
+                    enabled = enabled,
+                    autoTranslate = autoTranslate,
+                    translateFromLanguage = translateFromLanguage,
+                    translateButtonWithControls = translateButtonWithControls,
+                )
+            },
             combine(
                 translationPreferences.translationRecentLanguagesFrom().changes(),
                 translationPreferences.translateToLanguage().changes(),
@@ -164,23 +176,59 @@ class ReaderViewModel @JvmOverloads constructor(
                         translationPreferences.autoColorize().changes(),
                         translationPreferences.translationUpscalingEnabled().changes(),
                         translationPreferences.colorCombineMode().changes(),
-                    ) { model, autoColorize, upscaling, combineMode ->
-                        Quad(model, autoColorize, upscaling, combineMode)
+                    ) { model, autoColorize, upscalingEnabled, combineMode ->
+                        TranslationColorizationSettings(
+                            model = model,
+                            autoColorize = autoColorize,
+                            upscalingEnabled = upscalingEnabled,
+                            combineMode = combineMode,
+                        )
                     },
-                ) { inpaintingMode, neuralModel, colorization, colorModel ->
-                    Quad(inpaintingMode, neuralModel, colorization, colorModel)
+                ) { inpaintingMode, inpaintingNeuralModel, colorizationEnabled, colorization ->
+                    TranslationImageSettings(
+                        inpaintingMode = inpaintingMode,
+                        inpaintingNeuralModel = inpaintingNeuralModel,
+                        colorizationEnabled = colorizationEnabled,
+                        colorization = colorization,
+                    )
                 },
-            ) { a, b, c, d -> Quad(a, b, c, d) },
-        ) { q1, q2 -> Pair(q1, q2) },
+            ) { recentLanguagesFromRaw, translateToLanguage, recentLanguagesToRaw, image ->
+                TranslationLanguageSettings(
+                    recentLanguagesFromRaw = recentLanguagesFromRaw,
+                    translateToLanguage = translateToLanguage,
+                    recentLanguagesToRaw = recentLanguagesToRaw,
+                    image = image,
+                )
+            },
+        ) { core, language -> TranslationRequestOptions(core = core, language = language) }
+
+    private val translationEngineStateFlow: Flow<TranslationEngineSettings> =
         combine(
             combine(
                 translationPreferences.translationEngineCategory().changes(),
                 translationPreferences.translationStandardEngine().changes(),
                 translationPreferences.translationDeeplApiKey().changes(),
                 translationPreferences.translationAiEngine().changes(),
-            ) { a, b, c, d -> Quad(a, b, c, d) },
+            ) { category, standardEngine, deeplApiKey, aiEngine ->
+                TranslationEngineEngines(
+                    category = category,
+                    standardEngine = standardEngine,
+                    deeplApiKey = deeplApiKey,
+                    aiEngine = aiEngine,
+                )
+            },
             aiModelFetchState,
-        ) { q, fetchState -> Pair(q, fetchState) },
+        ) { engines, modelFetchState ->
+            TranslationEngineSettings(
+                category = engines.category,
+                standardEngine = engines.standardEngine,
+                deeplApiKey = engines.deeplApiKey,
+                aiEngine = engines.aiEngine,
+                modelFetchState = modelFetchState,
+            )
+        }
+
+    private val ocrModelFlow: Flow<Pair<OcrModel, ImmutableMap<OcrModel, String>>> =
         translationPreferences.translateFromLanguage().changes().flatMapLatest { fromValue ->
             val language = TextRecognizerLanguage.entries.firstOrNull { it.name == fromValue } ?: TextRecognizerLanguage.CHINESE
             val ocrPref = OcrModelCatalog.preferenceFor(translationPreferences, language)
@@ -189,7 +237,9 @@ class ReaderViewModel @JvmOverloads constructor(
                 val labels = OcrModelCatalog.labelsFor(language)
                 coerced to labels
             }
-        },
+        }
+
+    private val aiEnginePreferencesFlow: Flow<AiSubPrefs> =
         translationPreferences.translationAiEngine().changes().flatMapLatest { engine ->
             val apiKeyFlow = translationPreferences.translationAiApiKey(engine).changes()
             val baseUrlFlow = translationPreferences.translationAiBaseUrl(engine)?.changes() ?: kotlinx.coroutines.flow.flowOf("")
@@ -198,51 +248,61 @@ class ReaderViewModel @JvmOverloads constructor(
             combine(apiKeyFlow, baseUrlFlow, modelFlow, recentModelsFlow) { apiKey, baseUrl, model, recentRaw ->
                 AiSubPrefs(apiKey, baseUrl, model, recentRaw)
             }
-        },
+        }
+
+    private val readerDisplayFlagsFlow: Flow<ReaderDisplayFlags> =
         combine(
             readerPreferences.showTranslations().changes(),
             readerPreferences.translationFloaterEnabled().changes(),
             readerPreferences.translationFloaterIdleFade().changes(),
-        ) { show, floater, idleFade -> Triple(show, floater, idleFade) },
-    ) { part1, part2, ocrInfo, aiSubPrefs, readerFlags ->
-        val (q1, q2) = part1
-        val (q3, fetchState) = part2
-        val (ocrModel, ocrModelEntries) = ocrInfo
-        val (showTranslatedText, floaterEnabled, floaterIdleFade) = readerFlags
+        ) { showTranslatedText, floaterEnabled, floaterIdleFade ->
+            ReaderDisplayFlags(
+                showTranslatedText = showTranslatedText,
+                floaterEnabled = floaterEnabled,
+                floaterIdleFade = floaterIdleFade,
+            )
+        }
 
-        val recentLangsFrom = TranslationPreferences.decodeRecentLanguages(q2.a).toImmutableList()
-        val recentLangsTo = TranslationPreferences.decodeRecentLanguages(q2.c).toImmutableList()
-        val recentAiModels = TranslationPreferences.decodeRecentModels(aiSubPrefs.recentRaw).toImmutableList()
-
+    val translationSettingsState: kotlinx.coroutines.flow.StateFlow<TranslationSettingsState> = combine(
+        translationRequestOptionsFlow,
+        translationEngineStateFlow,
+        ocrModelFlow,
+        aiEnginePreferencesFlow,
+        readerDisplayFlagsFlow,
+    ) { requestOptions, engineSettings, ocrInfo, aiSubPrefs, readerFlags ->
         TranslationSettingsState(
-            enabled = q1.a,
-            autoTranslate = q1.b,
-            translateFromLanguage = q1.c,
-            translateButtonWithControls = q1.d,
-            floaterEnabled = floaterEnabled,
-            floaterIdleFade = floaterIdleFade,
-            showTranslatedText = showTranslatedText,
-            translateToLanguage = q2.b,
-            translationRecentLanguagesFrom = recentLangsFrom,
-            translationRecentLanguagesTo = recentLangsTo,
-            ocrModel = ocrModel,
-            ocrModelEntries = ocrModelEntries,
-            inpaintingMode = q2.d.a,
-            inpaintingNeuralModel = q2.d.b,
-            colorizationEnabled = q2.d.c,
-            colorizationModel = q2.d.d.a,
-            autoColorize = q2.d.d.b,
-            upscalingEnabled = q2.d.d.c,
-            colorCombineMode = q2.d.d.d,
-            engineCategory = q3.a,
-            standardEngine = q3.b,
-            deeplApiKey = q3.c,
-            aiEngine = q3.d,
+            enabled = requestOptions.core.enabled,
+            autoTranslate = requestOptions.core.autoTranslate,
+            translateFromLanguage = requestOptions.core.translateFromLanguage,
+            translateButtonWithControls = requestOptions.core.translateButtonWithControls,
+            floaterEnabled = readerFlags.floaterEnabled,
+            floaterIdleFade = readerFlags.floaterIdleFade,
+            showTranslatedText = readerFlags.showTranslatedText,
+            translateToLanguage = requestOptions.language.translateToLanguage,
+            translationRecentLanguagesFrom = TranslationPreferences.decodeRecentLanguages(
+                requestOptions.language.recentLanguagesFromRaw,
+            ).toImmutableList(),
+            translationRecentLanguagesTo = TranslationPreferences.decodeRecentLanguages(
+                requestOptions.language.recentLanguagesToRaw,
+            ).toImmutableList(),
+            ocrModel = ocrInfo.first,
+            ocrModelEntries = ocrInfo.second,
+            inpaintingMode = requestOptions.language.image.inpaintingMode,
+            inpaintingNeuralModel = requestOptions.language.image.inpaintingNeuralModel,
+            colorizationEnabled = requestOptions.language.image.colorizationEnabled,
+            colorizationModel = requestOptions.language.image.colorization.model,
+            autoColorize = requestOptions.language.image.colorization.autoColorize,
+            upscalingEnabled = requestOptions.language.image.colorization.upscalingEnabled,
+            colorCombineMode = requestOptions.language.image.colorization.combineMode,
+            engineCategory = engineSettings.category,
+            standardEngine = engineSettings.standardEngine,
+            deeplApiKey = engineSettings.deeplApiKey,
+            aiEngine = engineSettings.aiEngine,
             aiApiKey = aiSubPrefs.apiKey,
             aiBaseUrl = aiSubPrefs.baseUrl,
             aiModel = aiSubPrefs.model,
-            aiRecentModels = recentAiModels,
-            aiModelFetchState = fetchState,
+            aiRecentModels = TranslationPreferences.decodeRecentModels(aiSubPrefs.recentRaw).toImmutableList(),
+            aiModelFetchState = engineSettings.modelFetchState,
         )
     }.stateIn(
         viewModelScope,
@@ -613,7 +673,7 @@ class ReaderViewModel @JvmOverloads constructor(
                     // TachiyomiAT bug 4 fix: tell the user the cancellation landed.
                     val context = Injekt.get<Application>()
                     context.toast(ATMR.strings.translation_cancelled_toast)
-                } else if (translationPreferences.autoTranslate().get()) {
+                } else if (translationController.isAutoTranslateEnabled()) {
                     translateCurrentPageForAuto()
                 }
             }
@@ -1072,4 +1132,59 @@ private data class AiSubPrefs(
     val recentRaw: String,
 )
 
-private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+// Named value carriers for the translation settings combine. They group preference
+// leaves for readability only; each field maps 1:1 to the former Quad chain and the
+// terminal TranslationSettingsState construction adds no behavior of its own.
+private data class TranslationCoreSettings(
+    val enabled: Boolean,
+    val autoTranslate: Boolean,
+    val translateFromLanguage: String,
+    val translateButtonWithControls: Boolean,
+)
+
+private data class TranslationColorizationSettings(
+    val model: ColorizationModel,
+    val autoColorize: Boolean,
+    val upscalingEnabled: Boolean,
+    val combineMode: ColorCombineMode,
+)
+
+private data class TranslationImageSettings(
+    val inpaintingMode: String,
+    val inpaintingNeuralModel: NeuralInpaintModel,
+    val colorizationEnabled: Boolean,
+    val colorization: TranslationColorizationSettings,
+)
+
+private data class TranslationLanguageSettings(
+    val recentLanguagesFromRaw: String,
+    val translateToLanguage: String,
+    val recentLanguagesToRaw: String,
+    val image: TranslationImageSettings,
+)
+
+private data class TranslationRequestOptions(
+    val core: TranslationCoreSettings,
+    val language: TranslationLanguageSettings,
+)
+
+private data class TranslationEngineEngines(
+    val category: TranslationEngineCategory,
+    val standardEngine: StandardEngine,
+    val deeplApiKey: String,
+    val aiEngine: AiEngine,
+)
+
+private data class TranslationEngineSettings(
+    val category: TranslationEngineCategory,
+    val standardEngine: StandardEngine,
+    val deeplApiKey: String,
+    val aiEngine: AiEngine,
+    val modelFetchState: AiModelListState,
+)
+
+private data class ReaderDisplayFlags(
+    val showTranslatedText: Boolean,
+    val floaterEnabled: Boolean,
+    val floaterIdleFade: Boolean,
+)
