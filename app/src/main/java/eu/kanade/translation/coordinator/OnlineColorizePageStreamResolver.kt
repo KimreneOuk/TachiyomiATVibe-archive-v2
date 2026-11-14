@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.model.onlinePageTranslationKey
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
@@ -48,6 +49,12 @@ internal class OnlineColorizePageStreamResolver(
     private val chapterCache: ChapterCache,
 ) {
 
+    private companion object {
+        /** Total tries per page; backoff between them is 1s, 2s (virtual in tests). */
+        const val DOWNLOAD_ATTEMPTS = 3
+        const val RETRY_BACKOFF_MS = 1_000L
+    }
+
     /** Ordered (reader-consistent) page plan for one streamed chapter. */
     internal class Plan(
         val orderedPageKeys: List<String>,
@@ -86,14 +93,33 @@ internal class OnlineColorizePageStreamResolver(
             val imageUrl = page.effectiveImageUrl()
                 ?: throw IOException("Couldn't resolve the image URL for page $pageKey")
             page.sourcePage.imageUrl = imageUrl
-            if (chapterCache.isImageInCache(imageUrl)) return
-            try {
-                chapterCache.putImageToCache(imageUrl, source.getImage(page.sourcePage))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                throw IOException("Couldn't download page $pageKey for colorize: ${t.message}", t)
+            // The reader holds the cache entry's single DiskLruCache editor
+            // while it prefetches the page the user is currently reading; a
+            // colorize download of the same URL fails transiently ("Unable to
+            // edit key"). Back off and retry before declaring the page
+            // unreachable — the run aborts on the first fetch failure, so one
+            // retry here saves the whole chapter.
+            var lastFailure: Throwable? = null
+            for (attempt in 1..DOWNLOAD_ATTEMPTS) {
+                if (chapterCache.isImageInCache(imageUrl)) return
+                lastFailure = try {
+                    chapterCache.putImageToCache(imageUrl, source.getImage(page.sourcePage))
+                    null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    t
+                }
+                if (lastFailure == null) return
+                if (attempt < DOWNLOAD_ATTEMPTS) {
+                    logcat(LogPriority.WARN) {
+                        "[ColorizePlan] page $pageKey download attempt $attempt/$DOWNLOAD_ATTEMPTS " +
+                            "failed: ${lastFailure.message}; retrying"
+                    }
+                    delay(RETRY_BACKOFF_MS * attempt)
+                }
             }
+            throw IOException("Couldn't download page $pageKey for colorize: ${lastFailure?.message}", lastFailure)
         }
     }
 
