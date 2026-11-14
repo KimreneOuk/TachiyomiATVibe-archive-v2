@@ -86,6 +86,30 @@ class ReaderTranslationCoordinatorTest {
     }
 
     @Test
+    fun `worker can start after requests were queued with auto start disabled`() = runBlocking {
+        isBatchActive = true
+        val coord = createCoordinator()
+        val store: ChapterTranslationStore = mockk(relaxed = true) {
+            every { state } returns MutableStateFlow(emptyMap())
+        }
+        val request = ReaderTranslationCoordinator.PageRequest(
+            session = TranslationSession("session", manga, chapter, source, store),
+            chapterKey = "ch1",
+            pageKey = "p1.jpg",
+            isManual = true,
+            streamFn = null,
+        )
+
+        coord.enqueuePage(request) shouldBe true
+        coord.pendingCount.value shouldBe 1
+        coord.startWorker()
+        coord.startWorker()
+        withTimeout(5_000) {
+            while (coord.pendingCount.value != 0) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    @Test
     fun `enqueuePage rejects duplicate in-flight page`() = runTest {
         val coord = createCoordinator()
         val store: ChapterTranslationStore = mockk(relaxed = true) {
