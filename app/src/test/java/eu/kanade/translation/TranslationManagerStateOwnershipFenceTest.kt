@@ -1,6 +1,6 @@
 package eu.kanade.translation
 
-import eu.kanade.translation.coordinator.TranslationRequestCoordinator
+import eu.kanade.translation.coordinator.PendingRequestLedger
 import eu.kanade.translation.persistence.DurableChapterStatusResolver
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
@@ -23,12 +23,12 @@ class TranslationManagerStateOwnershipFenceTest {
         val managerFields = TranslationManager::class.java.declaredFields.map { it.name }.toSet()
 
         (managerFields intersect (requestStateFields + durableStateFields)) shouldBe emptySet()
-        requestStateFields.all(::isPrivateFieldOfRequestCoordinator) shouldBe true
+        requestStateFields.all(::isPrivateFieldOfPendingRequestLedger) shouldBe true
         durableStateFields.all(::isPrivateFieldOfDurableResolver) shouldBe true
     }
 
-    private fun isPrivateFieldOfRequestCoordinator(name: String): Boolean =
-        Modifier.isPrivate(TranslationRequestCoordinator::class.java.getDeclaredField(name).modifiers)
+    private fun isPrivateFieldOfPendingRequestLedger(name: String): Boolean =
+        Modifier.isPrivate(PendingRequestLedger::class.java.getDeclaredField(name).modifiers)
 
     private fun isPrivateFieldOfDurableResolver(name: String): Boolean =
         Modifier.isPrivate(DurableChapterStatusResolver::class.java.getDeclaredField(name).modifiers)
