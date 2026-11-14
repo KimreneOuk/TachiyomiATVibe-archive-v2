@@ -290,6 +290,12 @@
 
 <p class="small muted"><b>3b worktree update:</b> All three extractions landed locally in <code>a73aebe7</code>. LiteRT is 723 raw / 665 non-blank, Reader is 941 raw / 828 code, and TRC is approximately 532 code. The initial combined gate exposed a missing coordinator callable-reference facade; it was restored, and the rerun passed (288 suites / 1,787 tests / 0 failures / 1 skipped); independent review passed with no actionable findings. Reader R2 and R3 remain necessary.</p>
 
+<p class="small muted"><b>Reader R2:</b> Worker loop committed locally as <code>2291d339</code>; the coordinator is approximately 758 code lines. The first compile failed on recursive field type inference; an explicit type fixed it. The full rerun passed 288 suites / 1,787 tests / 0 failures / 1 skipped. Review found and verified fixes for the manual-start facade and an overlong line. The final gate passed 288 suites / 1,788 tests / 0 failures / 1 skipped; R3 remains.</p>
+
+<p class="small muted"><b>Reader R3:</b> Viewport controller committed locally as <code>4360c324</code>; coordinator is 812 raw / 695 code. The first compile exposed incorrect token-overload delegation; restored and rerun green: 288 suites / 1,788 tests / 0 failures / 1 skipped. Independent review passed with no actionable findings.</p>
+
+<p class="small muted"><b>Current size checkpoint:</b> At <code>4360c324</code>, four files remain at or above 700 code lines: TranslationTrace (1,013), TranslationPipelineDiagnostics (953), TranslationProcessor (852), and QnnDiagnostics (840). All are deferred; Reader is 695. Comment-cap debt remains open: a preliminary standalone-comment scan finds 912 over-cap runs, pending methodology validation.</p>
+
 <section id="gates">
 <h2>Your gates</h2>
 <ul class="small">
