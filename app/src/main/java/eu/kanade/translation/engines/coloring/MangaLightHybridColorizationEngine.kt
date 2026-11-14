@@ -7,6 +7,8 @@ import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import com.google.ai.edge.litert.TensorType
+import eu.kanade.translation.engines.runtime.ModelDeployment
+import eu.kanade.translation.engines.runtime.qnnDispatchPrecheck
 import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -45,7 +47,7 @@ internal class MangaLightHybridColorizationEngine(
         if (initialized) return session != null
         initialized = true
         return try {
-            val precheck = dispatchPrecheck(File(context.applicationInfo.nativeLibraryDir))
+            val precheck = qnnDispatchPrecheck(File(context.applicationInfo.nativeLibraryDir))
             check(precheck == null) { precheck ?: "Qualcomm NPU runtime unavailable" }
             session = Session.open(context, ARTIFACTS.map { extract(it) })
             error = null
@@ -129,10 +131,10 @@ internal class MangaLightHybridColorizationEngine(
         val dir = File(context.noBackupFilesDir, "tachiyomi-models/manga-light-hybrid")
         check(dir.isDirectory || dir.mkdirs()) { "Cannot create Manga Light model directory" }
         val target = File(dir, artifact.name)
-        if (target.isFile && target.length() == artifact.bytes && MangaColorizationModelStore.sha256Of(target) == artifact.sha256) return target
+        if (target.isFile && target.length() == artifact.bytes && ModelDeployment.sha256Of(target) == artifact.sha256) return target
         val temp = File(dir, artifact.name + ".tmp")
         try {
-            val digest = MangaColorizationModelStore.copyAssetWithDigest(context, "models/coloring/manga-light-hybrid/${artifact.name}", temp)
+            val digest = ModelDeployment.copyAssetWithDigest(context, "models/coloring/manga-light-hybrid/${artifact.name}", temp)
             check(temp.length() == artifact.bytes && digest == artifact.sha256) { "Invalid Manga Light artifact ${artifact.name}" }
             check(temp.renameTo(target)) { "Unable to publish Manga Light artifact ${artifact.name}" }
             return target
@@ -249,26 +251,6 @@ internal class MangaLightHybridColorizationEngine(
     private data class Artifact(val name: String, val bytes: Long, val sha256: String)
 
     companion object {
-        val REQUIRED_LIBRARIES = listOf(
-            "libQnnHtp.so",
-            "libQnnSystem.so",
-            "libQnnHtpV75Stub.so",
-            "libQnnHtpV75Skel.so",
-        )
-
-        internal fun dispatchPrecheck(nativeLibraryDir: File): String? {
-            val missing = REQUIRED_LIBRARIES.filterNot { File(nativeLibraryDir, it).isFile }
-            if (missing.isNotEmpty()) {
-                return "Qualcomm NPU dispatch libraries missing from ${nativeLibraryDir.absolutePath}: " +
-                    missing.joinToString(", ")
-            }
-            val systemLib = File(nativeLibraryDir, "libQnnSystem.so")
-            if (systemLib.length() == 2_689_368L) {
-                return "Qualcomm QNN system library is the outdated 1.7.0 version; requires QNN >= 1.14"
-            }
-            return null
-        }
-
         private const val SIZE = 512
         private const val SIGNATURE = "serving_default"
         private const val STAMP = "MANGA_LIGHT_SAM_NPU_GPU_FP32_512_v1"

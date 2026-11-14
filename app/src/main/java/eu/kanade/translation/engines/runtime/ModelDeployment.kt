@@ -1,12 +1,14 @@
 package eu.kanade.translation.engines.runtime
 
+import android.content.Context
 import eu.kanade.translation.util.Sha256
 import java.io.File
 import java.io.InputStream
+import java.security.MessageDigest
 
 /**
- * Pure, Android-free helpers for model deployment integrity. Keeping them free
- * of Android types lets the deployment checks run in JVM tests.
+ * Helpers for model deployment integrity. The stamp and file-check helpers
+ * are Android-free so they run in JVM tests; the asset-copy helpers take Context.
  *
  * The integrity stamp is `<versionMarker>:<assetPath>:<sha256-of-bytes>`. This
  * catches two classes of corruption that a hand-typed version string alone
@@ -102,4 +104,36 @@ object ModelDeployment {
         val actualHash = hashOfFile(cachedFile) ?: return false
         return actualHash == expectedHash
     }
+
+    /** Streams [context]'s [assetPath] into [target] while digesting; returns the sha256. */
+    fun copyAssetWithDigest(context: Context, assetPath: String, target: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        context.assets.open(assetPath).use { input ->
+            target.outputStream().buffered().use { output ->
+                val buffer = ByteArray(COPY_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    digest.update(buffer, 0, count)
+                }
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    fun sha256Of(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(COPY_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private const val COPY_BUFFER_SIZE = 8192
 }
