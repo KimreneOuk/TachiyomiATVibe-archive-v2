@@ -252,7 +252,13 @@ internal class ReaderTranslationController(
         source: HttpSource,
         pageKey: String,
     ) {
-        val store = currentTranslationStore
+        // currentTranslationStore tracks the ACTIVE chapter's store, while
+        // page keys are per-chapter file names that collide across chapters;
+        // resolving another chapter's page against it stamps the active
+        // chapter's artifact onto an unprocessed page (floater "show
+        // translation" with nothing behind it). A non-current chapter keeps
+        // the translation its own store already stamped.
+        val store = if (chapter === getCurrentChapter()) currentTranslationStore else null
         if (store != null) {
             val storeDisplay = store.resolveDisplayPage(pageKey)
             if (storeDisplay != null) {
