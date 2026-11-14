@@ -274,3 +274,81 @@ Coordinator measurement over the translation module at `7afa1e5b` (266 files, 60
 - **Hygiene — compliant:** 0 TODO/FIXME; 7 "commented-out code" regex hits, all prose false positives; stale-symbol sweep clean.
 - **Seams (observation):** 13 injected-provider accessors of the form `private val x get() = xProvider()` remain in 5 files (ReaderTranslationCoordinator, TranslationProgressProjection, TranslationRequestCoordinator, DurableChapterStatusResolver, CleanedImageLifecycleController).
 - **VERDICT (binding for the backlog):** structure and hygiene largely compliant; **NOT compliant on the ≥700-line god-file threshold and the 3-line comment cap**. The 9 god files and the two failing rules are explicit open backlog; the module must NOT be marked AGENTS.md-compliant.
+
+## SECTION J — Wave-3 reconciliation (landed units, 2026-11-14)
+
+Coordinator-written from the delivered structure audit, child reports, and parent-run gates. Child agents edited source; the parent ran Gradle/git, reviewed every diff, and removed two new over-cap comment headers before commit. Nothing pushed.
+
+### (a) Audit delivered
+
+- Report: `scratch/post-cleanup-structure-audit.md` — 211 lines, 15 ranked findings, 274 module files / 61,144 lines at its baseline.
+- Audit exclusions honored: diagnostics condensation (`TranslationTrace`, `TranslationPipelineDiagnostics`, `QnnDiagnostics`), `TranslationProcessor` split / `colorizeOnly`, D2 page-key collision migration, native admission/reconciler pairs.
+- Two audit claims corrected before or during implementation:
+  1. **Finding 2 grouping was wrong.** `PageTranslationView.kt`'s "284-line serializer" is actually the shared value-equality/hashCode/toString layer; the serializer is 10 lines. The approved split is interfaces / published models + serializer / value semantics, not the audit's two-file serializer split.
+  2. **Finding 10's zero-caller claim is not test-safe.** `TranslationUiTruth.ordinalSuffixOf` is called by tests; deleting it requires rewiring those tests, so F10 is deferred rather than treated as zero-risk.
+- The range correction for Finding 2 was also captured: the class KDoc and `@Serializable(with = PublishedPageTranslationSerializer::class)` annotation at original lines 106–112 had to move with the model; dropping them would have silently changed journal serialization.
+
+### (b) Finding dispositions
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | Extract `ChapterCandidateTransactions` | **DONE** `fe6fa840` — engine 1,258 → 283 code lines; new file 606 code. |
+| 2 | Split `PageTranslationView` | **DONE** `963fa551` — corrected three-file shape: interfaces 94 code; `PublishedPageTranslation` 340; `PageTranslationValueSemantics` 252. |
+| 3 | OpenAI common-logic dedup | **NOT STARTED** — still deferred. |
+| 4 | Delete `ProductionTextMeasurer.kt` | **DONE** `963fa551` — 0 callers; 35 lines deleted. |
+| 5 | Merge `TranslationQueueStatusProjection` | **DONE** `963fa551` — `translationQueueStatusFlow` now internal top-level in `BatchTranslationCoordinator.kt`; 23-line file deleted. |
+| 6 | Clean `TextLayoutPlanner` forwarders | **DONE** `963fa551` — `isCJK`, `graphemeClusters`, `verticalGlyph`, `verticalOrientation` deleted; `TextLineBreaker` calls `FontFittingAlgorithms.isCJK` directly. |
+| 7 | Extract mask regions | **DONE** `963fa551` — planner 989 → 838 raw / ~664 code; `TextLayoutMaskRegions` 152 raw / ~119 code. `centeredExtentOverlapsObstacle` deliberately stayed in the planner: it depends on the planner's private `MIN_GAP_PX` and is a text-extent collision check, not mask partitioning. |
+| 8 | Move `toUiPauseReason` | **NOT STARTED** — still deferred. |
+| 9 | Move stores to `persistence` | **NOT STARTED** — still deferred. |
+| 10 | Clean `TranslationUiTruth` forwarders | **DEFERRED** — tests call `ordinalSuffixOf`; any deletion must rewire tests. |
+| 11 | Repackage `AiModelFetcher` | **NOT STARTED** — still deferred. |
+| 12 | Extract image GC from store | **NOT STARTED** — needs a design for private mutable state, not a mechanical move. |
+| 13 | Delete store/manager dead methods | **DONE** `963fa551` — `ChapterTranslationStore.authorizeCleanedImageDeletion`, both `releaseAllPageLeases` methods, and `TranslationManager.translateChapters` deleted; 0 callers verified. |
+| 14 | Extract LiteRT asset lifecycle | **DONE** `963fa551` — engine 961 → 812 raw / 742 code; `LiteRtInpaintingAssetManager` 160 raw / ~146 code. This intermediate step was followed by the patch-clusterer extraction in `a73aebe7`, which brought the engine below 700. |
+| 15 | Consolidate `BatchPhase` | **DONE** `963fa551` — enum moved into `TranslationProgressSnapshot.kt`; `BatchPhase.kt` deleted; no rename (the `PipelineStage` question stays open). |
+
+### (c) Landed commits and gates
+
+| Commit | Scope | Diff | Measured result | Gate |
+|---|---|---|---|---|
+| `fe6fa840` | Split `ChapterArtifactEngine` into engine + candidate transactions + rekey + retention | 4 files, +1,141 / −1,126 | Engine 1,258 → 283 code; `ChapterCandidateTransactions` 606; `ChapterArtifactRekey` 190; `ArtifactRetention` 159 | **287 suites / 1,784 tests / 0 failures / 1 skipped** |
+| `963fa551` | Page model split, mask regions, LiteRT asset manager, dead-surface cleanup | 22 files, +989 / −1,047 | `PageTranslationView` 727 → 98 raw / 94 code; `PublishedPageTranslation` 369/340; `PageTranslationValueSemantics` 262/252; planner 989 → 838/~664; LiteRT 961 → 812/742; 3 files deleted, 2 store/lease methods + 1 manager method deleted | **287 suites / 1,784 tests / 0 failures / 1 skipped** |
+
+Both gates were run by the parent with `:app:testStandardDebugUnitTest`; compile green, full Standard Debug unit suite green, only the existing synthetic journal benchmark skipped. CRLF-to-LF warnings on `git add` are expected and harmless.
+
+### (d) Scorecard after the landed units
+
+- **God files ≥700 code: 9 → 7.** Remaining: `TranslationTrace` 1,013 · `TranslationPipelineDiagnostics` 953 · `ReaderTranslationCoordinator` 853 · `TranslationProcessor` 852 · `QnnDiagnostics` 840 · `TranslationRequestCoordinator` 775 · `LiteRTMangaInpaintingEngine` 742.
+- **Original 3b estimates:** LiteRT patch clusterer → ~657 (then 6 remain); TRC `PendingRequestLedger` T1 → ~560–595 (then 5 remain). Reader `ReaderOutcomeStore` R1 alone → ~825, so Reader still needs R2 and R3.
+- **File count:** audit baseline 274; unit 1 added 3 files, wave 3a added 4 and deleted 3 (arithmetic 278 before 3b). 3b is adding 3 more; the exact recount is deferred until the 3b gate.
+- **Comment cap: still NOT compliant.** Baseline scorecard: 917 over-cap runs (114 inline + 803 block). No new over-cap comment was committed: the parent removed a 5-line `TextLayoutMaskRegions` header and a 5-line `LiteRtInpaintingAssetManager` header before commit. The deleted `authorizeCleanedImageDeletion` KDoc (5 lines) removes at least one existing over-cap block. Exact recount pending.
+- **Cleanup size:** dead-surface unit was 7 files, +20 / −89 (3 deletions, 4 modifications).
+
+### (e) Coordinator seam design and 3b
+
+- Read-only design delivered: `scratch/wave3-coordinator-seams.md` (219 lines). The post-cleanup audit gave no seams for the two coordinators, so this is a fresh dependency/lock-topology design.
+- **ReaderTranslationCoordinator (853 code):** R1 `ReaderOutcomeStore` (−28, low risk, add retention/removeChapter tests), R2 `ReaderWorkerLoop` (−65, gateway + in-flight registry), R3 `ReaderViewportController` (−77, injected gates). R1+R2+R3 → ~683. Session binding/preparation and cancellation-controller extractions were rejected as redesigns; the optional session-switch unit alone misses the target.
+- **TranslationRequestCoordinator (775 code):** T1 `PendingRequestLedger` (−180…−215, single unit reaches ~560–595), T2 `StartupReconciliation` (−70, optional after T1). Shape pins: the fence test's four fields move to the ledger; `pendingRequestMutationLock` and `pendingTranslationRequests` remain forwarding seams on TRC; startup entry points keep exact signatures; no constructor changes. The two compound lock sections (`beginHandoffIfCurrent`, retryRekey) must remain one lock acquisition each.
+- **3b extractions (three disjoint children; gate and review passed):**
+  1. LiteRT patch clusterer — `InpaintPatch` + `clusterIntoPatches` → `LiteRtPatchClusterer.kt`, pure move; expected engine ~657.
+  2. Reader R1 — `ReaderOutcomeStore` + `ReaderOutcomeStoreTest`; expected ~825, first of three.
+  3. TRC T1 — `PendingRequestLedger` + fence-test field relocation; expected ~560–595.
+
+### (f) Open backlog / deferred
+
+- Reader R2 `ReaderWorkerLoop`, then R3 `ReaderViewportController` (each gated and committed locally).
+- TRC T2 `StartupReconciliation` optional after T1.
+- Findings 3, 8, 9, 10, 11, 12 (OpenAI dedup, `toUiPauseReason`, store package move, `TranslationUiTruth` wrappers, `AiModelFetcher`, image GC extraction).
+- D2 page-key collision migration; `TranslationProcessor` split / `executeColorizeOnly`; diagnostics condense (risk-flagged); colorization engine lease; batch failure semantics.
+- Comment cap: exact recount after 3b; the module remains non-compliant on both the god-file threshold and the 3-line cap until the remaining god files and comment runs are cleared.
+- Device validation unchanged: ORIGINAL colorization preset has no authorized device run; Manga Light on-device init stall unresolved; strict QNN HTP/GPU diagnostics still fail.
+- **Git state:** HEAD `a73aebe7`; local only. No push without an explicit instruction.
+
+### (g) Wave-3b worktree update
+
+- All three extractions landed locally in `a73aebe7`: the LiteRT engine is 723 raw / 665 non-blank; Reader R1 is 941 raw / 828 code; TRC T1 is approximately 532 code, below 700. Reader still requires R2 and R3.
+- The initial combined gate failed at Kotlin compilation: `TranslationManagerCoordinators` uses a callable reference to `clearAllPendingTranslationRequests`, which the T1 extraction removed. The coordinator facade was restored to delegate to the ledger and the same gate was restarted. The rerun passed: 288 suites / 1,787 tests / 0 failures / 0 errors / 1 skipped. Independent review passed with no actionable findings; it checked behavior preservation, ledger lock identity, compound transitions, generation fencing, and the restored callable-reference facade.
+- The ledger's newly introduced over-cap comment blocks were shortened. Comment-cap and remaining god-file compliance are still open.
+
+- Wave 3b commit: `a73aebe7` (8 files, +602 / -477); local only. Gate and independent review passed.
