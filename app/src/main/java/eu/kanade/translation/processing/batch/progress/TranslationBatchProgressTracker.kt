@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -107,6 +109,12 @@ class TranslationBatchProgressTracker(
         remainingPageKeys: Set<String>,
         reason: String,
     ) {
+        // The abort reason otherwise lives only in the drawer snapshot; logcat
+        // needs it to correlate a stopped run with its last progress logs.
+        logcat(LogPriority.WARN) {
+            "[BatchTracker] chapter $chapterId aborted: $reason " +
+                "(remaining=${remainingPageKeys.size}/${orderedPageKeys.size} pages)"
+        }
         terminalEventQueued.set(true)
         emit(TranslationBatchEvent.BatchAborted(reason, remainingPageKeys))
     }

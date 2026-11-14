@@ -2,6 +2,7 @@ package eu.kanade.translation.processing
 
 import com.hippo.unifile.UniFile
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
+import eu.kanade.translation.engines.coloring.PageColorizationEngine
 import eu.kanade.translation.engines.translator.TextTranslator
 import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
 import eu.kanade.translation.model.PageTranslation
@@ -15,6 +16,8 @@ import eu.kanade.translation.persistence.PageWriteOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -148,9 +151,61 @@ internal class ChapterBatchExecutor(
             return failProgress
         }
 
+        // The 30s heartbeat runs beside the page loop, so a hung fetch, a hung
+        // model run, or a dead process is visible as heartbeats that stop
+        // advancing — with the page key and stage it stopped on.
+        val telemetry = ColorizeRunTelemetry(chapterKey = chapterKey, totalCount = totalCount)
+        return coroutineScope {
+            val ticker = launch {
+                while (isActive) {
+                    delay(ColorizeRunTelemetry.HEARTBEAT_INTERVAL_MS)
+                    telemetry.logHeartbeat()
+                }
+            }
+            try {
+                runColorizeOnlyPages(
+                    processor = processor,
+                    chapterKey = chapterKey,
+                    remainingKeys = remainingKeys,
+                    totalCount = totalCount,
+                    initialCompleted = completedCount,
+                    streamProvider = streamProvider,
+                    store = store,
+                    companionDir = companionDir,
+                    onProgress = onProgress,
+                    prepareStream = prepareStream,
+                    coloringEngine = coloringEngine,
+                    telemetry = telemetry,
+                )
+            } finally {
+                ticker.cancel()
+                telemetry.logRunEnd()
+            }
+        }
+    }
+
+    /** Page traversal for one colorize-only run; [telemetry] feeds the 30s heartbeat. */
+    private suspend fun runColorizeOnlyPages(
+        processor: TranslationProcessor,
+        chapterKey: String,
+        remainingKeys: List<String>,
+        totalCount: Int,
+        initialCompleted: Int,
+        streamProvider: (String) -> InputStream,
+        store: ChapterTranslationStore,
+        companionDir: UniFile?,
+        onProgress: ((Progress) -> Unit)?,
+        prepareStream: (suspend (String) -> Unit)?,
+        coloringEngine: PageColorizationEngine,
+        telemetry: ColorizeRunTelemetry,
+    ): Progress {
+        var completedCount = initialCompleted
+        var failedCount = 0
         for ((pageIndex, pageKey) in remainingKeys.withIndex()) {
+            telemetry.pageStart(pageIndex, pageKey)
             try {
                 prepareStream?.invoke(pageKey)
+                telemetry.stageDecode()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (t: Throwable) {
@@ -185,6 +240,7 @@ internal class ChapterBatchExecutor(
                 // Isolated page failure: the decode is page-local (corrupt or
                 // oversized image), so remaining pages still get colored.
                 failedCount++
+                telemetry.pageFailed()
                 publish(Progress(chapterKey, completedCount, totalCount, "COLORING"), onProgress)
                 continue
             }
@@ -206,9 +262,11 @@ internal class ChapterBatchExecutor(
             ) {
                 processor.releaseDecoded(decoded)
                 completedCount++
+                telemetry.pageReused()
                 publish(Progress(chapterKey, completedCount, totalCount, "COLORING"), onProgress)
                 continue
             }
+            telemetry.stageColor()
             val page = try {
                 // Live indicator: holders and the batch tracker see the page
                 // mid-run instead of only the final commit.
@@ -266,10 +324,12 @@ internal class ChapterBatchExecutor(
                 // coloringError (or the superseded RUNNING marker heals via
                 // the stranded-page sweep). Keep coloring the rest.
                 failedCount++
+                telemetry.pageFailed()
                 publish(Progress(chapterKey, completedCount, totalCount, "COLORING"), onProgress)
                 continue
             }
             completedCount++
+            telemetry.pageDone()
             publish(
                 Progress(chapterKey, completedCount, totalCount, "COLORING"),
                 onProgress,
@@ -504,5 +564,98 @@ internal class ChapterBatchExecutor(
         onProgress: ((Progress) -> Unit)?,
     ) {
         onProgress?.invoke(value)
+    }
+}
+
+/**
+ * Thread-safe progress snapshot for the colorize-only run heartbeat: the page
+ * loop writes it, a 30s ticker reads it, so a stopped run (hung fetch, hung
+ * model call, killed process) shows up as heartbeats frozen on one page key
+ * and stage instead of a silent ten-minute log gap.
+ */
+private class ColorizeRunTelemetry(
+    private val chapterKey: String,
+    private val totalCount: Int,
+) {
+    private val startMillis = System.currentTimeMillis()
+
+    @Volatile private var pageIndex = 0
+    @Volatile private var pageKey: String? = null
+    @Volatile private var stage = "RESUME_CHECK"
+    @Volatile private var completed = 0
+    @Volatile private var failed = 0
+    @Volatile private var reused = 0
+    @Volatile private var lastPageMillis = 0L
+    @Volatile private var pageStartMillis = 0L
+    @Volatile private var lastAdvanceMillis = System.currentTimeMillis()
+
+    fun pageStart(index: Int, key: String) {
+        pageIndex = index
+        pageKey = key
+        stage = "FETCH"
+        pageStartMillis = System.currentTimeMillis()
+    }
+
+    fun stageDecode() {
+        stage = "DECODE"
+    }
+
+    fun stageColor() {
+        stage = "COLOR"
+    }
+
+    fun pageDone() {
+        completed++
+        pageEnded()
+    }
+
+    fun pageReused() {
+        reused++
+        pageEnded()
+    }
+
+    fun pageFailed() {
+        failed++
+        pageEnded()
+    }
+
+    private fun pageEnded() {
+        val now = System.currentTimeMillis()
+        lastPageMillis = if (pageStartMillis > 0) now - pageStartMillis else 0
+        stage = "COLORING"
+        lastAdvanceMillis = now
+    }
+
+    fun logHeartbeat() {
+        val now = System.currentTimeMillis()
+        val elapsedS = (now - startMillis) / 1000
+        val stalledS = (now - lastAdvanceMillis) / 1000
+        logcat(LogPriority.INFO) {
+            "[ColorizeHeartbeat] chapter=$chapterKey t=${elapsedS}s " +
+                "page=${pageIndex + 1}/$totalCount key=$pageKey stage=$stage " +
+                "done=$completed failed=$failed reused=$reused " +
+                (if (lastPageMillis > 0) "lastPageMs=$lastPageMillis " else "") +
+                "noAdvanceFor=${stalledS}s"
+        }
+        if (stalledS >= STALL_WARN_SECONDS) {
+            logcat(LogPriority.WARN) {
+                "[ColorizeHeartbeat] chapter=$chapterKey no page advance for ${stalledS}s " +
+                    "(page=${pageIndex + 1} key=$pageKey stage=$stage) — fetch or model run may be stalled"
+            }
+        }
+    }
+
+    fun logRunEnd() {
+        val elapsedS = (System.currentTimeMillis() - startMillis) / 1000
+        logcat(LogPriority.INFO) {
+            "[ColorizeHeartbeat] run ended chapter=$chapterKey t=${elapsedS}s " +
+                "done=$completed failed=$failed reused=$reused total=$totalCount " +
+                "stage=$stage lastKey=$pageKey"
+        }
+    }
+
+    companion object {
+        const val HEARTBEAT_INTERVAL_MS = 30_000L
+        private const val STALL_WARN_SECONDS = 90L
     }
 }

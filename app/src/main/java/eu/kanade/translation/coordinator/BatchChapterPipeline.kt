@@ -220,6 +220,9 @@ internal class BatchChapterPipeline(
                                 },
                             )
                             if (result.error != null) {
+                                logcat(LogPriority.ERROR) {
+                                    "TachiyomiAT batch run failed for ${translation.chapter.name}: ${result.error}"
+                                }
                                 tracker?.abort(batchOrderedPageKeys.toSet(), result.error)
                                 translation.status = Translation.State.ERROR
                             } else {
