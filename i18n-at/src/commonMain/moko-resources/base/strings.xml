@@ -299,4 +299,6 @@
     <string name="batch_live_time_elapsed">Time elapsed</string>
     <string name="batch_live_estimated_remaining">Estimated remaining</string>
     <string name="batch_live_processing_speed">Processing speed</string>
+    <string name="manga_chapters_loading">Loading chapters…</string>
+    <string name="manga_chapters_loading_hint">Some sources take longer. Keep this screen open while chapters load.</string>
 </resources>
