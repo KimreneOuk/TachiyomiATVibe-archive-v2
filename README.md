@@ -10,7 +10,7 @@
 # DOWNLOAD MANGA COLORING TOOL 2
  # [WINDOWS (NVIDIA GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2.zip)
 
- # [WINDOWS (AMD GPU) *Experimental,not tested*](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_AMD_GPU.zip)
+ # [WINDOWS (AMD GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_AMD_GPU.zip)
 
  # [LINUX (NVIDIA GPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_v2.0_Linux.zip)
 
@@ -38,7 +38,16 @@ Transform black-and-white manga pages (lineart) into professionally shaded, vibr
 
 This software is designed to be **100% portable** and zero-configuration.
 
-> **Important:** Download the **`Manga-Coloring-Tool-v2.0.0.zip`** from the [**Releases**](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases) section to get all pre-packaged models and dependencies.
+> **Important:** Download the **`Manga-Coloring-Tool-v2.0.0.zip`** from the [**Releases**](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases) section to get the application and precompiled web interface. The launcher downloads the runtime, dependencies and AI models on the first start.
+
+### AMD release packages (Windows and Linux)
+
+The complete AMD release ZIPs include the precompiled web interface. **No Node.js, npm or compiler is needed.** First startup downloads ComfyUI, prebuilt Python dependencies and the three AI models; the models are not bundled in the small ZIP.
+
+- **Windows AMD:** extract the full ZIP and double-click `run.bat`. Use 64-bit Windows 11 and a compatible current AMD Radeon driver. Python is downloaded automatically. CPU mode is available separately in `run_cpu.bat`.
+- **Linux AMD:** use x86_64 Linux with glibc, Python 3.12 with venv support, curl, and a working AMD driver/ROCm-compatible GPU. Run `bash run.sh`. CPU mode is available separately with `bash run_cpu.sh`. Linux AMD remains experimental.
+- GPU startup checks the AMD device and executes a GPU kernel. It does not silently fall back to CPU. Support still depends on the GPU, driver and available memory.
+- Allow at least 30 GB of free space for downloads and extraction. See [AMD setup guide](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/src/branch/amd-release-installers/AMD_SETUP.md) for supported environments, downloads and troubleshooting. In the `amd-release-installers` source branch, the AMD entry points are `run_amd.bat` and `run_amd.sh`; use the complete release ZIP for the prebuilt interface.
 
 ### 📋 System Requirements
 
