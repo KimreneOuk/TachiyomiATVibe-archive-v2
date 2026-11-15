@@ -1,0 +1,176 @@
+package eu.kanade.translation.coordinator
+
+import eu.kanade.domain.chapter.model.toSChapter
+import eu.kanade.tachiyomi.data.cache.ChapterCache
+import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.translation.model.onlinePageTranslationKey
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.manga.model.Manga
+import java.io.IOException
+import java.io.InputStream
+
+/** Planned page; [imageUrl] is the reader-keyed list value; lazy URLs resolve at prepare like HttpPageLoader. */
+internal class PlannedPage(
+    val sourcePage: Page,
+    val imageUrl: String?,
+) {
+    @Volatile
+    internal var resolvedImageUrl: String? = null
+
+    internal fun effectiveImageUrl(): String? = resolvedImageUrl ?: imageUrl?.takeIf { it.isNotBlank() }
+}
+
+/**
+ * Derives the ordered (pageKey → planned page) entries from a source page
+ * list. Pure: keys use the reader's online identity ([onlinePageTranslationKey])
+ * computed from the LIST values only — the reader stamps `sourceFileName` the
+ * same way in getPages, before any lazy URL resolution. Blank-key pages drop.
+ */
+internal fun onlineColorizePageEntries(pages: List<Page>): List<Pair<String, PlannedPage>> =
+    pages.mapNotNull { page ->
+        val imageUrl = page.imageUrl?.takeIf { it.isNotBlank() }
+        val pageKey = onlinePageTranslationKey(imageUrl, page.url)
+        if (pageKey.isBlank()) return@mapNotNull null
+        pageKey to PlannedPage(page, imageUrl)
+    }
+
+/**
+ * Stream source for a COLORIZE-ONLY batch run over a STREAMED chapter: the
+ * page list comes from the online source once; images download into the
+ * chapter cache on demand (suspend, cancellation-safe). Page keys match the
+ * reader's online identity so commits are the entries the reader observes.
+ */
+internal class OnlineColorizePageStreamResolver(
+    private val chapterCache: ChapterCache,
+) {
+
+    private companion object {
+        /** Total tries per page; backoff between them is 1s, 2s (virtual in tests). */
+        const val DOWNLOAD_ATTEMPTS = 3
+        const val RETRY_BACKOFF_MS = 1_000L
+    }
+
+    /** Ordered (reader-consistent) page plan for one streamed chapter. */
+    internal class Plan(
+        val orderedPageKeys: List<String>,
+        private val source: HttpSource,
+        private val pagesByKey: Map<String, PlannedPage>,
+        private val chapterCache: ChapterCache,
+    ) {
+
+        /** Cache-backed stream factory; throws when the page was never prepared. */
+        fun streamFor(pageKey: String): InputStream {
+            val page = pagesByKey[pageKey] ?: throw IOException("Page stream is missing for $pageKey")
+            val imageUrl = page.effectiveImageUrl()
+                ?: throw IOException("No resolved image URL for page $pageKey")
+            return chapterCache.getImageFile(imageUrl).inputStream()
+        }
+
+        /**
+         * Resolves the image URL (lazy-URL sources) and downloads the page
+         * into the chapter cache on first call; a cache hit is kept as-is.
+         * Mirrors the reader's load flow: getImageUrl when the list had none,
+         * publish it on the source page (default HttpSource.imageRequest reads
+         * page.imageUrl!!), then getImage, then cache. Cancellation propagates
+         * untouched.
+         */
+        suspend fun prepareStream(pageKey: String) {
+            val page = pagesByKey[pageKey] ?: throw IOException("Page stream is missing for $pageKey")
+            if (page.effectiveImageUrl() == null) {
+                try {
+                    page.resolvedImageUrl = source.getImageUrl(page.sourcePage)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    throw IOException("Couldn't resolve the image URL for page $pageKey: ${t.message}", t)
+                }
+            }
+            val imageUrl = page.effectiveImageUrl()
+                ?: throw IOException("Couldn't resolve the image URL for page $pageKey")
+            page.sourcePage.imageUrl = imageUrl
+            if (chapterCache.isImageInCache(imageUrl)) return
+            var lastFailure: Throwable? = null
+            for (attempt in 1..DOWNLOAD_ATTEMPTS) {
+                lastFailure = try {
+                    chapterCache.getOrDownloadImage(imageUrl) { source.getImage(page.sourcePage) }
+                    null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    t
+                }
+                if (lastFailure == null) return
+                if (attempt < DOWNLOAD_ATTEMPTS) {
+                    logcat(LogPriority.WARN) {
+                        "[ColorizePlan] page $pageKey download attempt $attempt/$DOWNLOAD_ATTEMPTS " +
+                            "failed: ${lastFailure.message}; retrying"
+                    }
+                    delay(RETRY_BACKOFF_MS * attempt)
+                }
+            }
+            throw IOException("Couldn't download page $pageKey for colorize: ${lastFailure?.message}", lastFailure)
+        }
+    }
+
+    /** Fetches the page list and plans its streams; null when the source fails. */
+    suspend fun resolve(
+        manga: Manga,
+        chapter: Chapter,
+        source: HttpSource,
+    ): Plan? = try {
+        val pages = source.getPageList(chapter.toSChapter())
+        if (pages.isEmpty()) {
+            logcat(LogPriority.WARN) {
+                "[ColorizePlan] source '${source.name}' returned an empty page list for chapter '${chapter.name}'"
+            }
+            null
+        } else {
+            buildPlan(pages, source)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logcat(LogPriority.WARN) {
+            "[ColorizePlan] page list failed for source '${source.name}' chapter '${chapter.name}': ${e.message}"
+        }
+        null
+    }
+
+    private fun buildPlan(pages: List<Page>, source: HttpSource): Plan {
+        val entries = onlineColorizePageEntries(pages)
+        // A source can hand out duplicate keys (shared last path segment);
+        // keep the first occurrence so ordering and identity stay stable.
+        val deduped = entries.distinctBy { it.first }
+        val dropped = entries.size - deduped.size
+        logcat(LogPriority.INFO) {
+            "[ColorizePlan] source '${source.name}': ${entries.size} pages in page list -> " +
+                "${deduped.size} distinct page keys" +
+                (if (dropped > 0) " ($dropped dropped as duplicate keys)" else "")
+        }
+        if (dropped > 0) {
+            entries.groupBy({ it.first }) { it.second }
+                .filterValues { it.size > 1 }
+                .forEach { (key, planned) ->
+                    val urls = planned.take(3).joinToString(" | ") { page ->
+                        "img=${page.imageUrl ?: "?"} page=${page.sourcePage.url}"
+                    }
+                    logcat(LogPriority.WARN) {
+                        "[ColorizePlan] KEY COLLISION source '${source.name}' key '$key': " +
+                            "${planned.size} pages share one key (${planned.size - 1} dropped) — " +
+                            "every colliding page resolves to the FIRST page's colorization. urls: $urls"
+                    }
+                }
+        }
+        return Plan(
+            orderedPageKeys = deduped.map { it.first },
+            source = source,
+            pagesByKey = deduped.toMap(),
+            chapterCache = chapterCache,
+        )
+    }
+}

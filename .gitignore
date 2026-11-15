@@ -1,0 +1,90 @@
+# Build files
+.gradle
+.kotlin
+build
+
+# IDE files
+*.iml
+.idea/*
+!.idea/icon.svg
+/captures
+
+# Configuration files
+local.properties
+
+# macOS specific files
+.DS_Store
+
+# Logs
+*.log
+logcat*.txt
+log.txt
+recent_log.txt
+*.logcat
+logs/
+
+# Tool caches (not project artifacts)
+.codex-remote-attachments/
+.codex/
+
+# Local agent state — agent tooling/runtime dirs, not project code
+.kilo/
+.zcode/
+.agents/
+.superpowers/
+AGENT*.md
+AGENT_*.md
+
+# Local development and scraping tools (not APK build dependencies)
+tools/**/output/
+tools/**/.settings.json
+tools/**/__pycache__/
+__pycache__/
+*.pyc
+
+# Model and quality audits (not APK build dependencies)
+audit/
+
+# Local scratch databases and test segments
+*.tjr
+tachiyomi.db
+sites/
+test_page*.jpg
+
+# Regenerable debug/test outputs from overlay_lab (code is tracked, these are not)
+overlay_lab/debug_*.png
+
+# local agent-tool config containing credentials - never commit
+kilo.json
+
+# Local signing credentials and environment files
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Locally generated Android packages and captures
+*.apk
+*.aab
+/captures/
+/npu_route/calibration/rawkuma/
+
+# Local native libraries / benchmark payloads
+/app/src/main/jniLibs/
+
+# Runtime models are provisioned by scripts/models.manifest; retain empty placeholders
+/app/src/main/assets/models/**
+!/app/src/main/assets/models/**/
+!/app/src/main/assets/models/**/.gitkeep
+
+# Local staged model artifacts (provisioned via -Pmodels.* flags; hash-pinned, never committed)
+/models_local/
+saved_models/
+shader-test-app/
+
+# Local eval/audit working sets (regenerable; excluded from archive push)
+scratch/
+err.txt

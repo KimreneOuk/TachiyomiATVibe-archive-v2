@@ -1,0 +1,167 @@
+{
+  "version": 2,
+  "files": [
+    {
+      "path": "detection/detector-v4-s_int8.onnx",
+      "size_bytes": 11120765,
+      "sha256": "5fe9e4f576e49d4e7e8b0e029d6d3cdc252abd4694113e1cae120e62c931ea79",
+      "source_url": "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/16e8a622f91fabc6b5b65c96d32d1183f8843546/detector-v4-s_int8.onnx"
+    },
+    {
+      "path": "detection/manga_panel_detector_int8.onnx",
+      "size_bytes": 2849991,
+      "sha256": "d7dcc9efbc0908f388697c9f8128374fbde5a2598bd2896ee87473ea4ff9bba7",
+      "source_url": "https://huggingface.co/leoxs22/manga-panel-detector-yolo26n/resolve/40a2854663d537563cfb95c370288a84c6505b9a/manga_panel_detector_fp32.pt",
+      "convert": {
+        "script": "scripts/converters/convert_panel_detector.py",
+        "source_filename": "manga_panel_detector_fp32.pt",
+        "source_size_bytes": 15549472,
+        "source_sha256": "73e0fb587ea3afe0d17aa9f0c3b1f5a8001b3ecbc3c77091e0730654b0da9146"
+      }
+    },
+    {
+      "path": "inpainting/manga_lama_fused_fp16.tflite",
+      "size_bytes": 102324796,
+      "sha256": "cb37f4edc40f7df953f6f599a2dbb467fc1654d99b4fc42758be1cac0252365f",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/inpainting-fp16-v1/manga_lama_fused_fp16.tflite"
+    },
+    {
+      "path": "inpainting/aot_512_regen_gap_fp16.tflite",
+      "size_bytes": 11469264,
+      "sha256": "da17c1cb341d994d54ca5a88a02cf59ef129e2081bff879fa3136b391b2e0087",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/inpainting-fp16-v1/aot_512_regen_gap_fp16.tflite"
+    },
+    {
+      "path": "ocr/decoder_init.onnx",
+      "size_bytes": 24875052,
+      "sha256": "612f97e22848620fb36fcac611467689cb4213d91f2d84f6a19042ad57d475f1",
+      "source_url": "https://huggingface.co/ogkalu/manga-ocr-mobile/resolve/aa0d7d3199f5843f8f5d743f85b44098c8e3ac98/decoder_init.onnx"
+    },
+    {
+      "path": "ocr/decoder_step.onnx",
+      "size_bytes": 22776797,
+      "sha256": "a244b814a3a669190f9eae737960997633597cfa055fa186347e872bee834bc9",
+      "source_url": "https://huggingface.co/ogkalu/manga-ocr-mobile/resolve/aa0d7d3199f5843f8f5d743f85b44098c8e3ac98/decoder_step.onnx"
+    },
+    {
+      "path": "ocr/encoder.onnx",
+      "size_bytes": 17070003,
+      "sha256": "d1fb455a07c1508cc56a4f4e15e2ed74aca9a4d78fd220ecc0ff39625d67e1b3",
+      "source_url": "https://huggingface.co/ogkalu/manga-ocr-mobile/resolve/aa0d7d3199f5843f8f5d743f85b44098c8e3ac98/encoder.onnx"
+    },
+    {
+      "path": "ocr/vocab.txt",
+      "size_bytes": 37193,
+      "sha256": "879d9a69df070dbdf143f64bb3daf73d367741980f18a2f6d08a12e68a598a11",
+      "source_url": "https://huggingface.co/ogkalu/manga-ocr-mobile/resolve/aa0d7d3199f5843f8f5d743f85b44098c8e3ac98/vocab.txt"
+    },
+    {
+      "path": "ocr/paddle-v6-small/inference.onnx",
+      "size_bytes": 10632516,
+      "sha256": "bdb358216a4715494a7eab1932a2e10b340231320f846c21cb5d1f9df7c2df8c",
+      "source_url": "https://huggingface.co/Kellenok/PP-OCRv6_manga/resolve/d090c421598eadd2e179ad62c29ff0767492072c/rec/manga_rec_v0.2_fp16.onnx"
+    },
+    {
+      "path": "ocr/paddle-v6-small/PP-OCRv6_small_rec.txt",
+      "size_bytes": 74947,
+      "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+      "source_url": "https://huggingface.co/Kellenok/PP-OCRv6_manga/resolve/d090c421598eadd2e179ad62c29ff0767492072c/ppocrv6_dict.txt"
+    },
+    {
+      "path": "ocr/paddle-v6-small/det/inference.onnx",
+      "size_bytes": 962358,
+      "sha256": "8a76c2ccfc71ae68b2a812c00bf8ee917319cb737f7c6e035517c85074c779df",
+      "source_url": "https://huggingface.co/Kellenok/PP-OCRv6_manga/resolve/d090c421598eadd2e179ad62c29ff0767492072c/det/manga_det_v0.2_fp16.onnx"
+    },
+    {
+      "path": "segmentation/manga109_bubble_int8.onnx",
+      "size_bytes": 3347784,
+      "sha256": "a398f6482cbd9d8b2573763c91fbb858e3d4cd195b2c3be85c85f5802f9ddce9",
+      "source_url": "https://huggingface.co/huyvux3005/manga109-segmentation-bubble/resolve/f9a4108c4955136a810e5e92207972f3fb3a65fd/best.pt",
+      "convert": {
+        "script": "scripts/converters/convert_bubble_segmenter.py",
+        "source_filename": "best.pt",
+        "source_size_bytes": 12003405,
+        "source_sha256": "4028152940f7c910f40192f46ede3b3f6c7129e5c76849c324d3564f8ac50198"
+      }
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/manga_det_960_fp16.tflite",
+      "size_bytes": 945516,
+      "sha256": "b724fe2e1a854620f1e685f0988264cbd1e4953281c55c78f58ae96d69888aff",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/manga_det_960_fp16.tflite"
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/manga_rec_1600_fp16.tflite",
+      "size_bytes": 10620216,
+      "sha256": "8200c7f97f0d63b321a29c737337b8a564540689e13f37bf041c983a7bc07e2d",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/manga_rec_1600_fp16.tflite"
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/manga_rec_160_fp16.tflite",
+      "size_bytes": 10619924,
+      "sha256": "31aa784492b265c6e887c41e37bfd0e4dba542184ab3498fbc61e587d8671bda",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/manga_rec_160_fp16.tflite"
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/manga_rec_320_fp16.tflite",
+      "size_bytes": 10620732,
+      "sha256": "38c845de888421b3a017e510e7ae23ca36a61c5642d3906a010e6cbbe2926add",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/manga_rec_320_fp16.tflite"
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/manga_rec_480_fp16.tflite",
+      "size_bytes": 10620120,
+      "sha256": "6ab850de89c4dd0865e728d8cb1974cfb08a712e21fa9d53fcea41d1bc48b0bb",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/manga_rec_480_fp16.tflite"
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/manga_rec_640_fp16.tflite",
+      "size_bytes": 10620684,
+      "sha256": "a2667f577bf9259f89acdf73fac552e92341ea655b5f767a1dae94dedfe8bc15",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/manga_rec_640_fp16.tflite"
+    },
+    {
+      "path": "ocr/paddle-v6-small/litert/PP-OCRv6_small_rec.txt",
+      "size_bytes": 74947,
+      "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+      "source_url": "https://github.com/KimreneOuk/TachiyomiATVibe/releases/download/paddle-ocr-litert-v1/PP-OCRv6_small_rec.txt"
+    },
+    {
+      "path": "fumeto/encoder.int8.onnx",
+      "size_bytes": 358353978,
+      "sha256": "55f914d801a3b5259b5ce556017dc2ba8a8d692fb8d6d6005d7dbed6c1387c0e",
+      "source_url": "https://huggingface.co/fumetodev/fumetotranslate-manga-ja-translator/resolve/d30bf6fc9a8656e80800d5362e7bcb2b9199f6b2/int8/encoder.int8.onnx"
+    },
+    {
+      "path": "fumeto/decoder.int8.onnx",
+      "size_bytes": 90095234,
+      "sha256": "f49ca242e7bf58d32a8603c834c7763653df74b9c2babc51f30112ea23034bbf",
+      "source_url": "https://huggingface.co/fumetodev/fumetotranslate-manga-ja-translator/resolve/d30bf6fc9a8656e80800d5362e7bcb2b9199f6b2/int8/decoder.int8.onnx"
+    },
+    {
+      "path": "fumeto/enc-vocab.tsv",
+      "size_bytes": 3026545,
+      "sha256": "5f4df73aae37f9e330d028fc48f3a3574189d9699b043fca8859c610b3e107ed",
+      "source_url": "https://huggingface.co/fumetodev/fumetotranslate-manga-ja-translator/resolve/d30bf6fc9a8656e80800d5362e7bcb2b9199f6b2/int8/tokenizer/tokenizer.json",
+      "convert": {
+        "script": "scripts/converters/extract_unigram_vocab.py",
+        "source_filename": "tokenizer.json",
+        "source_size_bytes": 7137261,
+        "source_sha256": "0c4ee1d8c68b53c06965a7a93fda4d3976c2cce593bcc6174d48a87a8388e0d5"
+      }
+    },
+    {
+      "path": "fumeto/spm-pieces.txt",
+      "size_bytes": 167232,
+      "sha256": "88c9bdf70758536dea94450ae14aaa2ab79197b0813095c02d9179c02bc67c5a",
+      "source_url": "https://huggingface.co/fumetodev/fumetotranslate-manga-ja-translator/resolve/d30bf6fc9a8656e80800d5362e7bcb2b9199f6b2/int8/tokenizer/decoder-spm.model",
+      "convert": {
+        "script": "scripts/converters/extract_spm_pieces.py",
+        "source_filename": "decoder-spm.model",
+        "source_size_bytes": 263858,
+        "source_sha256": "727ebc8b3f8c5acba88c9d49300a77e9792f6bf1526288121c67b104b7384eb0"
+      }
+    }
+  ]
+}

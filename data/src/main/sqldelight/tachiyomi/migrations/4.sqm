@@ -1,0 +1,10 @@
+CREATE TABLE manga_last_visited(
+    manga_id INTEGER NOT NULL PRIMARY KEY,
+    chapter_id INTEGER NOT NULL,
+    last_visited_page INTEGER NOT NULL,
+    visited_at INTEGER NOT NULL,
+    FOREIGN KEY(manga_id) REFERENCES mangas (_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX manga_last_visited_visited_at_index ON manga_last_visited(visited_at);
