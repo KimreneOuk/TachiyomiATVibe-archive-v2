@@ -16,6 +16,8 @@
 
  # [LINUX (AMD GPU) *Experimental,not tested*](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_v2.0_Linux_AMD_GPU.zip)
 
+ # [WINDOWS / LINUX (CPU)](https://codeberg.org/Gladioul/Manga_Coloring_Tool_2/releases/download/1.1/Manga_Coloring_Tool_2_CPU.zip)
+
  
 
  ### ▶️ WATCH DEMO & TUTORIAL ON YOUTUBE
