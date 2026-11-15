@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option B · inline in Translations settings</title>
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .prefrow { padding: 13px 18px; border-bottom: 1px solid rgba(229,225,229,0.06); }
+  .prefrow .title { font-size: 15px; font-weight: 500; }
+  .prefrow .subtitle { font-size: 12.5px; color: var(--md-on-surface-var); margin-top: 3px; }
+  .tiles { display: flex; gap: 8px; margin-top: 10px; }
+  .tile {
+    flex: 1;
+    text-align: center;
+    padding: 10px 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(229,225,229,0.16);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--md-on-surface-var);
+  }
+  .tile.selected { background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-color: var(--md-primary); }
+  .tile .sub { display:block; font-weight: 400; font-size: 11px; margin-top: 3px; color: inherit; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn" aria-label="Back">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+  </button>
+  <h1>Translations</h1>
+  <span class="spacer"></span>
+  <button class="icon-btn" aria-label="Search">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+  </button>
+</header>
+
+<div class="section">Model downloads · new group</div>
+
+<div class="prefrow">
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div class="grow">
+      <div class="title">Installed AI models</div>
+      <div class="subtitle">128 MB on this device · tap to review and delete</div>
+    </div>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--md-on-surface-var)"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+  </div>
+</div>
+
+<div class="prefrow">
+  <div class="title">OCR for Japanese</div>
+  <div class="subtitle">MangaOCR — not downloaded · 65 MB</div>
+  <div class="tiles">
+    <div class="tile">ML Kit<span class="sub">Play services</span></div>
+    <div class="tile selected">MangaOCR<span class="sub">download needed</span></div>
+    <div class="tile">PaddleOCR<span class="sub">installed</span></div>
+  </div>
+  <button class="btn text" style="margin-top:10px; padding-left:0;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l6-6h-4V4h-4v6H6l6 6zm-8 2h16v2H4v-2z"/></svg>
+    Download MangaOCR (65 MB)
+  </button>
+</div>
+
+<div class="prefrow">
+  <div class="title">Inpainting model</div>
+  <div class="subtitle">Needed for BALANCE and QUALITY inpainting</div>
+  <div class="tiles">
+    <div class="tile selected">FAST<span class="sub">classical · no model</span></div>
+    <div class="tile">BALANCE<span class="sub">neural when available</span></div>
+    <div class="tile">QUALITY<span class="sub">neural when available</span></div>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+    <div class="grow">
+      <div class="subtitle">Manga LaMa · 102 MB · not installed</div>
+    </div>
+    <button class="btn ghost">Download</button>
+  </div>
+</div>
+
+<div class="prefrow">
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div class="grow">
+      <div class="title">Free up space</div>
+      <div class="subtitle">Delete unused optional models…</div>
+    </div>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--md-on-surface-var)"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+  </div>
+</div>
+
+<div class="section">Existing groups · unchanged below</div>
+
+<div class="prefrow">
+  <div class="title">Language</div>
+  <div class="subtitle">Translate from Chinese to English</div>
+</div>
+<div class="prefrow">
+  <div class="title">Engine</div>
+  <div class="subtitle">Standard · Google</div>
+</div>
+<div class="prefrow">
+  <div class="title">Colorization</div>
+  <div class="subtitle">Off · no artifacts provisioned</div>
+</div>
+
+<div class="footnote">
+  Option B keeps one screen: model availability surfaces next to the choice that uses it, and a single “Installed AI models” row replaces a full manager screen. Deeper lists (per-file integrity, sources) would still need somewhere to live.
+</div>
+
+</body>
+</html>

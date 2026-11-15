@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>State · reader needs a model</title>
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .reader-mock {
+    position: relative;
+    flex: 1;
+    margin: 12px 14px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #24222B;
+    display: grid;
+    place-items: center;
+  }
+  .page-lines { width: 62%; }
+  .page-lines div {
+    height: 10px;
+    border-radius: 5px;
+    background: #3A3744;
+    margin-bottom: 9px;
+  }
+  .bubble {
+    position: absolute;
+    top: 26px;
+    left: 22px;
+    width: 120px;
+    height: 74px;
+    border-radius: 50%;
+    background: #F2F0F5;
+    padding: 14px 16px;
+  }
+  .bubble i {
+    display: block;
+    height: 5px;
+    border-radius: 3px;
+    background: #B9B4C2;
+    margin-bottom: 6px;
+  }
+  .sheet {
+    margin: 0 14px 16px;
+    padding: 18px 18px 14px;
+    border-radius: 18px;
+    background: var(--md-surface-highest);
+  }
+  .sheet h2 { font-size: 16px; font-weight: 600; }
+  .sheet p { font-size: 13px; color: var(--md-on-surface-var); margin-top: 6px; }
+  .sheet .actions { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
+  .sheet .btn { width: 100%; padding: 11px 14px; border-radius: 999px; font-size: 14px; }
+</style>
+</head>
+<body style="display:flex; flex-direction:column;">
+
+<header class="topbar">
+  <button class="icon-btn" aria-label="Back">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+  </button>
+  <h1 style="font-size:16px;">Chapter 14 — p.87</h1>
+</header>
+
+<div class="reader-mock">
+  <div class="bubble">
+    <i style="width:70%;"></i>
+    <i style="width:88%;"></i>
+    <i style="width:52%;"></i>
+    <i style="width:76%;"></i>
+  </div>
+  <div class="page-lines">
+    <div style="width:100%;"></div>
+    <div style="width:92%;"></div>
+    <div style="width:97%;"></div>
+    <div style="width:60%;"></div>
+  </div>
+</div>
+
+<div class="sheet">
+  <h2>Bubble segmenter not installed</h2>
+  <p>
+    Bubble mask quality uses the bubble segmenter model (3.3 MB).
+    Without it, text masks come from box geometry only — more scribbling
+    around small text.
+  </p>
+  <div class="actions">
+    <button class="btn primary">Download &amp; continue · 3.3 MB</button>
+    <button class="btn ghost">Translate without it this time</button>
+    <button class="btn text" style="color:var(--md-on-surface-var);">Cancel</button>
+  </div>
+</div>
+
+<div class="footnote" style="padding-bottom:20px;">
+  Gating rule proposed: optional-but-selected models ask here, before the page runs, and remember “without it” only for this chapter. A missing <em>essential</em> model (e.g. the text detector) shows a blocking banner instead — translation cannot start without it, mirroring today's inpainting model-missing toast.
+</div>
+
+</body>
+</html>

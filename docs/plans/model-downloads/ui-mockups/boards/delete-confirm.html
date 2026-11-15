@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>State · delete confirmation</title>
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.55); }
+  .dialog-wrap {
+    position: fixed;
+    left: 0; right: 0;
+    top: 258px;
+    display: flex;
+    justify-content: center;
+    padding: 0 26px;
+  }
+  .dialog {
+    width: 100%;
+    max-width: 340px;
+    background: var(--md-inverse-surface);
+    color: #FFFFFF;
+    border-radius: 22px;
+    padding: 22px 22px 14px;
+  }
+  .dialog h2 { font-size: 18px; font-weight: 600; }
+  .dialog p { font-size: 13.5px; margin-top: 12px; color: rgba(255,255,255,0.86); }
+  .dialog .warn {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--md-error-container);
+    color: var(--md-error);
+    font-size: 12.5px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .dialog label {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: rgba(255,255,255,0.86);
+  }
+  .dialog input[type="checkbox"] { accent-color: var(--md-primary); width: 16px; height: 16px; }
+  .dialog .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 18px;
+  }
+  .dialog .actions .btn { padding: 9px 12px; }
+</style>
+</head>
+<body>
+
+<header class="topbar" style="opacity:0.55;">
+  <button class="icon-btn" aria-label="Back">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+  </button>
+  <h1>AI models</h1>
+</header>
+
+<div class="section">Optional · installed</div>
+
+<div class="row" style="opacity:0.55;">
+  <div class="grow">
+    <div class="title">MangaOCR</div>
+    <div class="subtitle">encoder + decoder + vocab · 65 MB</div>
+  </div>
+  <span class="chip installed">Installed</span>
+</div>
+
+<div class="row" style="opacity:0.55;">
+  <div class="grow">
+    <div class="title">Inpainting · Manga LaMa</div>
+    <div class="subtitle">FP16 LiteRT · 102 MB</div>
+  </div>
+  <span class="chip installed">Installed</span>
+</div>
+
+<div class="scrim"></div>
+<div class="dialog-wrap">
+  <div class="dialog" role="dialog" aria-label="Delete MangaOCR">
+    <h2>Delete MangaOCR?</h2>
+    <p>
+      Frees 65 MB. MangaOCR is the default OCR for Japanese —
+      until it is downloaded again, Japanese pages fall back to
+      ML Kit and vertical text accuracy drops.
+    </p>
+    <div class="warn">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" style="flex:none; margin-top:1px;"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+      <span>A translation session is running — deletion is blocked until it finishes. You can queue the delete now.</span>
+    </div>
+    <label>
+      <input type="checkbox">
+      Remove MangaOCR from Japanese OCR selection
+    </label>
+    <div class="actions">
+      <button class="btn text" style="color:rgba(255,255,255,0.8);">Cancel</button>
+      <button class="btn text" disabled style="opacity:0.45;">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="footnote" style="position:relative; z-index:3; margin-top:330px; color:var(--md-on-surface-var);">
+  Delete is refused while the model's files are mapped by an active inference session; the dialog offers to queue the deletion for when the session ends. Deleting a model that current settings require also clears those settings — the checkbox makes that visible instead of implicit.
+</div>
+
+</body>
+</html>

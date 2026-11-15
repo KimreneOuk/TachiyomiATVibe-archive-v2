@@ -1,0 +1,166 @@
+/* TachiyomiATVibe mock palette — Midnight Dusk (app/src/main/java/eu/kanade/presentation/theme/colorscheme/MidnightDuskColorScheme.kt) */
+:root {
+  --md-bg: #16151D;
+  --md-surface: #281624;
+  --md-surface-high: #2D1C2A;
+  --md-surface-highest: #2F1F2C;
+  --md-on-bg: #E5E1E5;
+  --md-on-surface-var: #D6C1C4;
+  --md-outline: #9F8C8F;
+  --md-primary: #F02475;
+  --md-on-primary: #FFFFFF;
+  --md-primary-container: #BD1C5C;
+  --md-secondary-container: #66183C;
+  --md-on-secondary-container: #F02475;
+  --md-tertiary: #55971C;      /* "Downloaded" badge green in the app */
+  --md-on-tertiary: #16151D;
+  --md-inverse-surface: #333043;
+  --md-error: #F2B8B5;
+  --md-error-container: #5C1A19;
+  --md-warning-bg: #4A3A18;
+  --md-warning-text: #F5D98B;
+  --md-radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+html, body { height: 100%; }
+
+body {
+  width: 390px;
+  height: 844px;
+  background: var(--md-bg);
+  color: var(--md-on-bg);
+  font-family: Roboto, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+  background: var(--md-bg);
+  border-bottom: 1px solid rgba(229, 225, 229, 0.08);
+}
+.topbar .icon-btn {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  color: var(--md-on-bg);
+  background: none; border: none; padding: 0; cursor: pointer;
+}
+.topbar h1 { font-size: 19px; font-weight: 500; }
+.topbar .spacer { flex: 1; }
+
+.section {
+  padding: 16px 18px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--md-on-surface-var);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 18px;
+  border-bottom: 1px solid rgba(229, 225, 229, 0.06);
+}
+.row .grow { flex: 1; min-width: 0; }
+.row .title { font-size: 15px; font-weight: 500; }
+.row .subtitle { font-size: 12.5px; color: var(--md-on-surface-var); margin-top: 2px; }
+
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.chip.installed { background: var(--md-tertiary); color: var(--md-on-tertiary); }
+.chip.missing { background: transparent; color: var(--md-outline); border: 1px solid var(--md-outline); }
+.chip.progress { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.chip.error { background: var(--md-error-container); color: var(--md-error); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn.primary { background: var(--md-primary); color: var(--md-on-primary); }
+.btn.text { background: transparent; color: var(--md-primary); padding: 8px 10px; }
+.btn.ghost { background: transparent; color: var(--md-on-surface-var); border: 1px solid var(--md-outline); }
+.btn.danger-text { background: transparent; color: var(--md-error); padding: 8px 10px; }
+.btn[disabled] { opacity: 0.4; cursor: default; }
+
+.iconbtn-sm {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: transparent;
+  color: var(--md-on-surface-var);
+  border: none; cursor: pointer;
+  flex: none;
+}
+
+.card {
+  margin: 12px 18px;
+  padding: 14px 16px;
+  border-radius: var(--md-radius);
+  background: var(--md-surface-high);
+  font-size: 13px;
+  color: var(--md-on-surface-var);
+}
+
+.footnote {
+  padding: 14px 18px 24px;
+  font-size: 12px;
+  color: var(--md-outline);
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 18px;
+  border-bottom: 1px solid rgba(229, 225, 229, 0.06);
+  font-size: 13px;
+}
+.meta .k { color: var(--md-on-surface-var); }
+.meta .v { text-align: right; min-width: 0; word-break: break-all; }
+
+.mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+
+.progress-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(229, 225, 229, 0.14);
+  overflow: hidden;
+}
+.progress-fill { height: 100%; background: var(--md-primary); border-radius: 3px; }
+
+.banner {
+  margin: 12px 18px;
+  padding: 12px 14px;
+  border-radius: var(--md-radius);
+  background: var(--md-warning-bg);
+  color: var(--md-warning-text);
+  font-size: 12.5px;
+}

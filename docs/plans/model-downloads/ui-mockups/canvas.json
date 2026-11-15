@@ -1,0 +1,132 @@
+{
+  "v": 1,
+  "title": "Model manager UI — download & delete",
+  "pages": [
+    {
+      "id": "ui",
+      "name": "Model manager UI"
+    }
+  ],
+  "boards": {
+    "boards/a-manager-overview.html": {
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "Option A · manager screen",
+      "page": "ui"
+    },
+    "boards/a-model-detail.html": {
+      "x": 470,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "Option A · model detail",
+      "page": "ui"
+    },
+    "boards/b-inline-settings.html": {
+      "x": 0,
+      "y": 1140,
+      "w": 390,
+      "h": 844,
+      "title": "Option B · inline in settings",
+      "page": "ui"
+    },
+    "boards/download-progress.html": {
+      "x": 0,
+      "y": 2280,
+      "w": 390,
+      "h": 844,
+      "title": "State · downloading",
+      "page": "ui"
+    },
+    "boards/reader-missing-model.html": {
+      "x": 470,
+      "y": 2280,
+      "w": 390,
+      "h": 844,
+      "title": "State · reader needs a model",
+      "page": "ui"
+    },
+    "boards/delete-confirm.html": {
+      "x": 940,
+      "y": 2280,
+      "w": 390,
+      "h": 844,
+      "title": "State · delete confirmation",
+      "page": "ui"
+    },
+    "boards/feature-inline-settings.html": {
+      "x": 0,
+      "y": 3420,
+      "w": 390,
+      "h": 844,
+      "title": "Feature-based ? Translation settings",
+      "page": "ui"
+    },
+    "boards/feature-reader-prompt.html": {
+      "x": 470,
+      "y": 3420,
+      "w": 390,
+      "h": 844,
+      "title": "Feature-based ? reader prompt",
+      "page": "ui"
+    }
+  },
+  "order": [
+    "boards/a-manager-overview.html",
+    "boards/a-model-detail.html",
+    "boards/b-inline-settings.html",
+    "boards/download-progress.html",
+    "boards/reader-missing-model.html",
+    "boards/delete-confirm.html",
+    "boards/feature-inline-settings.html",
+    "boards/feature-reader-prompt.html"
+  ],
+  "notes": {
+    "n1": {
+      "type": "title",
+      "x": 0,
+      "y": -80,
+      "text": "Option A — dedicated \"AI models\" settings screen",
+      "page": "ui"
+    },
+    "n2": {
+      "type": "title",
+      "x": 0,
+      "y": 1060,
+      "text": "Option B — managed inline in the existing Translations settings",
+      "page": "ui"
+    },
+    "n3": {
+      "type": "title",
+      "x": 0,
+      "y": 2200,
+      "text": "Shared states — download, reader gating, deletion",
+      "page": "ui"
+    },
+    "n4": {
+      "type": "sticky",
+      "x": 940,
+      "y": -80,
+      "w": 250,
+      "text": "Target: archive-v2 main @ 2c096416. Sizes from scripts/models.manifest + locally provisioned files; the repo commits no model binaries, so APK contents depend on build-time provisioning.",
+      "page": "ui"
+    },
+    "n5": {
+      "type": "sticky",
+      "x": 940,
+      "y": 40,
+      "w": 250,
+      "text": "Bundled essentials can't be deleted to reclaim install size — that property only exists for download-installed models. Open choices in plan §8 (D1–D8).",
+      "page": "ui"
+    },
+    "feature_direction": {
+      "type": "title",
+      "x": 0,
+      "y": 3310,
+      "text": "Current direction ? feature settings and contextual reader prompt",
+      "page": "ui"
+    }
+  }
+}

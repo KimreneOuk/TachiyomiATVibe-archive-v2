@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option A · AI models manager</title>
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  :root { --accent: var(--md-primary); --density: 13px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn" aria-label="Back">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+  </button>
+  <h1>AI models</h1>
+  <span class="spacer"></span>
+  <button class="icon-btn" aria-label="Search">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+  </button>
+</header>
+
+<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+  <div>
+    <div style="color:var(--md-on-bg); font-weight:600;">128 MB installed</div>
+    <div style="margin-top:2px;">Essentials ship inside the app install — they can be restored, but not deleted to reclaim install size. Optional models are yours to download and delete.</div>
+  </div>
+</div>
+
+<div class="section">Essential · installed with the app</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Comic text &amp; bubble detector</div>
+    <div class="subtitle">detector-v4-s_int8.onnx · 11 MB · required for every translation</div>
+  </div>
+  <span class="chip installed">Installed</span>
+  <button class="iconbtn-sm" aria-label="Details" disabled>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a2 2 0 1 0-2-2 2 2 0 0 0 2 2zm0 2a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm0 6a2 2 0 1 0 2 2 2 2 0 0 0-2-2z"/></svg>
+  </button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Manga panel detector</div>
+    <div class="subtitle">manga_panel_detector_int8.onnx · 2.8 MB · panel-aware context</div>
+  </div>
+  <span class="chip installed">Installed</span>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Bubble segmenter</div>
+    <div class="subtitle">manga109_bubble_int8.onnx · 3.3 MB · cleaner text masks</div>
+  </div>
+  <span class="chip installed">Installed</span>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">PaddleOCR (ONNX)</div>
+    <div class="subtitle">rec + det + dictionary · 11.7 MB · ZH / JA / EN</div>
+  </div>
+  <span class="chip installed">Installed</span>
+</div>
+
+<div class="section">Optional · download on demand</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">MangaOCR</div>
+    <div class="subtitle">encoder + decoder + vocab · 65 MB · default OCR for Japanese</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn">Download</button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">PaddleOCR LiteRT (GPU)</div>
+    <div class="subtitle">5 recognizers + detector · 54 MB · faster Paddle route</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn">Download</button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Vision GPU detector (LiteRT)</div>
+    <div class="subtitle">detector_v4_s_fp32.tflite · 170 MB · GPU overlay of the ONNX detector</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn">Download</button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Inpainting · Manga LaMa</div>
+    <div class="subtitle">FP16 LiteRT · 102 MB · needed for BALANCE / QUALITY inpainting</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn">Download</button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Inpainting · AOT-GAN</div>
+    <div class="subtitle">FP16 LiteRT · 11 MB · alternative neural inpainting model</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn">Download</button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">Fumeto translator (JA → EN)</div>
+    <div class="subtitle">on-device encoder–decoder · 452 MB · no network translation</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn">Download</button>
+</div>
+
+<div class="row">
+  <div class="grow">
+    <div class="title">FFDNet denoiser (colorization)</div>
+    <div class="subtitle">pre-colorization screentone removal · size not recorded · opt-in toggle</div>
+  </div>
+  <span class="chip missing">Not installed</span>
+  <button class="text btn" disabled>Download</button>
+</div>
+
+<div class="footnote">
+  ML Kit OCR for other languages is provided by Google Play services and needs no download. FFDNet needs a published artifact first — until then it stays bundled with colorization provisioning. Unprovisioned experimental routes (upscaling, colorization models) stay hidden until their artifacts ship.
+</div>
+
+</body>
+</html>

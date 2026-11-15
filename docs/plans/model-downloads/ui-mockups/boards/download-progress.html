@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>State · downloading</title>
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .dl-card {
+    margin: 16px 18px;
+    padding: 16px;
+    border-radius: var(--md-radius);
+    background: var(--md-surface-high);
+  }
+  .queue-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 18px;
+    border-bottom: 1px solid rgba(229,225,229,0.06);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn" aria-label="Back">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+  </button>
+  <h1>AI models</h1>
+</header>
+
+<div class="dl-card">
+  <div style="display:flex; align-items:center; gap:12px;">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="var(--md-primary)"><path d="M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+    <div style="flex:1; min-width:0;">
+      <div style="font-weight:600;">Downloading MangaOCR</div>
+      <div style="font-size:12px; color:var(--md-on-surface-var);">decoder_init.onnx — file 2 of 4</div>
+    </div>
+    <span class="chip progress">34%</span>
+  </div>
+
+  <div class="progress-track" style="margin-top:14px;">
+    <div class="progress-fill" style="width:34%;"></div>
+  </div>
+
+  <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:12px; color:var(--md-on-surface-var);">
+    <span>22.1 of 64.8 MB · 2.4 MB/s</span>
+    <span>~30 s left</span>
+  </div>
+
+  <div style="display:flex; gap:10px; margin-top:16px;">
+    <button class="btn ghost" style="flex:1;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      Pause
+    </button>
+    <button class="btn danger-text">Cancel</button>
+  </div>
+</div>
+
+<div class="banner">
+  “Download only over Wi-Fi” is on and you are on a metered network — downloads wait until Wi-Fi. You can change this in Settings → Downloads.
+</div>
+
+<div class="section">Queued after current</div>
+
+<div class="queue-row">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--md-outline)"><path d="M12 16l6-6h-4V4h-4v6H6l6 6zm-8 2h16v2H4v-2z"/></svg>
+  <div style="flex:1;">Inpainting · Manga LaMa</div>
+  <span style="color:var(--md-outline); font-size:12px;">102 MB</span>
+</div>
+
+<div class="footnote">
+  Runs in a foreground WorkManager job (same pattern as app updates): continues if you leave the screen, shows a progress notification, pauses on lost network, retries automatically, and verifies each file's SHA-256 before it is put into use. Downloads and reading can happen at the same time; models only activate once fully verified.
+</div>
+
+</body>
+</html>

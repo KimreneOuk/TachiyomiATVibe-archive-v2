@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>On-demand model downloads &amp; deletion — plan (draft)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font: 15px/1.55 var(--font-sans, system-ui, sans-serif);
+    max-width: 1080px;
+  }
+  h1 { font-size: 26px; line-height: 1.25; margin: 8px 0 4px; }
+  h2 { font-size: 20px; margin: 34px 0 10px; padding-top: 18px; border-top: 1px solid var(--color-border-secondary); }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, .mono {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.86em;
+    background: var(--color-background-tertiary);
+    border-radius: 5px;
+    padding: 1px 5px;
+    word-break: break-all;
+  }
+  .draft {
+    margin: 14px 0 6px; padding: 12px 16px;
+    border-radius: var(--border-radius-md, 10px);
+    background: var(--color-background-info); color: var(--color-text-info);
+    font-size: 13.5px;
+  }
+  .decision-card {
+    margin: 12px 0; padding: 14px 16px;
+    border-radius: var(--border-radius-md, 10px);
+    background: var(--color-background-secondary);
+    border: 1px solid var(--color-border-primary);
+  }
+  .decision-card h3 { margin: 0 0 6px; font-size: 15px; }
+  .decision-card .rec { font-size: 13px; color: var(--color-text-secondary); margin-top: 6px; }
+  .rec b { color: var(--color-text-primary); }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 2px;
+  }
+  .tag.ess { background: var(--color-background-success, #dff); color: var(--color-text-success, #060); }
+  .tag.opt { background: var(--color-background-info); color: var(--color-text-info); }
+  .tag.gone { background: var(--color-background-tertiary); color: var(--color-text-tertiary); }
+  .tablewrap { overflow-x: auto; margin: 10px 0; }
+  table { border-collapse: collapse; font-size: 13px; min-width: 640px; width: 100%; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border-secondary); vertical-align: top; }
+  th { color: var(--color-text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  details { margin: 8px 0 8px 0; border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-md, 10px); }
+  summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 14px; }
+  details > div { padding: 4px 16px 14px; }
+  .pipeline {
+    display: grid; gap: 10px; margin: 14px 0;
+  }
+  .stage {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 10px;
+    align-items: start;
+    padding: 10px 12px;
+    border-radius: var(--border-radius-md, 10px);
+    background: var(--color-background-secondary);
+  }
+  .stage .name { font-weight: 700; font-size: 13px; }
+  .stage .models { font-size: 12.5px; color: var(--color-text-secondary); min-width: 0; }
+  .stage .models code { background: transparent; padding: 0; }
+  .arrow { text-align: center; color: var(--color-text-tertiary); font-size: 15px; margin: -4px 0; }
+  a { color: var(--color-text-info); }
+  .footnote { font-size: 12.5px; color: var(--color-text-tertiary); }
+  @media (max-width: 560px) {
+    .stage { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>On-demand model downloads &amp; deletion</h1>
+<p style="color:var(--color-text-secondary);">TachiyomiATVibe · plan draft for discussion · Nov 2026 · prepared by GLM 5.3 Flash agent · <strong>plan target: private <code>KimreneOuk/TachiyomiATVibe-archive-v2</code> <code>main</code> @ <code>2c096416</code> (cached locally as <code>archive2/main</code>)</strong></p>
+
+<div class="draft">
+  <strong>Draft — decisions pending.</strong> UI direction is now set by the user: inline model management in each Translation settings section, no reader-overlay controls, contextual reader download pop-up (§6). Everything under “Proposed” is a recommendation for confirmation; §8 lists the decisions that must be settled before tickets are cut. Exploratory UI: <a href="../model-manager-ui/canvas.json">canvas “Model manager UI”</a>. No code has been changed.
+</div>
+
+<h2 style="margin-top:18px;">1 · Goal</h2>
+<p>
+Model binaries are <strong>not committed to the repository at all</strong> — they are provisioned onto the build machine into <code>app/src/main/assets/models/</code> by <code>scripts/fetch_models.py</code> + <code>scripts/models.manifest</code> (19 files, ~713.6 MB manifest-guaranteed) before Gradle packaging, so a release APK normally carries them as packaged assets. A further ~225 MB of <em>unmanifested</em> files (LiteRT vision overlays, legacy AOT ONNX pair) can end up in an APK only when someone provisioned them by hand on the building machine — that is machine state, not repo state. The goal: keep only the <strong>essential set</strong> present by default and let the user download or delete every other model family on demand — safely, verifiably, and without breaking any pipeline route.
+</p>
+<p><strong>Essential set (user-defined, ~29 MB total — a proposed future default, not present behavior):</strong> comic text/bubble detector, manga panel detector, bubble segmenter, PaddleOCR ONNX (recognition + dictionary + detector). Today only the detector is hard-required at init; panel, segmenter, and Paddle degrade gracefully when absent, and Paddle is selected by no default route on any language — its essential status is the user's request for this system, to be implemented, not a current fact.</p>
+<p class="footnote">Key constraint surfaced by this audit: <strong>anything that stays packaged inside the APK cannot be deleted by the user to reclaim storage.</strong> Deleting runtime copies frees app data, but the packaged assets remain part of the installed app forever. “Download &amp; delete” only truly applies to families that are <em>not</em> in the APK — see tradeoffs (§7) and D1/D4.</p>
+
+<h2>2 · Target baseline</h2>
+<p>
+<strong>Plan target: <code>KimreneOuk/TachiyomiATVibe-archive-v2</code> <code>main</code> @ <code>2c096416</code></strong> (cached here as remote <code>archive2/main</code>) — the repository the user identified as source of truth. All archive2/main-specific claims below were verified against <code>git show 2c096416:…</code> directly.
+</p>
+<p>
+The local Traycer worktree (<code>traycer/happy-badger</code> @ <code>bc5deb74</code>) is a <em>later branch</em> — 277 commits ahead of 2c096416, which is its merge-base ancestor — and was used only as the code-exploration base; it is <strong>not</strong> assumed to be the target. Scope of the verified delta: all 127 changed files were reviewed by name; the model/asset-relevant code changes in those commits are (a) removal of the FFDNet denoiser family (engine + <code>OnnxModelStore</code> method + <code>prefer_ffdnet_denoising</code> pref + settings row + tests), (b) removal of the <code>translation_inpaint_quality_fallback</code> pref, (c) adjustments inside the colorization/inpainting engines losing FFDNet wiring, (d) a trivial <code>OcrModelCatalog</code> helper. The remaining changes are reader/library/batch UI, backup “last visited” + DB migration, npu_route calibration tensors (test data, not runtime assets), and i18n — no other asset paths or loaders change. <code>scripts/models.manifest</code> is byte-identical between the two revisions. Model binaries are absent from git at both revisions (target tree has no files under <code>assets/models/</code>; the later branch adds only an <code>inpainting/.gitkeep</code>).
+</p>
+<p class="footnote">
+Because the target is archive2/main, this plan <strong>includes the FFDNet route as an optional family</strong> (§3, §4). Claims verified only on the later branch and not independently on 2c096416 are explicitly marked; everything else cites 2c096416 paths.
+</p>
+
+<h2>3 · Code-verified model map</h2>
+<p>
+Every file under <code>assets/models/</code>, its consumer, runtime, and what happens when it is missing. Sizes are exact from <code>scripts/models.manifest</code> and the APK inventory.
+</p>
+
+<h3>3.1 Pipeline stages → models</h3>
+<div class="pipeline">
+  <div class="stage"><div class="name">Text/bubble detect</div><div class="models"><code>detector-v4-s_int8.onnx</code> (11.1 MB, ONNX CPU) — <strong>mandatory, pipeline dead without it</strong>. GPU overlay <code>detector_v4_s_fp32.tflite</code> (~169.6 MB where hand-provisioned; unmanifested, LiteRT) preferred when present; ONNX is the fallback initializer.</div></div>
+  <div class="stage"><div class="name">Panel detect</div><div class="models"><code>manga_panel_detector_int8.onnx</code> (2.8 MB, ONNX; LiteRT overlay 9.7 MB). Optional — absence only disables panel-aware context (WARN + continue).</div></div>
+  <div class="stage"><div class="name">Bubble segment</div><div class="models"><code>manga109_bubble_int8.onnx</code> (3.3 MB). Optional — absence falls back to heuristic masking. A LiteRT fp32 variant is probed but never bundled.</div></div>
+  <div class="stage"><div class="name">OCR</div><div class="models"><strong>MangaOCR</strong> (<code>ocr/encoder.onnx</code> 17.1 + <code>decoder_init.onnx</code> 24.9 + <code>decoder_step.onnx</code> 22.8 + <code>vocab.txt</code> 0.04 = 64.8 MB) — <em>default for Japanese only</em> (<code>OcrModelCatalog.defaultFor</code> @ 2c096416: JA→MANGAOCR, every other language→MLKIT). <strong>PaddleOCR v6</strong> ONNX rec <code>inference.onnx</code> 10.6 + dict 75 KB + det <code>det/inference.onnx</code> 0.96 = 11.7 MB — user-selected only (ZH/JA/EN), <strong>never the default on any language</strong>. <strong>ML Kit</strong> — default for every non-Japanese language; a Play-services recognizer, <em>not an app file</em>, excluded from this system.</div></div>
+  <div class="stage"><div class="name">Translate</div><div class="models">Cloud providers (no model files) or <strong>Fumeto</strong> on-device JA→EN: <code>fumeto/encoder.int8.onnx</code> 358.4 + <code>decoder.int8.onnx</code> 90.1 + <code>enc-vocab.tsv</code> 3.0 + <code>spm-pieces.txt</code> 0.17 = 451.6 MB. Mandatory per-route: missing ⇒ page FAILED, no fallback.</div></div>
+  <div class="stage"><div class="name">Inpaint</div><div class="models"><code>manga_lama_fused_fp16.tflite</code> 102.3 MB / <code>aot_512_regen_gap_fp16.tflite</code> 11.5 MB (LiteRT GPU, user choice). Required only when inpainting mode ≠ FAST; reader already blocks non-FAST starts when missing.</div></div>
+  <div class="stage"><div class="name">Colorize</div><div class="models">Denoise (optional, archive2/main only): <code>coloring/ffdnet_fp16.onnx</code> (size unrecorded — not in manifest), ONNX CPU, pre-colorization screentone removal; opt-in via <code>prefer_ffdnet_denoising</code> (default OFF; pref OFF ⇒ bilateral smoothing). <strong>Pref ON + asset missing does not fall back</strong>: both <code>NpuMangaColorizationEngine.colorize()</code> and <code>MangaLightHybridColorizationEngine.colorize()</code> <code>check(engine.isAvailable())</code> and throw — colorization stage FAILED (details in §3.2). Colorization itself: MCV2 W8A8 / hybrid SAM set ≈324 MB — <strong>artifacts not in the repo at all</strong>; routes silently stay unavailable. Legacy ONNX <code>aot.onnx</code>/<code>aot-512.onnx</code> (46 MB) are copied at init but production-unused (only the debug <code>QnnDiagnostics</code> reads cached aot-512 — verified at 2c096416).</div></div>
+  <div class="stage"><div class="name">Upscale</div><div class="models">QuickSRNet (SM8650 NPU): artifact not in the repo; route silently unavailable.</div></div>
+</div>
+
+<h3>3.2 Missing-asset behavior and route gating</h3>
+<div class="tablewrap"><table>
+  <thead><tr><th>Family</th><th>Missing asset ⇒</th><th>Route selected only when</th></tr></thead>
+  <tbody>
+    <tr><td>detector-v4-s (essential)</td><td><strong>Pipeline dead</strong>: unguarded copy in <code>OnnxModelStore.ensureModels()</code> throws → <code>RoiPageRecognitionEngine</code> init fails → stub engine throws on every page.</td><td>Always.</td></tr>
+    <tr><td>MangaOCR quartet</td><td><strong>Same hard failure — even when OCR is set to Paddle/ML Kit</strong> (eager copy for all users). This is the “MangaOCR mandatory initialization” to relax.</td><td>Language = Japanese (default) or explicit selection; <code>coerce()</code> falls back to <code>defaultFor</code> on mismatch.</td></tr>
+    <tr><td>PaddleOCR rec + dict</td><td>Hard failure of the engine — but only when Paddle is the selected OCR model. Untouched otherwise.</td><td>OCR model = PADDLEOCR_V6_SMALL — <strong>never a default</strong> (JA→MangaOCR, others→ML Kit per <code>defaultFor</code>). ONNX path: the factory <em>hardcodes</em> a <code>QUALCOMM_QNN_GPU</code> request at 2c096416 (<code>RoiVisionEngineFactory</code> L37–38) and <code>PaddleOcrSessionFactory.resolve()</code> probes it end-to-end with a labelled-CPU fallback cached per process — <strong>no persisted user CPU/GPU selector exists</strong> (the <code>PaddleOcrExecutionProvider</code> enum lives in <code>TranslationPreferences.kt</code> but no preference reads it; <code>PaddleOcrProviderOverride</code> is internal device policy — CPU B1 emergency fallback — not a user control; the docs' “saved GPU/CPU device choice” sentence is unverified in code). LiteRT suite all-or-nothing (7 files) → ONNX <code>fallbackInitializer</code>; runner built with <code>preferGpu=true, allowXnnpackFallback=true, numThreads=4</code> (factory L125–166): GPU delegate first, CPU(XNNPACK) on GPU init <em>or invoke</em> failure. That is construction intent — whether GPU actually executes on a given device needs runtime logs/device testing (<code>executionProviderLabel</code>).</td></tr>
+    <tr><td>PaddleOCR det</td><td>WARN + ink-gap heuristic fallback; free-text erase falls back to detector-v4 boxes. Loaded even for MangaOCR/ML Kit users (erase-mask duty).</td><td>Asset present — independent of the OCR model choice.</td></tr>
+    <tr><td>Panel detector</td><td>WARN, translation proceeds panel-less.</td><td>Loaded whenever <code>ensureModels()</code> succeeded, regardless of settings.</td></tr>
+    <tr><td>Bubble segmenter</td><td>WARN, heuristic masking.</td><td>Loaded whenever present.</td></tr>
+    <tr><td>LaMa / AOT fp16</td><td>Engine unavailable; reader/batch gating blocks non-FAST auto-translate with the model-missing toast (<code>inpaintModelMissing()</code> / <code>isNeuralStartBlocked()</code> — present at 2c096416). archive2/main additionally keeps pref <code>translation_inpaint_quality_fallback</code> (default OFF): opt-in FAST fallback when the AOT model is absent instead of the strict failure; removed on the later branch.</td><td>Inpainting mode BALANCE/QUALITY + neural model pref; GPU-first, no neural CPU fallback; classical route unaffected in FAST.</td></tr>
+    <tr><td>FFDNet denoiser (archive2/main only)</td><td><strong>Not a silent fallback.</strong> Engine-level <code>isAvailable()</code> returns false (initError set, missing-copy error caught inside the FFDNet engine), but when the pref is ON the colorize pass runs <code>check(engine.isAvailable())</code> in both <code>NpuMangaColorizationEngine.colorize()</code> (~L108–115) and <code>MangaLightHybridColorizationEngine.colorize()</code> (~L75–82) and <strong>throws IllegalStateException</strong> instead of taking the bilateral branch. Outer handling: <code>TranslationProcessor.colorize()</code> catches it → <code>page.coloringStatus = FAILED</code>, <code>coloringError = "FFDNet denoising unavailable: …"</code>, WARN log; the page keeps its uncolored result and the translation itself is not failed. The bilateral path is used only when the pref is OFF.</td><td>Colorization enabled + <code>prefer_ffdnet_denoising</code> ON (default OFF). Stamps <code>+FFDNET_SMOOTH</code> / <code>+BILATERAL_SMOOTH</code> (<code>MangaColorizationPreprocessor.stampSuffix</code>) derive from the <em>pref</em> and are written only on colorize success — a failed FFDNet run persists no stamp, so no stale "ffdnet" stamp can outlive a failure.</td></tr>
+    <tr><td>Fumeto quartet</td><td>Strict failure: page FAILED (by design, no fallback), lazy on first <code>translate()</code>.</td><td>Engine = Fumeto <em>and</em> JA→EN exactly.</td></tr>
+    <tr><td>Upscaling / colorization</td><td>Construction succeeds; <code>isAvailable()=false</code>; <code>colorize()/upscalePage()</code> throw “no fallback”. Assets don't exist in the repo.</td><td>Prefs + QNN HTP libs + (upscaling) SM8650-only.</td></tr>
+  </tbody>
+</table></div>
+
+<details>
+<summary>Hidden dependencies &amp; “presence ≠ route” findings (11)</summary>
+<div>
+  <ol>
+    <li><code>ensureModels()</code> eagerly copies ~110 MB usually unused: the MangaOCR quartet for <em>every</em> user (incl. ML Kit/Paddle, non-Japanese) plus <code>aot.onnx</code>+<code>aot-512.onnx</code> (46 MB) that no production code reads — biggest on-demand win and the mandatory-init blocker.</li>
+    <li><code>aot.onnx</code>, <code>aot-512.onnx</code>, <code>detection/litert/detector_v4_s_fp32.tflite</code> (169.6 MB!), <code>detection/litert/panel_detector_fp32.tflite</code> are bundled but <strong>absent from <code>models.manifest</code></strong> — untracked, unhashed, invisible to integrity tooling.</li>
+    <li><code>ocr/paddle-v6-small/inference.json</code> (208 KB) is referenced by no code and no script — orphan.</li>
+    <li><code>assetsAvailable()</code> treats “models/ocr OR models/detection” as available — a partial asset set passes the probe and fails later at init.</li>
+    <li>Cache validity uses <code>&lt;name&gt;.version</code> stamps + <code>MODEL_ASSET_VERSION</code> and a <code>looksLikeValidOnnx</code> heuristic; the download system must keep stamp semantics or it will fight this cache.</li>
+    <li>“Store-preserve” semantics: when an asset is absent, the store deliberately keeps an existing cached copy (“preserving existing cached…”). Downloads must slot in ahead of, not behind, this rule.</li>
+    <li>LiteRT “vision” probes (<code>segmentation/litert/*</code>, <code>ocr/litert/*</code>) log INFO “not bundled” every init — phantom expectations that never resolve.</li>
+    <li>Paddle det is loaded even for non-Paddle users (free-text erase); its absence is a silent capability downgrade, never blocking.</li>
+    <li>Colorization/upscaling engines are constructed eagerly at <code>TranslationManager</code> creation but only probe assets at <code>isAvailable()</code> — absence is silent; the reader-side toast covers inpainting only.</li>
+    <li>Fumeto sessions are lazy “so pipeline startup stays free of the ~450 MB model” — a precedent for download-on-first-use.</li>
+    <li><strong>Device-selection claims need code + runtime evidence, not docs.</strong> <code>docs/MODEL_SOURCES.md</code> says the Paddle LiteRT graphs “support the saved GPU/CPU device choice and temporary reader override”, but at 2c096416 no persisted selector and no reader-side Paddle provider override were traced into <code>RoiVisionEngineFactory</code>: the ONNX path requests QNN GPU by a hardcoded constant, the LiteRT path passes <code>preferGpu=true</code> with XNNPACK fallback, and <code>PaddleOcrProviderOverride</code> is device policy, not a user control. Actual backend execution on a device is knowable only from runtime logs (<code>executionProviderLabel</code>) or device testing — the download system's UI must not present a saved CPU/GPU picker unless such a selector is built.</li>
+  </ol>
+</div>
+</details>
+
+<h2>4 · Distribution reality check</h2>
+<p>
+Three separate questions, kept separate on purpose: <strong>(a) how the artifact is produced</strong> (build-time conversion vs direct fetch — irrelevant to whether runtime distribution can work), <strong>(b) whether a hosted, hash-pinned artifact exists today</strong> (a technical, verifiable fact), and <strong>(c) whether publishing/redistribution is permissible</strong> (an unresolved rights determination — nothing below grants or assumes any permission).
+</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Family</th><th>Produced</th><th>Published artifact today?</th><th>Rights status (as recorded in repo docs)</th></tr></thead>
+  <tbody>
+    <tr><td>detector-v4-s int8 (essential)</td><td>Direct fetch</td><td>Yes — pinned Hugging Face file (ogkalu/comic-text-and-bubble-detector)</td><td>Apache-2.0 declared by card.</td></tr>
+    <tr><td>PaddleOCR ONNX rec/dict/det (essential)</td><td>Direct fetch</td><td>Yes — pinned HF files (Kellenok/PP-OCRv6_manga)</td><td>Apache-2.0 declared.</td></tr>
+    <tr><td>MangaOCR quartet</td><td>Direct fetch</td><td>Yes — pinned HF files (ogkalu/manga-ocr-mobile)</td><td>Apache-2.0 declared.</td></tr>
+    <tr><td>Paddle LiteRT suite (7 files)</td><td>Prebuilt release files</td><td>Yes — GitHub release <code>paddle-ocr-litert-v1</code> (KimreneOuk/TachiyomiATVibe, public)</td><td>Apache-2.0 declared.</td></tr>
+    <tr><td>LaMa / AOT fp16</td><td>Prebuilt release files</td><td>Yes — GitHub release <code>inpainting-fp16-v1</code></td><td>Checkpoint-specific redistribution grant <em>not verified</em> per docs — unresolved.</td></tr>
+    <tr><td>Fumeto quartet</td><td>Direct fetch</td><td>Yes — pinned HF files (fumetodev)</td><td>Per manifest/docs; 452 MB.</td></tr>
+    <tr><td><strong>Panel detector int8</strong> (essential)</td><td>Build-time conversion from pinned <code>.pt</code> (Ultralytics export + int8)</td><td><strong>No</strong> — the converted file is not hosted anywhere; docs state no standalone model download exists</td><td>Docs treat the derivative as AGPL-3.0 (Ultralytics terms) while the HF card says Apache-2.0 — determination required <em>before</em> publishing; undecided, nothing assumed.</td></tr>
+    <tr><td><strong>Bubble segmenter int8</strong> (essential)</td><td>Build-time conversion from pinned <code>.pt</code></td><td><strong>No</strong> — not hosted anywhere</td><td>Manga109 dataset terms for trained weights unresolved per docs — determination required; undecided, nothing assumed.</td></tr>
+    <tr><td>FFDNet denoiser (target-only family)</td><td>Not covered by the manifest at 2c096416 (<code>fetch_models.py</code> defines a <code>coloring</code> group but the manifest has no <code>coloring/</code> entries — <code>--group coloring</code> raises FetchError)</td><td><strong>No</strong> — no manifest entry, no hash, no published file; size unrecorded in the repo</td><td>Not assessed in repo docs.</td></tr>
+    <tr><td>LiteRT vision overlays (detector fp32 ~169.6 MB local, panel fp32)</td><td>Not in manifest; present on a machine only if provisioned by hand</td><td><strong>No</strong> — untracked, unhashed, unpublished</td><td>Not assessed in repo docs.</td></tr>
+    <tr><td>Upscaling / colorization artifacts</td><td>—</td><td><strong>No</strong> — not in the repo at all</td><td>Routes stay hidden until provisioned upstream.</td></tr>
+  </tbody>
+</table></div>
+<p class="footnote">
+Technical consequence: a runtime “download the essentials” flow <strong>cannot fetch the two converted essentials today</strong> because no hosted artifact exists — a release must be published first (or the essentials stay build-time-bundled). That is a publishing decision for the project, entangled with the unresolved rights determinations above; this plan neither assumes the publications are permissible nor that they are barred.
+</p>
+
+<h2>5 · Proposed design</h2>
+
+<h3>5.1 Components</h3>
+<ul>
+  <li><code>ModelCatalog</code> (new, <code>eu.kanade.translation.models.catalog</code>): single source of truth in-app — per family: id, display name, role (<code>ESSENTIAL</code> / <code>OCR_MANGAOCR</code> / <code>OCR_PADDLE_LITERT</code> / <code>INPAINT_*</code> / <code>TRANSLATE_FUMETO</code> / <code>COLORIZE_FFDNET</code> / …), files (path, bytes, SHA-256, URL), requiredBy (routes), license + source labels. Families include every target-repo consumer, FFDNet included. Mirrors <code>scripts/models.manifest</code>; long-term, the manifest itself ships as a resource to avoid a second copy drifting.</li>
+  <li><code>ModelInstallRepository</code>: resolves status per family — <code>NotInstalled / Installed / Downloading / Failed</code> — with resolution order: <strong>runtime dir → APK asset → absent</strong>. Keeps the existing stamp files and <code>noBackupFilesDir/tachiyomiat-models/</code> layout so bundled-copy logic is unchanged; adds a parallel “downloaded” provenance mark.</li>
+  <li><code>ModelDownloadManager</code> + WorkManager <code>ModelDownloadJob</code>: foreground <code>CoroutineWorker</code> modeled on <code>AppUpdateDownloadJob</code> (OkHttp <code>newCachelessCallWithProgress</code>, throttled notifier, <code>Constraints(CONNECTED)</code>), Wi-Fi gating via the existing <code>pref_download_only_over_wifi_key</code> pattern, sequential queue, disk-space guard (200 MB precedent from <code>Downloader</code>), <strong>tmp file + atomic rename + SHA-256 verify before publish</strong>, per-file resume/restart, auto-retry on transient failure.</li>
+  <li><code>ModelDeletionUseCase</code>: refuses deletion while a family is mapped by an active <code>EngineLane</code>/session (offers queue-after-session), refuses or warns for essentials (decision D4), clears stamps, and resets any pref whose selected route required the family (with the visible checkbox from the mockup) — for FFDNet specifically this includes <code>prefer_ffdnet_denoising</code>, because a deleted model with the pref left ON makes every colorize pass <em>fail loudly</em> (colorization FAILED), not silently bilateral (§3.2).</li>
+  <li><code>OnnxModelStore</code> refactor (the load-bearing change): split <code>ensureModels()</code> into per-family guards; MangaOCR copy becomes conditional + <code>MangaOcrEngine</code> reports <em>unavailable</em> instead of throwing; <code>OcrModelCatalog</code> coercion only picks installed models (UI already shows availability); remove the dead <code>aot.onnx/aot-512.onnx</code> copies; keep the legacy asset-fallback path for one release (migration), then asset → download-only per family.</li>
+  <li>Reader gating: extend the existing <code>ReaderTranslationController.inpaintModelMissing()</code> pattern — selected-but-missing models surface the contextual pop-up (download &amp; continue / continue without / cancel); a missing essential shows a blocking banner. The reader overlay itself carries <strong>no management controls</strong> — selections only (user direction). Mirrored toasts for colorization/upscaling absence if those routes ever ship assets.</li>
+  <li>Notifications: new <code>GROUP_MODELS</code> + <code>CHANNEL_MODEL_DOWNLOAD_PROGRESS</code> (low importance) in <code>Notifications.kt</code>, following the <code>GROUP_TRANSLATION</code> precedent.</li>
+  <li>Storage accounting: model dir size surfaced via <code>DiskUtil.getDirectorySize</code> — inline near the feature sections that own the models, with an optional aggregated row in Settings → Data &amp; storage next to “Clear chapter cache”.</li>
+</ul>
+
+<h3>5.2 Resolution ladder</h3>
+<div class="pipeline">
+  <div class="stage"><div class="name">1 · Disk</div><div class="models">Runtime copy in <code>tachiyomiat-models/</code> with valid stamp + hash → use.</div></div>
+  <div class="arrow">↓ absent</div>
+  <div class="stage"><div class="name">2 · APK asset</div><div class="models">Bundled asset (essential set, and any optional still bundled during migration) → copy + stamp → use.</div></div>
+  <div class="arrow">↓ absent</div>
+  <div class="stage"><div class="name">3 · Route gate</div><div class="models">Essential &amp; required by route → block with banner. Optional &amp; selected → reader sheet offers download. Not needed → route degrades exactly as it does today.</div></div>
+  <div class="arrow">↓ user accepts</div>
+  <div class="stage"><div class="name">4 · Download</div><div class="models">WorkManager fetch → SHA-256 verify → atomic publish → stamp → engine init proceeds. Failure keeps the route in today's degraded state; retry is one tap.</div></div>
+</div>
+
+<h3>5.3 Upgrades &amp; migration</h3>
+<ul>
+  <li>Catalog carries a per-file version alongside its hash; on app update, changed catalog entries re-copy (bundled) or re-download (remote) only the changed files — mirroring today's <code>MODEL_ASSET_VERSION</code> stamp bump but per family.</li>
+  <li>First run after adopting this system: essentials come from APK assets (if still bundled) or queue a one-time essential download; no user interaction needed beyond Wi-Fi policy.</li>
+  <li>Hygiene sweep (same release): stop bundling <code>aot.onnx</code>/<code>aot-512.onnx</code> (46 MB, verified at 2c096416: copied at <code>ensureModels()</code>, only consumer is the debug <code>QnnDiagnostics</code>) + orphan <code>inference.json</code>, and prune their stale cache copies via the manifest's <code>--clean</code> semantics. Add manifest entries for FFDNet and the LiteRT vision overlays (hash them) even if they stay locally provisioned — provisioning and integrity tooling currently can't see them.</li>
+</ul>
+
+<h3>5.4 Failure, interruption, concurrency</h3>
+<div class="tablewrap"><table>
+  <thead><tr><th>Scenario</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td>Download interrupted (network/process death)</td><td>WorkManager retries; partial tmp file discarded (cheap restart beats partial-resume bookkeeping for ≤170 MB files); user notified once on final failure.</td></tr>
+    <tr><td>Hash mismatch / truncated file</td><td>Publish refused; tmp deleted; family marked <code>Failed(checksum)</code>; retry allowed; never activates a bad file.</td></tr>
+    <tr><td>Low disk</td><td>Pre-flight <code>MIN_DISK_SPACE</code> check (existing 200 MB precedent) with a clear error naming the required space.</td></tr>
+    <tr><td>Inference while downloading</td><td>Allowed — a download never replaces a live file (tmp + rename); engines only see post-verify published files.</td></tr>
+    <tr><td>Delete during inference</td><td>Refused with the “session running” dialog state; queue-after-session offered. Rationale: ONNX/LiteRT sessions map the files directly (and MangaOCR holds off-heap KV-cache buffers); copy-on-write for 100+ MB models is wasteful.</td></tr>
+    <tr><td>Concurrent downloads</td><td>Sequential queue (matches chapter downloader's bounded concurrency spirit); order shown in UI.</td></tr>
+    <tr><td>Model upgraded while a session holds the old file</td><td>New bytes land under the same name only after session end (deletion lock also covers replace); otherwise staged under a versioned name and swapped.</td></tr>
+  </tbody>
+</table></div>
+
+<h2>6 · UI/UX direction (set by the user)</h2>
+<div class="draft">
+  <strong>User preference, superseding the earlier “dedicated manager” recommendation:</strong> model management lives <strong>inline within each existing Translation settings feature section</strong> (translation, cleaning/inpainting, OCR, colorization, upscaling — each feature’s models surface next to that feature’s controls). The reader overlay carries <strong>no model-management controls</strong>; a <strong>contextual reader pop-up offering to download a missing model when needed</strong> is welcome. The canvas is being updated by the requester to this direction.
+</div>
+<h3>6.1 Placement per existing section</h3>
+<ul>
+  <li><strong>OCR group</strong> (<code>getTranslationLangGroup</code> in <code>SettingsTranslationScreen</code>): the per-language OCR model picker rows gain availability state — “MangaOCR · not downloaded · 65 MB” with an inline Download action; installed models get an inline Delete affordance with the confirmation dialog.</li>
+  <li><strong>Cleaning / inpainting group</strong> (<code>getInpaintingModeGroup</code>): the FAST/BALANCE/QUALITY tiles stay; the neural-model row (LaMa / AOT) shows availability + Download/Delete inline.</li>
+  <li><strong>Engine / translation group</strong> (<code>getEngineGroup</code>): the Fumeto engine row shows “not downloaded · 452 MB” + Download inline when selected-or-selectable.</li>
+  <li><strong>Colorization group</strong> (<code>getColorizationGroup</code>): FFDNet toggle sits beside its availability + actions (target-repo family); colorization model rows likewise.</li>
+  <li><strong>Upscaling group</strong> (<code>getUpscalingGroup</code>): artifact status inline (hidden or “unprovisioned” until artifacts ship).</li>
+  <li><strong>ML Kit</strong>: shown as “provided by Play services” — never a download/delete item.</li>
+</ul>
+<h3>6.2 Reader behavior</h3>
+<p>
+The reader settings overlay keeps <em>selections only</em> (modes, models, languages) — no download/delete controls there. When a translation starts and a needed model is missing, the <strong>contextual pop-up</strong> offers it: “Download &amp; continue · 3.3 MB / Translate without it this time / Cancel”, extending the existing <code>inpaintModelMissing()</code> gating; a missing <em>essential</em> shows a blocking banner instead. Fallback policy for “continue without” remains an open decision (D5).
+</p>
+<h3>6.3 Consequences of the inline direction</h3>
+<ul>
+  <li>Per-file detail (integrity, hash, source, used-by) has no dedicated screen — it needs a lightweight inline treatment: an expandable row or a details dialog opened from each model row. Presentation detail, to settle in tickets, not a direction change.</li>
+  <li>Download progress renders inline in the owning section (progress bar on the row, pause/cancel), mirroring the downloading-card state from the canvas.</li>
+  <li>An aggregated “storage used by models” figure can still surface in Settings → Data &amp; storage next to “Clear chapter cache” if wanted — optional, not required by this direction.</li>
+  <li>Both directions remain mocked in the <a href="../model-manager-ui/canvas.json">exploratory canvas</a> for reference; Option A is no longer the recommendation.</li>
+</ul>
+<div class="tablewrap"><table>
+  <thead><tr><th></th><th>Option A — dedicated “AI models” screen (superseded)</th><th>Option B — inline per feature section (user’s choice)</th></tr></thead>
+  <tbody>
+    <tr><td>Shape</td><td>New settings category; grouped family list with chips and a detail page.</td><td>Availability + Download/Delete inside each feature section, next to the controls that use the model.</td></tr>
+    <tr><td>Pros</td><td>One home for storage, integrity, per-file detail; scales to 7+ families.</td><td>Model state sits beside the choice that consumes it; no new top-level screen; matches the settings structure already in <code>SettingsTranslationScreen</code>.</td></tr>
+    <tr><td>Cons</td><td>Choices and their models live two screens apart; extra destination.</td><td>Per-file detail needs a lighter inline treatment; no single “all models” overview.</td></tr>
+  </tbody>
+</table></div>
+
+<h2>7 · Tradeoffs</h2>
+<ul>
+  <li><strong>Bundled essentials cannot be deleted to reclaim storage — the core tension with the stated goal.</strong> Assets packaged into the APK are part of the installed app for its lifetime; deleting runtime copies or caches never shrinks the install. So every family kept in the APK is exempt from the user's “download &amp; delete” goal by construction, and every family moved to download-only becomes reclaimable but costs network at first use (and must be re-fetchable — see §4's publishing gap). This is unresolved by design: it is D1/D4, not a detail.</li>
+  <li><strong>APK size vs first-run bandwidth.</strong> Slimming to essential-only (or asset-free) cuts the install by hundreds of MB but makes first translation require downloads over Wi-Fi. Keeping essentials bundled keeps “works offline, immediately” but locks in their install-size cost. (Decision D1.)</li>
+  <li><strong>The ~169.6 MB GPU detector overlay</strong> (locally provisioned, unmanifested) is the single biggest file in the build directory. Dropping it loses the LiteRT GPU detect route (ONNX stays authoritative); publishing it as an optional download keeps the route but adds release/hosting work. (Decision D2.)</li>
+  <li><strong>Hosting &amp; rights.</strong> The public KimreneOuk/TachiyomiATVibe repo already hosts two releases; archive-v2 (the target repo) is private and hosts none. Choosing where runtime downloads come from is a project decision, and publishing the converted essentials additionally awaits the unresolved rights determinations recorded in the repo docs — no permission is assumed either way. (Decision D3.)</li>
+  <li><strong>Relaxing MangaOCR init</strong> touches the most fragile init path in the pipeline; the refactor must preserve today's failure semantics for truly-required files while adding unavailability for optional ones. Mitigated by keeping the ONNX store's stamp/validation machinery untouched.</li>
+  <li><strong>ML Kit is out of scope by nature</strong> — it must not appear as a deletable/downloadable item, and UI copy should say why. FFDNet exists only in the target repo; if the later branch ever becomes the base, that family disappears from the catalog rather than being “uninstalled”.</li>
+</ul>
+
+<h2>8 · Decisions needed</h2>
+<p class="footnote">Settled by the user: UI placement — inline management per feature section, no reader-overlay controls, contextual reader download pop-up (§6). Still open — policy, not placement: bundled vs download-only essentials and the storage-reclaim tension (D1/D4), actual fallback policies when a selected model is absent (D5, plus FFDNet's fail-loudly semantics), and distribution host/publication with the unresolved rights determinations (D2/D3).</p>
+<div class="decision-card"><h3>D1 · APK slimming strategy — with its storage-reclaim consequence</h3><div class="rec">Keep essential 29 MB bundled (offline-ready, but permanently exempt from delete-to-reclaim) vs slim APK so essentials are download-only (reclaimable, but first use needs network and a published release must exist). Middle option: bundled now, asset-free packaging later. <b>Recommended: keep essentials bundled for v1, revisit asset-free packaging once releases exist — but this cannot give essentials the delete-to-reclaim property; that only comes with download-only.</b></div></div>
+<div class="decision-card"><h3>D2 · Fate of the ~169.6 MB LiteRT detector overlay (+ panel fp32)</h3><div class="rec">Drop (GPU detect route lost, ONNX authoritative) / hash + publish as optional download / keep hand-provisioning. <b>Recommended: publish as optional download; keep out of packaging.</b></div></div>
+<div class="decision-card"><h3>D3 · Distribution host &amp; publication of missing artifacts (separate from rights)</h3><div class="rec">Where runtime downloads come from (public TachiyomiATVibe releases vs the private archive-v2) is a hosting choice. Publishing the two converted essentials and the overlays additionally requires the rights determinations below — until both are made, those families must stay build-time-bundled or simply be non-restorable after deletion. <b>Needed from you: host choice, and go/no-go on seeking the rights determinations. No permission is assumed.</b></div></div>
+<div class="decision-card"><h3>D4 · Deletability &amp; rights determinations for panel/bubble derivatives</h3><div class="rec">Two coupled questions: (1) UX — if bundled (D1), essentials are non-deletable with a visible “restore” instead of “delete”; if published, they become deletable with re-download. (2) Rights — the repo docs record unresolved AGPL-treatment (panel) and Manga109 terms (bubble); a determination is required before any publication, and this plan does not presume its outcome.</div></div>
+<div class="decision-card"><h3>D5 · Behavior when a selected OCR model is absent</h3><div class="rec">Coerce to a fallback with a notice / block at reader with the pre-flight sheet / block at settings. <b>Recommended: coerce in settings (visible chip), pre-flight sheet in reader.</b></div></div>
+<div class="decision-card"><h3>D6 · Fumeto (452 MB) download trigger</h3><div class="rec">Auto-queue when the Fumeto engine is selected / require explicit download first. <b>Recommended: explicit download; selection shows “not installed” and the reader sheet offers it on first use.</b></div></div>
+<div class="decision-card"><h3>D7 · Delete-vs-active-session policy</h3><div class="rec">Hard block while any inference session maps the family (queue after) vs copy-on-write. <b>Recommended: hard block + queue.</b></div></div>
+<div class="decision-card"><h3>D8 · Dead-asset &amp; manifest hygiene in the same release</h3><div class="rec">Stop copying <code>aot.onnx</code>/<code>aot-512.onnx</code> (46 MB production-unused — verified at 2c096416) and the orphan <code>inference.json</code>; add manifest entries (hashes) for FFDNet and the LiteRT vision overlays so provisioning/integrity can see them. <b>Recommended: yes.</b></div></div>
+
+<h2>9 · Source index</h2>
+<ul class="footnote">
+  <li>At target <code>2c096416</code> (archive2/main): <code>engines/runtime/onnx/OnnxModelStore.kt</code> (per-family <code>ensure*</code> incl. <code>ensureFfdnetDenoising()</code> L291, stamps), <code>engines/coloring/FfdnetDenoiserEngine.kt</code> + <code>MangaColorizationPreprocessor.kt</code> + <code>MangaLightHybridColorizationEngine.kt</code> / <code>NpuMangaColorizationEngine.kt</code> (FFDNet wiring, bilateral fallback, route stamps), <code>domain/translation/PipelinePrefs.kt</code> (<code>prefer_ffdnet_denoising</code>, <code>translation_inpaint_quality_fallback</code>), <code>ui/reader/ReaderTranslationActions.kt</code> / <code>ReaderTranslationController.kt</code> (<code>inpaintModelMissing()</code>), <code>runtime/onnx/QnnDiagnostics.kt</code> (sole aot-512 consumer)</li>
+  <li><code>vision/ocr/RoiVisionEngineFactory.kt</code>, <code>OcrModelCatalog.kt</code>, <code>MangaOcrEngine.kt</code>, <code>PaddleOcrV6*Engine.kt</code>, <code>MlKitRoiOcrEngine.kt</code>; <code>vision/detection/OnnxPageTextDetector.kt</code>, <code>OnnxPanelDetector.kt</code>; <code>vision/segmentation/OnnxBubbleSegmenter.kt</code>; <code>inpainting/LiteRTMangaInpaintingEngine.kt</code>, <code>LiteRtInpaintingAssetManager.kt</code>; <code>upscaling/*</code>; <code>translator/fumeto/*</code> — read on the later branch (verified unchanged in the 127-file delta for everything except the FFDNet/colorization items listed above); re-confirm per-file during implementation on the target</li>
+  <li><code>scripts/models.manifest</code>, <code>scripts/fetch_models.py</code> (MODEL_GROUPS incl. empty <code>coloring</code> group), <code>docs/MODEL_SOURCES.md</code>, <code>docs/PADDLE_OCR_MODEL_DOWNLOADS.md</code>, <code>docs/INPAINTING_MODEL_DOWNLOADS.md</code></li>
+  <li>Patterns reused: <code>data/updater/AppUpdateDownloadJob.kt</code>, <code>data/download/Downloader.kt</code>, <code>data/notification/Notifications.kt</code>, <code>presentation/more/settings/screen/SettingsTranslationScreen.kt</code>, <code>widget/AiModelPickerWidget.kt</code>, <code>ui/setting/SettingsScreen.kt</code> destinations</li>
+  <li>UI mockup: canvas <a href="../model-manager-ui/canvas.json">model-manager-ui</a> · sizes: manifest bytes + locally provisioned files measured on disk; repo commits no binaries</li>
+</ul>
+
+<p class="footnote" style="margin-top:26px;">No code modified · no git actions performed · all “proposed” items await confirmation of D1–D8.</p>
+
+</body>
+</html>
