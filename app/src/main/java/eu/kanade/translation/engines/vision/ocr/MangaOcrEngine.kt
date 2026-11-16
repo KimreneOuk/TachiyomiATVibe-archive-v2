@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.Paint
+import eu.kanade.translation.models.PackLease
 import eu.kanade.translation.processing.memory.BitmapPool
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -21,6 +22,16 @@ class MangaOcrEngine : RoiOcrEngine {
 
     private var liteRtRunner: MangaOcrLiteRtRunner? = null
     private var onnxRunner: MangaOcrOnnxRunner? = null
+
+    /**
+     * Lease held while this engine runs a runtime-installed pack version.
+     * Released in [close]; deletion and version switches are refused while held.
+     */
+    internal var packLease: PackLease? = null
+
+    internal fun attachPackLease(lease: PackLease) {
+        packLease = lease
+    }
 
     /**
      * Always CPU: the autoregressive decoder loop runs many tiny per-step
@@ -94,6 +105,8 @@ class MangaOcrEngine : RoiOcrEngine {
         liteRtRunner = null
         onnxRunner?.close()
         onnxRunner = null
+        packLease?.release()
+        packLease = null
     }
 
     internal fun writeCacheAtSlot(updatedTensor: OnnxTensor, dstBuf: FloatBuffer, slot: Int) {

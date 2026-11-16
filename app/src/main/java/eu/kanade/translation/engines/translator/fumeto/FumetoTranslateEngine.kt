@@ -45,7 +45,7 @@ class FumetoTranslateEngine : TextTranslator {
     private val initMutex = Mutex()
     private val decodeMutex = Mutex()
 
-    private var encoderSession: OrtSession? = null
+    private var encoder: FumetoEncoder? = null
     private var decoderSession: OrtSession? = null
     private var tokenizer: UnigramTokenizer? = null
     private var spmDecoder: SentencePieceDecoder? = null
@@ -65,9 +65,9 @@ class FumetoTranslateEngine : TextTranslator {
 
     /** Sessions load lazily so pipeline startup stays free of the ~450 MB model. */
     private suspend fun ensureInitialized() {
-        if (encoderSession != null) return
+        if (encoder != null) return
         initMutex.withLock {
-            if (encoderSession != null) return
+            if (encoder != null) return
             try {
                 initializeLocked()
             } catch (failure: Throwable) {
@@ -89,18 +89,18 @@ class FumetoTranslateEngine : TextTranslator {
             it.setIntraOpNumThreads(THREAD_COUNT)
         }
         try {
-            encoderSession = OnnxRuntimeProvider.environment.createSession(
-                paths.encoderModel.absolutePath,
-                encoderOpts,
+            encoder = FumetoOnnxEncoder(
+                OnnxRuntimeProvider.environment,
+                OnnxRuntimeProvider.environment.createSession(paths.encoderModel.absolutePath, encoderOpts),
             )
             decoderSession = OnnxRuntimeProvider.environment.createSession(
                 paths.decoderModel.absolutePath,
                 decoderOpts,
             )
         } catch (failure: Exception) {
-            encoderSession?.close()
+            encoder?.close()
             decoderSession?.close()
-            encoderSession = null
+            encoder = null
             decoderSession = null
             throw failure
         } finally {
@@ -112,7 +112,6 @@ class FumetoTranslateEngine : TextTranslator {
         logcat(LogPriority.INFO) {
             val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000.0
             "FumetoTranslate ready in ${elapsedMs}ms (cpu, int8, threads=$THREAD_COUNT); " +
-                "encoder inputs=${encoderSession?.inputNames} outputs=${encoderSession?.outputNames}; " +
                 "decoder inputs=${decoderSession?.inputNames} outputs=${decoderSession?.outputNames}"
         }
     }
@@ -171,7 +170,7 @@ class FumetoTranslateEngine : TextTranslator {
         window: FumetoWindow,
         translated: Array<String?>,
     ) {
-        val encoder = encoderSession ?: throw IllegalStateException("FumetoTranslate not initialized")
+        val encoder = encoder ?: throw IllegalStateException("FumetoTranslate not initialized")
         val (lo, hi) = window.lo to window.hi
         var sourceLength = 1
         for (lineIndex in lo until hi) sourceLength += bodies[lineIndex].size + 1
@@ -195,23 +194,9 @@ class FumetoTranslateEngine : TextTranslator {
         // </s> belongs to the last line of the window.
         segment[cursor - 1] = hi - 1 - lo
 
-        var inputIds: OnnxTensor? = null
-        var attentionMask: OnnxTensor? = null
-        var encoderResult: OrtSession.Result? = null
-        try {
-            inputIds = longTensor(source, longArrayOf(1L, sourceLength.toLong()))
-            attentionMask = longTensor(
-                LongArray(sourceLength) { 1L },
-                longArrayOf(1L, sourceLength.toLong()),
-            )
-            encoderResult = encoder.run(
-                mapOf(
-                    "input_ids" to inputIds,
-                    "attention_mask" to attentionMask,
-                ),
-            )
-            val bias = encoderResult[0] as OnnxTensor
-            val crossTensors = Array(DECODER_LAYERS * 2) { encoderResult[1 + it] as OnnxTensor }
+        encoder.encode(source).use { encoderResult ->
+            val bias = encoderResult.memoryBias
+            val crossTensors = encoderResult.crossAttention.toTypedArray()
 
             // rel[ti][k] clips (token line - decoded line) to ±REL_MAX, offset by REL_MAX.
             val relRows = Array(window.targetHi - window.targetLo) { targetIndex ->
@@ -235,10 +220,6 @@ class FumetoTranslateEngine : TextTranslator {
                 decodeTargets(decoder, bias, crossTensors, sourceLength, chunkRelRows, loadedSpm, translated, chunkStart)
                 chunkStart = chunkEnd
             }
-        } finally {
-            inputIds?.close()
-            attentionMask?.close()
-            encoderResult?.close()
         }
     }
 
@@ -433,9 +414,6 @@ class FumetoTranslateEngine : TextTranslator {
         return OnnxTensor.createTensor(OnnxRuntimeProvider.environment, buffer, shape)
     }
 
-    private fun longTensor(data: LongArray, shape: LongArray): OnnxTensor =
-        OnnxTensor.createTensor(OnnxRuntimeProvider.environment, LongBuffer.wrap(data), shape)
-
     private fun longTensor(buffer: LongBuffer, shape: LongArray): OnnxTensor =
         OnnxTensor.createTensor(OnnxRuntimeProvider.environment, buffer, shape)
 
@@ -448,9 +426,9 @@ class FumetoTranslateEngine : TextTranslator {
     override fun close() {
         if (closed) return
         closed = true
-        encoderSession?.close()
+        encoder?.close()
         decoderSession?.close()
-        encoderSession = null
+        encoder = null
         decoderSession = null
         tokenizer = null
         spmDecoder = null

@@ -8,6 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import eu.kanade.presentation.models.SettingsModelsScreen
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.AiModelListState
 import eu.kanade.presentation.more.settings.widget.AiModelPickerWidget
@@ -58,6 +61,18 @@ object SettingsTranslationScreen : SearchableSettings {
             getColorizationGroup(translationPreferences),
             getUpscalingGroup(translationPreferences),
             getEngineGroup(translationPreferences),
+            getModelManagementEntry(),
+        )
+    }
+
+    /** Settings > Translations > Model management: the real manager-backed screen. */
+    @Composable
+    private fun getModelManagementEntry(): Preference.PreferenceItem.TextPreference {
+        val navigator = LocalNavigator.currentOrThrow
+        return Preference.PreferenceItem.TextPreference(
+            title = stringResource(ATMR.strings.pref_models_title),
+            subtitle = stringResource(ATMR.strings.pref_models_summary),
+            onClick = { navigator.push(SettingsModelsScreen()) },
         )
     }
 

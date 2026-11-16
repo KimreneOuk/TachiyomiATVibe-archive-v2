@@ -5,14 +5,20 @@ import eu.kanade.translation.engines.inpainting.PageInpaintingEngine
 import eu.kanade.translation.engines.inpainting.aot.NeuralInpaintingCoordinator
 import eu.kanade.translation.engines.inpainting.litert.LiteRTMangaInpaintingEngine
 import eu.kanade.translation.engines.runtime.onnx.HardwareDiscoveryEngine
+import eu.kanade.translation.engines.runtime.onnx.LiteRtVisionPaths
+import eu.kanade.translation.engines.runtime.onnx.ModelPaths
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrProviderOverride
 import eu.kanade.translation.engines.runtime.onnx.PaddleOcrSessionFactory
+import eu.kanade.translation.models.ModelPackCatalog
+import eu.kanade.translation.models.ModelPackManagerProvider
 import eu.kanade.translation.engines.vision.detection.OnnxPageTextDetector
 import eu.kanade.translation.engines.vision.detection.OnnxPanelDetector
 import eu.kanade.translation.engines.vision.ocr.paddle.batch.PaddleOcrDevicePolicy
 import eu.kanade.translation.engines.vision.ocr.paddle.batch.PaddleOcrDynamicPageBatchPolicy
 import eu.kanade.translation.engines.vision.ocr.paddle.batch.PaddleOcrRollingP95HysteresisDowngradePolicy
 import eu.kanade.translation.engines.vision.segmentation.OnnxBubbleSegmenter
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -111,15 +117,31 @@ internal suspend fun RoiPageRecognitionEngine.initialize() {
             }
             roiOcrEngine = when (ocrModel) {
                 OcrModel.MANGAOCR -> MangaOcrEngine().also { engine ->
-                    val liteRtEncoder = liteRtVision?.ocrEncoder
-                    val liteRtInit = liteRtVision?.ocrDecoderInit
-                    val liteRtStep = liteRtVision?.ocrDecoderStep
-                    if (liteRtEncoder != null && liteRtInit != null && liteRtStep != null) {
-                        engine.initializeLiteRt(liteRtEncoder, liteRtInit, liteRtStep, paths.ocrVocab) {
-                            engine.initialize(paths.ocrEncoder, paths.ocrDecoderInit, paths.ocrDecoderStep, paths.ocrVocab)
+                    val packLease = ModelPackManagerProvider.get(context)
+                        .acquire(ModelPackCatalog.MANGAOCR_PACK_ID, owner = currentCoroutineContext()[Job])
+                    if (packLease != null) {
+                        try {
+                            val packFiles = packLease.filesByName()
+                            engine.attachPackLease(packLease)
+                            engine.initialize(
+                                encoderFile = packFiles.getValue("encoder.onnx"),
+                                decoderInitFile = packFiles.getValue("decoder_init.onnx"),
+                                decoderStepFile = packFiles.getValue("decoder_step.onnx"),
+                                vocabFile = packFiles.getValue("vocab.txt"),
+                            )
+                            logcat(LogPriority.INFO) {
+                                "MangaOCR runtime pack ${packLease.version} active; bundled OCR assets bypassed for this session"
+                            }
+                        } catch (e: Exception) {
+                            engine.close() // releases the pack lease
+                            logcat(LogPriority.WARN, e) {
+                                "MangaOCR runtime pack init failed; falling back to bundled assets"
+                            }
+                            initializeMangaOcrBundled(engine, liteRtVision, paths)
                         }
                     } else {
-                        engine.initialize(paths.ocrEncoder, paths.ocrDecoderInit, paths.ocrDecoderStep, paths.ocrVocab)
+                        logcat(LogPriority.INFO) { "MangaOCR runtime pack not installed; bundled assets in use" }
+                        initializeMangaOcrBundled(engine, liteRtVision, paths)
                     }
                 }
                 OcrModel.PADDLEOCR_V6_SMALL -> PaddleOcrV6SmallEngine().also { engine ->
@@ -321,5 +343,19 @@ internal suspend fun RoiPageRecognitionEngine.initialize() {
             logcat(LogPriority.ERROR, e) { "RoiPageRecognitionEngine init failed, marking unavailable" }
             throw e
         }
+    }
+}
+
+/** Bundled-asset path: LiteRT flatbuffers when deployed, ONNX assets otherwise. */
+private fun initializeMangaOcrBundled(engine: MangaOcrEngine, liteRtVision: LiteRtVisionPaths?, paths: ModelPaths) {
+    val liteRtEncoder = liteRtVision?.ocrEncoder
+    val liteRtInit = liteRtVision?.ocrDecoderInit
+    val liteRtStep = liteRtVision?.ocrDecoderStep
+    if (liteRtEncoder != null && liteRtInit != null && liteRtStep != null) {
+        engine.initializeLiteRt(liteRtEncoder, liteRtInit, liteRtStep, paths.ocrVocab) {
+            engine.initialize(paths.ocrEncoder, paths.ocrDecoderInit, paths.ocrDecoderStep, paths.ocrVocab)
+        }
+    } else {
+        engine.initialize(paths.ocrEncoder, paths.ocrDecoderInit, paths.ocrDecoderStep, paths.ocrVocab)
     }
 }
