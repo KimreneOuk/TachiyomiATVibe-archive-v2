@@ -632,7 +632,7 @@ class ChapterTranslationStoreArtifactOpenProbeTest {
         File(mangaDir, layout.manifestFileName).writeText(Json.encodeToString(manifest))
 
         // Open artifact without creating snapshotFile on disk -> should synthesize page cleanly
-        val store = ChapterTranslationStore.openArtifactSuspend(root, "Chapter 9.json")
+        val store = ChapterTranslationStore.openArtifactSuspend(root, "Chapter 9.json", lazyPageSnapshots = true)
         store.state.value["page1.jpg"]?.cleanedImageName shouldBe "page1.cleaned.png"
         store.display.value["page1.jpg"]?.cleanedImageName shouldBe "page1.cleaned.png"
         store.state.value["page1.jpg"]?.ocrStatus shouldBe StageStatus.READY

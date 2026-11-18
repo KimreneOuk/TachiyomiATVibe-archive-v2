@@ -48,8 +48,18 @@ internal class StoreWriteDrainCoordinator(
     private var markGenerationDefunctLockedFn: (() -> Unit)? = null
     var onEventualUnregister: (() -> Unit)? = null
 
+    /** Synchronizes store adoption with worker turns; prevents defuncted store adoption. */
+    suspend fun tryAdopt(): Boolean = mutex.withLock {
+        if (store.isDefunct) return@withLock false
+        pendingUnregisterRequested = false
+        markGenerationDefunctLockedFn = null
+        store.enableLazyPersistence()
+        true
+    }
+
     fun cancelPendingUnregister() {
         pendingUnregisterRequested = false
+        markGenerationDefunctLockedFn = null
     }
 
     suspend fun flush() = flushMutex.withLock {
@@ -123,7 +133,9 @@ internal class StoreWriteDrainCoordinator(
                                 scheduleDrain()
                             } else if (pendingUnregisterRequested) {
                                 pendingUnregisterRequested = false
-                                markGenerationDefunctLockedFn?.invoke()
+                                val markDefunct = markGenerationDefunctLockedFn
+                                markGenerationDefunctLockedFn = null
+                                markDefunct?.invoke()
                                 onEventualUnregister?.invoke()
                             }
                         }

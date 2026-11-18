@@ -25,14 +25,33 @@ internal class ActiveChapterStoreRegistry {
         chapterAdmissionLocks.computeIfAbsent(chapterId) { Mutex() }.withLock { block() }
 
     @Synchronized
-    fun get(chapterId: Long): ChapterTranslationStore? = stores[chapterId]
+    fun get(chapterId: Long): ChapterTranslationStore? {
+        val store = stores[chapterId] ?: return null
+        if (store.isDefunct) {
+            removeStore(store)
+            return null
+        }
+        return store
+    }
 
     @Synchronized
-    fun getByFile(fileKey: String): ChapterTranslationStore? = fileStores[fileKey]
+    fun getByFile(fileKey: String): ChapterTranslationStore? {
+        val store = fileStores[fileKey] ?: return null
+        if (store.isDefunct) {
+            removeStore(store)
+            return null
+        }
+        return store
+    }
 
     @Synchronized
     fun register(chapterId: Long, store: ChapterTranslationStore): Boolean {
-        if (stores.containsKey(chapterId)) return false
+        if (store.isDefunct) return false
+        val existing = stores[chapterId]
+        if (existing != null && !existing.isDefunct) return false
+        if (existing != null && existing.isDefunct) {
+            removeStore(existing)
+        }
         stores[chapterId] = store
         publish()
         return true
@@ -40,8 +59,12 @@ internal class ActiveChapterStoreRegistry {
 
     @Synchronized
     fun registerFile(fileKey: String, store: ChapterTranslationStore): Boolean {
+        if (store.isDefunct) return false
         val existing = fileStores[fileKey]
-        if (existing != null && existing !== store) return false
+        if (existing != null && !existing.isDefunct && existing !== store) return false
+        if (existing != null && existing.isDefunct) {
+            removeStore(existing)
+        }
         fileStores[fileKey] = store
         return true
     }
@@ -98,9 +121,31 @@ internal class ActiveChapterStoreRegistry {
 
     /** Caller should hold [withFileOpeningLock] when using this as an admission guard. */
     @Synchronized
-    fun hasStoreForFile(fileKey: String): Boolean =
-        fileStores.containsKey(fileKey) ||
+    fun hasStoreForFile(fileKey: String): Boolean {
+        stores.entries.removeIf { it.value.isDefunct }
+        fileStores.entries.removeIf { it.value.isDefunct }
+        return fileStores.containsKey(fileKey) ||
             stores.values.any { it.chapterKey == fileKey }
+    }
+
+    @Synchronized
+    fun removeStore(store: ChapterTranslationStore): Boolean {
+        val removedFromStores = stores.entries.removeIf { it.value === store }
+        val removedFromFileStores = fileStores.entries.removeIf { it.value === store }
+        if (removedFromStores || removedFromFileStores) {
+            publish()
+            return true
+        }
+        return false
+    }
+
+    @Synchronized
+    fun removeFile(fileKey: String): ChapterTranslationStore? {
+        val removed = fileStores.remove(fileKey) ?: return null
+        stores.entries.removeIf { it.value === removed }
+        publish()
+        return removed
+    }
 
     @Synchronized
     fun remove(chapterId: Long): ChapterTranslationStore? {
@@ -111,11 +156,14 @@ internal class ActiveChapterStoreRegistry {
     }
 
     @Synchronized
-    fun chapterIds(): List<Long> = stores.keys.toList()
+    fun chapterIds(): List<Long> {
+        stores.entries.removeIf { it.value.isDefunct }
+        return stores.keys.toList()
+    }
 
     @Synchronized
     fun storesFor(chapterIds: Collection<Long>): List<ChapterTranslationStore> =
-        chapterIds.mapNotNull(stores::get)
+        chapterIds.mapNotNull(::get)
 
     /** The currently selected chapter source, or null when that chapter is not active. */
     fun observe(chapterId: Long): StateFlow<Map<String, PageTranslationView>>? = get(chapterId)?.state
@@ -126,6 +174,8 @@ internal class ActiveChapterStoreRegistry {
     }
 
     private fun publish() {
+        stores.entries.removeIf { it.value.isDefunct }
+        fileStores.entries.removeIf { it.value.isDefunct }
         _snapshots.value = stores.toMap()
     }
 }

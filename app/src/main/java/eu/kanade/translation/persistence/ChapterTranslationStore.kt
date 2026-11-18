@@ -360,6 +360,9 @@ class ChapterTranslationStore internal constructor(
     val isDefunct: Boolean
         get() = defunct
 
+    /** Adopts a retained or active store, canceling any pending eviction unregister. */
+    suspend fun tryAdopt(): Boolean = writeDrain.tryAdopt()
+
     init {
         initialRetiredCleanedImages.forEach { (pageKey, names) ->
             if (names.isNotEmpty()) {
