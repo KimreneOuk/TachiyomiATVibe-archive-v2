@@ -16,6 +16,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.TranslationPreferences
 import eu.kanade.translation.engines.coloring.conditioning.Wd14TagConditioner
+import eu.kanade.translation.engines.coloring.denoising.DenoiserResolutionPolicy
 import eu.kanade.translation.engines.coloring.denoising.MangaDenoiser
 import eu.kanade.translation.engines.coloring.denoising.MangaDenoiserFactory
 import java.io.File
@@ -124,11 +125,18 @@ internal class NpuMangaColorizationEngine(
         if (mode == ColorCombineMode.ORIGINAL) {
             val dMode = originalDenoisingMode()
             val denoiser = denoiserProvider(dMode)
-            val denoisedBytes = denoiser.denoise(source)
+            val denoiseSource = DenoiserResolutionPolicy.cap(source)
+            val denoiseWidth = denoiseSource.width
+            val denoiseHeight = denoiseSource.height
+            val denoisedBytes = try {
+                denoiser.denoise(denoiseSource)
+            } finally {
+                if (denoiseSource !== source) denoiseSource.recycle()
+            }
             val resampled = AreaResampler.resample(
                 denoisedBytes,
-                source.width,
-                source.height,
+                denoiseWidth,
+                denoiseHeight,
                 letterbox.width,
                 letterbox.height,
             )
@@ -138,7 +146,8 @@ internal class NpuMangaColorizationEngine(
             val durMs = (preprocessedAt - started) / 1_000_000
             timing = MangaColorizationPreprocessor.StageTiming(resampleMs = durMs)
             logcat(LogPriority.INFO) {
-                "[Mcv2NpuColor] Faithful ORIGINAL preprocess ($dMode): ${durMs}ms"
+                "[Mcv2NpuColor] Faithful ORIGINAL preprocess ($dMode) " +
+                    "denoise=${denoiseWidth}x${denoiseHeight}: ${durMs}ms"
             }
         } else {
             val preprocessed = MangaColorizationPreprocessor.grayPlane(source, letterbox.width, letterbox.height)

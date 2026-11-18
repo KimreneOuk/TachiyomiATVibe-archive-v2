@@ -15,6 +15,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.TranslationPreferences
+import eu.kanade.translation.engines.coloring.denoising.DenoiserResolutionPolicy
 import eu.kanade.translation.engines.coloring.denoising.MangaDenoiser
 import eu.kanade.translation.engines.coloring.denoising.MangaDenoiserFactory
 import java.io.File
@@ -89,18 +90,27 @@ internal class MangaLightHybridColorizationEngine(
         if (mode == ColorCombineMode.ORIGINAL) {
             val dMode = originalDenoisingMode()
             val denoiser = denoiserProvider(dMode)
-            val denoisedBytes = denoiser.denoise(source)
+            val denoiseSource = DenoiserResolutionPolicy.cap(source)
+            val denoiseWidth = denoiseSource.width
+            val denoiseHeight = denoiseSource.height
+            val denoisedBytes = try {
+                denoiser.denoise(denoiseSource)
+            } finally {
+                if (denoiseSource !== source) denoiseSource.recycle()
+            }
             val resampled = AreaResampler.resample(
                 denoisedBytes,
-                source.width,
-                source.height,
+                denoiseWidth,
+                denoiseHeight,
                 SIZE,
                 SIZE,
             )
             luma = FloatArray(resampled.size) { (resampled[it].toInt() and 0xFF) / 255f }
             preprocessedAt = System.nanoTime()
             logcat(LogPriority.INFO) {
-                "[MangaLightColor] Faithful ORIGINAL preprocess ($dMode): ${(preprocessedAt - started) / 1_000_000}ms"
+                "[MangaLightColor] Faithful ORIGINAL preprocess ($dMode) " +
+                    "denoise=${denoiseWidth}x${denoiseHeight}: " +
+                    "${(preprocessedAt - started) / 1_000_000}ms"
             }
         } else {
             val prepped = MangaColorizationPreprocessor.grayPlane(source, SIZE, SIZE)
