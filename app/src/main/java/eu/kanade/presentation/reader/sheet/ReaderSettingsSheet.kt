@@ -1,6 +1,9 @@
 package eu.kanade.presentation.reader.sheet
 
 import android.net.Uri
+import android.view.View
+import android.view.ViewParent
+import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -114,13 +118,8 @@ fun ReaderSettingsSheet(
     var showChapterPageDialog by remember { mutableStateOf(false) }
     var isInteractingWithVisuals by remember { mutableStateOf(false) }
 
-    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-    LaunchedEffect(isInteractingWithVisuals) {
-        if (isInteractingWithVisuals) {
-            window?.setDimAmount(0f)
-            onHideMenus()
-        } else {
-            window?.setDimAmount(0.6f)
+    DisposableEffect(Unit) {
+        onDispose {
             onShowMenus()
         }
     }
@@ -139,17 +138,24 @@ fun ReaderSettingsSheet(
         onDismissRequest()
         onShowMenus()
     }
-    // Back and scrim taps collapse the drawer first; only a closed drawer
-    // dismisses the sheet itself.
-    val dismiss = {
-        if (translationOpen) translationOpen = false else closeSheet()
-    }
-    BackHandler(enabled = translationOpen) { translationOpen = false }
 
     AdaptiveSheet(
         forceSheetMode = true,
-        onDismissRequest = dismiss,
+        onDismissRequest = closeSheet,
     ) {
+        val view = LocalView.current
+        LaunchedEffect(isInteractingWithVisuals) {
+            val window = (view as? DialogWindowProvider)?.window ?: findDialogWindow(view.parent)
+            if (isInteractingWithVisuals) {
+                window?.setDimAmount(0f)
+                onHideMenus()
+            } else {
+                window?.setDimAmount(0.6f)
+                onShowMenus()
+            }
+        }
+        BackHandler(enabled = translationOpen) { translationOpen = false }
+
         Surface(
             color = DesignTokens.SheetBackground,
             shape = DesignTokens.ShapeSheet,
@@ -365,4 +371,10 @@ internal fun TranslationModeFlip(
             }
         }
     }
+}
+
+private tailrec fun findDialogWindow(viewParent: ViewParent?): Window? = when (viewParent) {
+    null -> null
+    is DialogWindowProvider -> viewParent.window
+    else -> findDialogWindow(viewParent.parent)
 }
