@@ -20,101 +20,104 @@ import eu.kanade.tachiyomi.ui.reader.TranslationSettingsState
 import tachiyomi.i18n.at.ATMR
 import tachiyomi.presentation.core.i18n.stringResource
 
-/**
- * Every translation-facing toggle of the unified settings sheet: pipeline
- * activation plus the overlay affordances (floater, translated-text visibility,
- * translate button placement).
- */
+/** Pipeline activation toggles of the translation drawer's Basic mode. */
 @Composable
-fun TranslationActivationSection(
+internal fun TranslationActivationSection(
     state: TranslationSettingsState,
     onTranslationEnabledChange: (Boolean) -> Unit,
     onAutoTranslateChange: (Boolean) -> Unit,
+) {
+    SectionHeading(title = stringResource(ATMR.strings.reader_translation_section_activation))
+
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 20.dp)
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SwitchCard(
+            icon = Icons.Outlined.Translate,
+            title = stringResource(ATMR.strings.pref_translation_enabled),
+            subtitle = stringResource(ATMR.strings.pref_translation_enabled_summary),
+            checked = state.enabled,
+            onCheckedChange = onTranslationEnabledChange,
+        )
+        SwitchCard(
+            icon = Icons.Outlined.AutoAwesome,
+            title = stringResource(ATMR.strings.pref_auto_translate),
+            subtitle = stringResource(ATMR.strings.pref_auto_translate_summary),
+            checked = state.autoTranslate,
+            onCheckedChange = { auto ->
+                if (auto && !state.enabled) onTranslationEnabledChange(true)
+                onAutoTranslateChange(auto)
+            },
+        )
+    }
+}
+
+/**
+ * Overlay affordances of the Basic mode: floater visibility and placement,
+ * translated-text visibility, translate button placement.
+ */
+@Composable
+internal fun TranslationOverlaySection(
+    state: TranslationSettingsState,
     onFloaterEnabledChange: (Boolean) -> Unit,
     onFloaterIdleFadeChange: (Boolean) -> Unit,
     onShowTranslatedTextChange: (Boolean) -> Unit,
     onTranslateButtonWithControlsChange: (Boolean) -> Unit,
     onResetFloaterPosition: () -> Unit,
 ) {
-    Column {
-        SectionHeading(title = stringResource(ATMR.strings.reader_translation_section_activation))
+    SectionHeading(title = stringResource(ATMR.strings.reader_translation_section_overlay))
 
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 20.dp)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SwitchCard(
-                icon = Icons.Outlined.Translate,
-                title = stringResource(ATMR.strings.pref_translation_enabled),
-                subtitle = stringResource(ATMR.strings.pref_translation_enabled_summary),
-                checked = state.enabled,
-                onCheckedChange = onTranslationEnabledChange,
-            )
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 20.dp)
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SwitchCard(
+            icon = Icons.Outlined.Layers,
+            title = stringResource(ATMR.strings.pref_floater_show),
+            subtitle = stringResource(ATMR.strings.reader_translation_floater_summary),
+            checked = state.floaterEnabled,
+            onCheckedChange = onFloaterEnabledChange,
+        )
+        if (state.floaterEnabled) {
             SwitchCard(
                 icon = Icons.Outlined.AutoAwesome,
-                title = stringResource(ATMR.strings.pref_auto_translate),
-                subtitle = stringResource(ATMR.strings.pref_auto_translate_summary),
-                checked = state.autoTranslate,
-                onCheckedChange = { auto ->
-                    if (auto && !state.enabled) onTranslationEnabledChange(true)
-                    onAutoTranslateChange(auto)
+                title = stringResource(ATMR.strings.pref_floater_idle_fade),
+                subtitle = stringResource(ATMR.strings.pref_floater_idle_fade_summary),
+                checked = state.floaterIdleFade,
+                onCheckedChange = onFloaterIdleFadeChange,
+            )
+            ActionCard(
+                icon = Icons.Outlined.Refresh,
+                title = stringResource(ATMR.strings.pref_floater_reset_position),
+                subtitle = stringResource(ATMR.strings.pref_floater_reset_position_summary),
+                onClick = onResetFloaterPosition,
+                actionLabel = stringResource(ATMR.strings.action_reset),
+            )
+        }
+        SwitchCard(
+            icon = Icons.Outlined.Visibility,
+            title = stringResource(ATMR.strings.pref_show_translations),
+            subtitle = stringResource(ATMR.strings.pref_show_translations_summary),
+            checked = state.showTranslatedText,
+            onCheckedChange = onShowTranslatedTextChange,
+        )
+        SwitchCard(
+            icon = Icons.Outlined.Translate,
+            title = stringResource(ATMR.strings.pref_reader_translate_button_mode),
+            subtitle = stringResource(
+                if (state.translateButtonWithControls) {
+                    ATMR.strings.pref_reader_translate_button_mode_summary_with_controls
+                } else {
+                    ATMR.strings.pref_reader_translate_button_mode_summary_default
                 },
-            )
-        }
-
-        SectionHeading(title = stringResource(ATMR.strings.reader_translation_section_overlay))
-
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 20.dp)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SwitchCard(
-                icon = Icons.Outlined.Layers,
-                title = stringResource(ATMR.strings.pref_floater_show),
-                subtitle = stringResource(ATMR.strings.reader_translation_floater_summary),
-                checked = state.floaterEnabled,
-                onCheckedChange = onFloaterEnabledChange,
-            )
-            if (state.floaterEnabled) {
-                SwitchCard(
-                    icon = Icons.Outlined.AutoAwesome,
-                    title = stringResource(ATMR.strings.pref_floater_idle_fade),
-                    subtitle = stringResource(ATMR.strings.pref_floater_idle_fade_summary),
-                    checked = state.floaterIdleFade,
-                    onCheckedChange = onFloaterIdleFadeChange,
-                )
-                ActionCard(
-                    icon = Icons.Outlined.Refresh,
-                    title = stringResource(ATMR.strings.pref_floater_reset_position),
-                    subtitle = stringResource(ATMR.strings.pref_floater_reset_position_summary),
-                    onClick = onResetFloaterPosition,
-                    actionLabel = stringResource(ATMR.strings.action_reset),
-                )
-            }
-            SwitchCard(
-                icon = Icons.Outlined.Visibility,
-                title = stringResource(ATMR.strings.pref_show_translations),
-                subtitle = stringResource(ATMR.strings.pref_show_translations_summary),
-                checked = state.showTranslatedText,
-                onCheckedChange = onShowTranslatedTextChange,
-            )
-            SwitchCard(
-                icon = Icons.Outlined.Translate,
-                title = stringResource(ATMR.strings.pref_reader_translate_button_mode),
-                subtitle = stringResource(
-                    if (state.translateButtonWithControls) {
-                        ATMR.strings.pref_reader_translate_button_mode_summary_with_controls
-                    } else {
-                        ATMR.strings.pref_reader_translate_button_mode_summary_default
-                    },
-                ),
-                checked = state.translateButtonWithControls,
-                onCheckedChange = onTranslateButtonWithControlsChange,
-            )
-        }
+            ),
+            checked = state.translateButtonWithControls,
+            onCheckedChange = onTranslateButtonWithControlsChange,
+        )
     }
 }

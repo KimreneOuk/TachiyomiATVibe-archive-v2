@@ -22,14 +22,6 @@ internal class PipelinePrefs(
         preferenceStore.getEnum("translation_inpainting_neural_model", NeuralInpaintModel.DEFAULT)
 
     /**
-     * Opt-in fallback: when QUALITY inpainting is selected but the neural AOT
-     * model is absent, fall back to FAST instead of failing. Default OFF — keeps
-     * the strict QUALITY behaviour unless the user explicitly accepts the
-     * quality trade-off.
-     */
-    fun translationInpaintQualityFallback() = preferenceStore.getBoolean("translation_inpaint_quality_fallback", false)
-
-    /**
      * Master gate for on-device colorization: when on, every translated page
      * that produced a cleaned image is also colorized (post-inpaint stage).
      * Default OFF — colorization is a multi-second model pass.
@@ -39,13 +31,6 @@ internal class PipelinePrefs(
     /** Which colorization engine runs when colorization is enabled. */
     fun translationColorizationModel(): Preference<ColorizationModel> =
         preferenceStore.getEnum("translation_colorization_model", ColorizationModel.DEFAULT)
-
-    /**
-     * Opt-in FFDNet denoising preprocessing before colorization.
-     * When true, replaces the gated bilateral filter with native-resolution FFDNet sigma=25
-     * (faithful to original qweasdd recipe, slower).
-     */
-    fun preferFfdnetDenoising() = preferenceStore.getBoolean("prefer_ffdnet_denoising", false)
 
     /** Chroma-combine look applied after colorization: faithful model render or vibrant prototype. */
     fun colorCombineMode(): Preference<ColorCombineMode> =

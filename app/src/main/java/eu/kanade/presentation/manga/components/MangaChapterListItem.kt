@@ -193,7 +193,6 @@ fun MangaChapterListItem(
                 enabled = menuEnabled,
                 translationStateProvider = translationStateProvider,
                 translationRequestProvider = translationRequestProvider,
-                downloadedProvider = { downloadStateProvider() == Download.State.DOWNLOADED },
                 downloadStateProvider = downloadStateProvider,
                 onTranslationAction = onTranslationClick,
                 onDownloadAction = onDownloadClick,

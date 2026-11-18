@@ -324,11 +324,9 @@ object BatchStatusLineProjection {
     }
 
     /**
-     * The reader bottom bar's short rendering of the same truth.
-     * Returns null exactly when the bar must stay hidden (no request, no
-     * pause, idle phase — the existing visibility rule). The rebuild/restore
-     * kinds replace the frozen "Batch X/Y" line during a resume rebuild;
-     * all other branches retain their existing wording byte-identically.
+     * The reader bottom bar's short rendering of the same truth. Returns null
+     * exactly when the bar must stay hidden. Live phases keep their short
+     * wording; terminal requests, retry timing, and building context mirror the sheet.
      */
     fun readerBarLine(
         snapshot: TranslationProgressSnapshot,
@@ -337,12 +335,18 @@ object BatchStatusLineProjection {
         if (!isBatchSession) return null
         val request = snapshot.requestState
         val isPaused = snapshot.state == Translation.State.PAUSED || snapshot.pauseReason != null
+        val isBuildingContext = snapshot.batchPhase == TranslationBatchPhase.IDLE &&
+            snapshot.state == Translation.State.TRANSLATING
         val isVisible = request != null ||
             isPaused ||
             snapshot.aborted ||
+            isBuildingContext ||
             snapshot.batchPhase != TranslationBatchPhase.IDLE
         if (!isVisible) return null
         val coloring = snapshot.colorizeOnly
+        val retryAt = snapshot.nextEligibleRetryAtEpochMs?.let {
+            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))
+        }
         return when {
             request?.phase == TranslationRequestPhase.STARTING -> BatchStatusLine(
                 kind = BatchStatusLineKind.REQUEST_STARTING,
@@ -356,9 +360,23 @@ object BatchStatusLineProjection {
                 kind = BatchStatusLineKind.REQUEST_WAITING_FOR_DOWNLOAD,
                 fallback = "Waiting for chapter download",
             )
-            request?.phase == TranslationRequestPhase.DOWNLOAD_FAILED -> BatchStatusLine(
-                kind = BatchStatusLineKind.REQUEST_DOWNLOAD_FAILED,
-                fallback = "Download failed — retry to continue",
+            request?.phase == TranslationRequestPhase.DOWNLOAD_FAILED -> {
+                val reason = request?.reason.orEmpty()
+                    .takeIf { it.isNotBlank() }?.let { " — $it" }.orEmpty()
+                BatchStatusLine(
+                    kind = BatchStatusLineKind.REQUEST_DOWNLOAD_FAILED,
+                    fallback = "Download failed — retry to continue$reason",
+                )
+            }
+            // Terminal request outcomes outrank a stale pause: the generation
+            // fence keeps them terminal even when the chapter still carries a pause flag.
+            request?.phase == TranslationRequestPhase.CANCELLED -> BatchStatusLine(
+                kind = BatchStatusLineKind.REQUEST_CANCELLED,
+                fallback = "Translation cancelled — the chapter download was cancelled or removed",
+            )
+            request?.phase == TranslationRequestPhase.ADMISSION_FAILED -> BatchStatusLine(
+                kind = BatchStatusLineKind.REQUEST_ADMISSION_FAILED,
+                fallback = "Translation could not be queued — check the source and translation settings",
             )
             snapshot.aborted -> BatchStatusLine(
                 kind = BatchStatusLineKind.ATTENTION_REQUIRED,
@@ -380,7 +398,12 @@ object BatchStatusLineProjection {
             )
             isPaused -> BatchStatusLine(
                 kind = BatchStatusLineKind.PAUSED,
-                fallback = if (coloring) "Colorization paused" else "Translation paused",
+                fallback = when {
+                    retryAt != null && coloring -> "Colorization paused — retry after $retryAt"
+                    retryAt != null -> "Translation paused — retry after $retryAt"
+                    coloring -> "Colorization paused"
+                    else -> "Translation paused"
+                },
             )
             snapshot.batchPhase == TranslationBatchPhase.REBUILDING -> BatchStatusLine(
                 kind = BatchStatusLineKind.REBUILDING,
@@ -394,6 +417,10 @@ object BatchStatusLineProjection {
                     fallback = "Restoring $remaining pages…",
                 )
             }
+            isBuildingContext -> BatchStatusLine(
+                kind = BatchStatusLineKind.BUILDING_CONTEXT,
+                fallback = "Building context & scanning completed pages...",
+            )
             snapshot.totalPages > 0 -> BatchStatusLine(
                 kind = BatchStatusLineKind.FIRST_PASS_PAGES,
                 formatArgs = listOf(snapshot.donePages, snapshot.totalPages),

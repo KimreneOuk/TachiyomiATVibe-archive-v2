@@ -228,6 +228,7 @@ object TranslationUiTruth {
         if (!restartWired) return null
         val restartableTerminal = snapshot.aborted ||
             snapshot.requestState?.phase == TranslationRequestPhase.DOWNLOAD_FAILED ||
+            snapshot.requestState?.phase == TranslationRequestPhase.ADMISSION_FAILED ||
             (
                 (
                     snapshot.state == Translation.State.ERROR ||
@@ -300,7 +301,7 @@ object TranslationUiTruth {
 
             current.nonDurableFailure -> surface(
                 "publication rejection suppresses all success copy",
-                NOT_SAVED,
+                if (current.colorizeOnly) NOT_SAVED_COLORIZE else NOT_SAVED,
             )
 
             current.state == Translation.State.PAUSED || current.nextEligibleRetryAtEpochMs != null ->
@@ -518,6 +519,17 @@ object TranslationUiTruth {
         terminalSuccess = false,
         contentDescription =
         "Translation was produced but could not be saved; no durable result is available. Retry is required.",
+    )
+
+    private val NOT_SAVED_COLORIZE = PageUiTruth(
+        label = "Colorization not saved — retry required.",
+        severity = UiSeverity.WARNING,
+        retryMode = UiRetryMode.EXPLICIT,
+        retryAtEpochMs = null,
+        actions = setOf(UiAction.RETRY, UiAction.DETAILS),
+        terminalSuccess = false,
+        contentDescription =
+        "Colorization was produced but could not be saved; no durable result is available. Retry is required.",
     )
 
     private val BATCH_SESSION_SWITCH = PageUiTruth(

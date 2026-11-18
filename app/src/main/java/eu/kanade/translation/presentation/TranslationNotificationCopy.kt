@@ -57,12 +57,13 @@ object TranslationNotificationCopy {
                 val reason = snapshot.nonDurableFailureReason
                     ?.takeIf { it.isNotBlank() }
                     ?.let { it.take(120) }
+                val subject = if (snapshot.colorizeOnly) "Colorization not saved" else "Translation not saved"
                 TranslationNotificationRecord(
                     title = chapterName,
                     text = if (reason != null) {
-                        "Translation not saved — retry required: $reason"
+                        "$subject — retry required: $reason"
                     } else {
-                        "Translation not saved — retry required"
+                        "$subject — retry required"
                     },
                     ongoing = false,
                     actions = setOf(NotificationAction.RETRY, NotificationAction.STOP),

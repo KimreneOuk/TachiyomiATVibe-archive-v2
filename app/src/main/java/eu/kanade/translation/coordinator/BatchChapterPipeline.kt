@@ -35,6 +35,7 @@ internal class BatchChapterPipeline(
     private val batchTrackerFactory: (Long, ChapterTranslationStore, List<String>) -> TranslationBatchProgressTracker?,
     private val onBatchClosed: suspend (Manga, Chapter, HttpSource, ChapterTranslationStore) -> Unit,
     private val activeChapters: MutableSet<String>,
+    private val beginTranslationRun: (Translation) -> Boolean,
 ) {
 
     suspend fun execute(
@@ -96,7 +97,7 @@ internal class BatchChapterPipeline(
                 )
                 return null
             }
-            translation.status = Translation.State.TRANSLATING
+            if (!beginTranslationRun(translation)) return null
 
             // Keep one ArchiveReader open for the batch. Its entry streams use
             // seek-based reads, avoiding repeated decompression; directory chapters

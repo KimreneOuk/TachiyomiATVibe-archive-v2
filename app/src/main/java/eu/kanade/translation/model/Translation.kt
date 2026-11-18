@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
+import java.util.concurrent.atomic.AtomicLong
 
 enum class BatchExecutionMode {
     STANDARD,
@@ -40,11 +41,26 @@ data class Translation(
 
     @Transient
     val statusFlow = _statusFlow.asStateFlow()
+
+    @Transient
+    private val _runGeneration = AtomicLong()
+    val runGeneration: Long
+        get() = _runGeneration.get()
+
     var status: State
         get() = _statusFlow.value
+
+        @Synchronized
         set(status) {
+            if (status == State.TRANSLATING && _statusFlow.value != State.TRANSLATING) {
+                _runGeneration.incrementAndGet()
+            }
             _statusFlow.value = status
         }
+
+    @Synchronized
+    fun activeRunGenerationOrNull(): Long? =
+        _runGeneration.get().takeIf { _statusFlow.value == State.TRANSLATING }
 
     /**
      *  The trigger's admission-probe

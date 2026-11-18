@@ -1,10 +1,21 @@
 package eu.kanade.tachiyomi.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.graphics.res.animatedVectorResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material3.SnackbarHost
@@ -15,12 +26,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAll
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.Navigator
@@ -31,6 +46,7 @@ import eu.kanade.presentation.category.components.ChangeCategoryDialog
 import eu.kanade.presentation.library.DeleteLibraryMangaDialog
 import eu.kanade.presentation.library.LibrarySettingsDialog
 import eu.kanade.presentation.library.components.LibraryContent
+import eu.kanade.presentation.library.components.LibraryResumeDock
 import eu.kanade.presentation.library.components.LibraryToolbar
 import eu.kanade.presentation.manga.components.LibraryBottomActionMenu
 import eu.kanade.presentation.more.onboarding.GETTING_STARTED_URL
@@ -89,6 +105,7 @@ data object LibraryTab : Tab {
         val screenModel = rememberScreenModel { LibraryScreenModel() }
         val settingsScreenModel = rememberScreenModel { LibrarySettingsScreenModel() }
         val state by screenModel.state.collectAsState()
+        val globalResumeTarget by screenModel.globalResumeTarget.collectAsStateWithLifecycle()
 
         val snackbarHostState = remember { SnackbarHostState() }
 
@@ -153,59 +170,107 @@ data object LibraryTab : Tab {
             },
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         ) { contentPadding ->
-            when {
-                state.isLoading -> LoadingScreen(Modifier.padding(contentPadding))
-                state.searchQuery.isNullOrEmpty() && !state.hasActiveFilters && state.isLibraryEmpty -> {
-                    val handler = LocalUriHandler.current
-                    EmptyScreen(
-                        stringRes = MR.strings.information_empty_library,
-                        modifier = Modifier.padding(contentPadding),
-                        actions = persistentListOf(
-                            EmptyScreenAction(
-                                stringRes = MR.strings.getting_started_guide,
-                                icon = Icons.AutoMirrored.Outlined.HelpOutline,
-                                onClick = { handler.openUri(GETTING_STARTED_URL) },
+            val hasGlobalDock = globalResumeTarget != null && !state.selectionMode
+            val layoutDirection = LocalLayoutDirection.current
+            val adjustedContentPadding = if (hasGlobalDock) {
+                PaddingValues(
+                    top = contentPadding.calculateTopPadding(),
+                    start = contentPadding.calculateStartPadding(layoutDirection),
+                    end = contentPadding.calculateEndPadding(layoutDirection),
+                    bottom = contentPadding.calculateBottomPadding() + 76.dp,
+                )
+            } else {
+                contentPadding
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    state.isLoading -> LoadingScreen(Modifier.padding(adjustedContentPadding))
+                    state.searchQuery.isNullOrEmpty() && !state.hasActiveFilters && state.isLibraryEmpty -> {
+                        val handler = LocalUriHandler.current
+                        EmptyScreen(
+                            stringRes = MR.strings.information_empty_library,
+                            modifier = Modifier.padding(adjustedContentPadding),
+                            actions = persistentListOf(
+                                EmptyScreenAction(
+                                    stringRes = MR.strings.getting_started_guide,
+                                    icon = Icons.AutoMirrored.Outlined.HelpOutline,
+                                    onClick = { handler.openUri(GETTING_STARTED_URL) },
+                                ),
                             ),
-                        ),
-                    )
-                }
-                else -> {
-                    LibraryContent(
-                        categories = state.categories,
-                        searchQuery = state.searchQuery,
-                        selection = state.selection,
-                        contentPadding = contentPadding,
-                        currentPage = { screenModel.activeCategoryIndex },
-                        hasActiveFilters = state.hasActiveFilters,
-                        showPageTabs = state.showCategoryTabs || !state.searchQuery.isNullOrEmpty(),
-                        onChangeCurrentPage = { screenModel.activeCategoryIndex = it },
-                        onMangaClicked = { navigator.push(MangaScreen(it)) },
-                        onContinueReadingClicked = { it: LibraryManga ->
-                            scope.launchIO {
-                                val chapter = screenModel.getNextUnreadChapter(it.manga)
-                                if (chapter != null) {
-                                    context.startActivity(
-                                        ReaderActivity.newIntent(context, chapter.mangaId, chapter.id),
-                                    )
-                                } else {
-                                    snackbarHostState.showSnackbar(context.stringResource(MR.strings.no_next_chapter))
+                        )
+                    }
+                    else -> {
+                        LibraryContent(
+                            categories = state.categories,
+                            searchQuery = state.searchQuery,
+                            selection = state.selection,
+                            contentPadding = adjustedContentPadding,
+                            currentPage = { screenModel.activeCategoryIndex },
+                            hasActiveFilters = state.hasActiveFilters,
+                            showPageTabs = state.showCategoryTabs || !state.searchQuery.isNullOrEmpty(),
+                            onChangeCurrentPage = { screenModel.activeCategoryIndex = it },
+                            onMangaClicked = { navigator.push(MangaScreen(it)) },
+                            onContinueReadingClicked = { it: LibraryManga ->
+                                scope.launchIO {
+                                    val resumeTarget = screenModel.getResumeTarget(it.manga)
+                                    if (resumeTarget != null) {
+                                        context.startActivity(
+                                            ReaderActivity.newIntent(
+                                                context,
+                                                resumeTarget.first.mangaId,
+                                                resumeTarget.first.id,
+                                                resumeTarget.second,
+                                            ),
+                                        )
+                                    } else {
+                                        snackbarHostState.showSnackbar(context.stringResource(MR.strings.no_next_chapter))
+                                    }
                                 }
-                            }
-                            Unit
-                        }.takeIf { state.showMangaContinueButton },
-                        onToggleSelection = screenModel::toggleSelection,
-                        onToggleRangeSelection = {
-                            screenModel.toggleRangeSelection(it)
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onRefresh = onClickRefresh,
-                        onGlobalSearchClicked = {
-                            navigator.push(GlobalSearchScreen(screenModel.state.value.searchQuery ?: ""))
-                        },
-                        getNumberOfMangaForCategory = { state.getMangaCountForCategory(it) },
-                        getDisplayMode = { screenModel.getDisplayMode() },
-                        getColumnsForOrientation = { screenModel.getColumnsPreferenceForCurrentOrientation(it) },
-                    ) { state.getLibraryItemsByPage(it) }
+                                Unit
+                            }.takeIf { state.showMangaContinueButton },
+                            onToggleSelection = screenModel::toggleSelection,
+                            onToggleRangeSelection = {
+                                screenModel.toggleRangeSelection(it)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onRefresh = onClickRefresh,
+                            onGlobalSearchClicked = {
+                                navigator.push(GlobalSearchScreen(screenModel.state.value.searchQuery ?: ""))
+                            },
+                            getNumberOfMangaForCategory = { state.getMangaCountForCategory(it) },
+                            getDisplayMode = { screenModel.getDisplayMode() },
+                            getColumnsForOrientation = { screenModel.getColumnsPreferenceForCurrentOrientation(it) },
+                        ) { state.getLibraryItemsByPage(it) }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = hasGlobalDock,
+                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = contentPadding.calculateBottomPadding() + 12.dp)
+                        .padding(horizontal = 16.dp),
+                ) {
+                    val target = globalResumeTarget
+                    if (target != null) {
+                        LibraryResumeDock(
+                            target = target,
+                            modifier = Modifier.widthIn(max = 500.dp),
+                            onClick = {
+                                context.startActivity(
+                                    ReaderActivity.newIntent(
+                                        context,
+                                        target.manga.id,
+                                        target.chapter.id,
+                                        target.lastVisitedPage,
+                                    ),
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }

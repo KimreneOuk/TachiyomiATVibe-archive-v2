@@ -63,7 +63,10 @@ class ChapterDataResetControllerPurgeTest {
         coEvery { translator.cancelTranslatorJobAndJoin(any()) } answers { log("cancelTranslatorJobAndJoin") }
         val store = mockk<ChapterTranslationStore>(relaxed = true)
         every { store.state } returns MutableStateFlow(emptyMap())
-        coEvery { store.markDefunct() } coAnswers { log("markDefunct") }
+        coEvery { store.markDefunct() } coAnswers {
+            log("markDefunct")
+            StoreDefunctOutcome.Flushed
+        }
         val streamRegistry = mockk<TranslationStreamRegistry>(relaxed = true)
         every { streamRegistry.clearChapter(any(), any(), any()) } answers { log("clearChapter") }
         val provider = mockk<TranslationFileProvider>(relaxed = true)
@@ -91,7 +94,7 @@ class ChapterDataResetControllerPurgeTest {
             providerProvider = { provider },
             retireChapterCompanionImagesFn = { _, _, _ ->
                 log("retireChapterCompanionImages")
-                3
+                ChapterCompanionRetirement(confirmedRemoved = 3, deferredLeasedFiles = 0)
             },
             retirePageCompanionImageFn = { _, _, _, _, _, _ -> },
             durableStatusResolverProvider = { durableResolver },
@@ -122,6 +125,8 @@ class ChapterDataResetControllerPurgeTest {
         assertTrue(receipt.completed, "purge over a clean tree must complete: ${receipt.failures}")
         // 2 authority files + 2 artifact payloads + 3 companion images.
         assertEquals(7, receipt.removedFiles, "receipt must report every removed file")
+        assertEquals(7, receipt.confirmedRemovedFiles)
+        assertEquals(0, receipt.deferredLeasedFiles)
         // artifact root + pages + 0001 + images + 0001-under-images.
         assertEquals(5, receipt.removedDirs, "receipt must report every removed directory")
         assertFalse(io.exists("Chapter 1.manifest.json"))
@@ -197,5 +202,50 @@ class ChapterDataResetControllerPurgeTest {
         assertTrue(io.exists("Chapter 1_artifacts"))
         assertEquals(0, receipt.removedFiles)
         assertEquals(0, receipt.removedDirs)
+    }
+
+    @Test
+    fun `unsupported newer schema preserves files and reports failure`() = runBlocking<Unit> {
+        val io = FakeChapterDocumentIo()
+        AtomicChapterDocuments(io).publishJson(
+            "Chapter 1.manifest.json",
+            ChapterArtifactManifest(chapterKey = "Chapter 1", schemaVersion = 999),
+        ) shouldBe true
+        io.write("Chapter 1_artifacts/pages/0001/committed-g.json", byteArrayOf(2)) shouldBe true
+
+        val controller = newController(io)
+        val receipt = controller.deleteTranslation(
+            chapter = chapter(),
+            manga = mockk<Manga>(relaxed = true),
+            source = mockk<Source>(relaxed = true),
+        )
+
+        assertFalse(receipt.completed)
+        assertTrue(receipt.failures.any { it.contains("unsupported newer schema preserved: version=999") })
+        // Files must NOT be deleted
+        assertTrue(io.exists("Chapter 1.manifest.json"))
+        assertTrue(io.exists("Chapter 1_artifacts/pages/0001/committed-g.json"))
+        assertEquals(0, receipt.removedFiles)
+    }
+
+    @Test
+    fun `unreadable corrupt manifest preserves files and reports failure`() = runBlocking<Unit> {
+        val io = FakeChapterDocumentIo()
+        io.write("Chapter 1.manifest.json", "corrupt { json".toByteArray()) shouldBe true
+        io.write("Chapter 1_artifacts/pages/0001/committed-g.json", byteArrayOf(2)) shouldBe true
+
+        val controller = newController(io)
+        val receipt = controller.deleteTranslation(
+            chapter = chapter(),
+            manga = mockk<Manga>(relaxed = true),
+            source = mockk<Source>(relaxed = true),
+        )
+
+        assertFalse(receipt.completed)
+        assertTrue(receipt.failures.any { it.contains("unreadable manifest preserved") })
+        // Files and companions must NOT be deleted
+        assertTrue(io.exists("Chapter 1.manifest.json"))
+        assertTrue(io.exists("Chapter 1_artifacts/pages/0001/committed-g.json"))
+        assertEquals(0, receipt.removedFiles)
     }
 }

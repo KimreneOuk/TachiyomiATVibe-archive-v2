@@ -2,8 +2,7 @@ package eu.kanade.tachiyomi.ui.reader
 
 import eu.kanade.presentation.more.settings.widget.AiModelListState
 import eu.kanade.translation.engines.translator.providers.AiModelFetcher
-import eu.kanade.translation.engines.vision.ocr.OcrModelCatalog
-import eu.kanade.translation.model.TextRecognizerLanguage
+import eu.kanade.translation.settings.TranslationSettingsPreferenceWriter
 import kotlinx.coroutines.launch
 import tachiyomi.domain.translation.AiEngine
 import tachiyomi.domain.translation.ColorCombineMode
@@ -12,7 +11,6 @@ import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
-import tachiyomi.domain.translation.TranslationPreferences
 
 internal class ReaderTranslationSettingsWriter(
     private val controller: ReaderTranslationController,
@@ -20,104 +18,46 @@ internal class ReaderTranslationSettingsWriter(
     private val translationPreferences get() = controller.translationPreferences
     private val viewModelScope get() = controller.viewModelScope
     private val aiModelFetchState get() = controller.aiModelFetchState
+    private val preferenceWriter by lazy { TranslationSettingsPreferenceWriter(translationPreferences) }
 
-    internal fun setTranslationEnabled(enabled: Boolean) {
-        translationPreferences.translationEnabled().set(enabled)
-    }
+    internal fun setTranslationEnabled(enabled: Boolean) = preferenceWriter.setTranslationEnabled(enabled)
 
-    internal fun setAutoTranslate(auto: Boolean) {
-        translationPreferences.autoTranslate().set(auto)
-    }
-
-    internal fun setAutoColorize(auto: Boolean) {
-        translationPreferences.autoColorize().set(auto)
-        if (auto && translationPreferences.translationColorizationEnabled().get()) {
-            controller.colorizeCurrentPageForAuto()
-        }
-    }
+    internal fun setAutoTranslate(auto: Boolean) = preferenceWriter.setAutoTranslate(auto)
 
     /** TachiyomiAT: idle translate button ghost vs. show-only-with-controls. */
-    internal fun setTranslateButtonWithControls(withControls: Boolean) {
-        translationPreferences.translateButtonWithControls().set(withControls)
-    }
+    internal fun setTranslateButtonWithControls(withControls: Boolean) = preferenceWriter.setTranslateButtonWithControls(withControls)
 
-    internal fun setTranslateFromLanguage(language: String) {
-        translationPreferences.translateFromLanguage().set(language)
-        val recent = TranslationPreferences.decodeRecentLanguages(translationPreferences.translationRecentLanguagesFrom().get())
-        val updated = TranslationPreferences.encodeRecentLanguages(listOf(language) + recent)
-        translationPreferences.translationRecentLanguagesFrom().set(updated)
-    }
+    internal fun setTranslateFromLanguage(language: String) = preferenceWriter.setTranslateFromLanguage(language)
 
-    internal fun setTranslateToLanguage(language: String) {
-        translationPreferences.translateToLanguage().set(language)
-        val recent = TranslationPreferences.decodeRecentLanguages(translationPreferences.translationRecentLanguagesTo().get())
-        val updated = TranslationPreferences.encodeRecentLanguages(listOf(language) + recent)
-        translationPreferences.translationRecentLanguagesTo().set(updated)
-    }
+    internal fun setTranslateToLanguage(language: String) = preferenceWriter.setTranslateToLanguage(language)
 
-    internal fun setOcrModel(model: OcrModel) {
-        val fromValue = translationPreferences.translateFromLanguage().get()
-        val language = TextRecognizerLanguage.entries.firstOrNull { it.name == fromValue } ?: TextRecognizerLanguage.CHINESE
-        OcrModelCatalog.preferenceFor(translationPreferences, language).set(model)
-    }
+    internal fun setOcrModel(model: OcrModel) = preferenceWriter.setOcrModel(model)
 
-    internal fun setTranslationInpaintingMode(mode: String) {
-        translationPreferences.translationInpaintingMode().set(mode)
-    }
+    internal fun setTranslationInpaintingMode(mode: String) = preferenceWriter.setTranslationInpaintingMode(mode)
 
-    internal fun setTranslationInpaintingNeuralModel(model: NeuralInpaintModel) {
-        translationPreferences.translationInpaintingNeuralModel().set(model)
-    }
+    internal fun setTranslationInpaintingNeuralModel(model: NeuralInpaintModel) = preferenceWriter.setTranslationInpaintingNeuralModel(model)
 
-    internal fun setTranslationColorizationEnabled(enabled: Boolean) {
-        translationPreferences.translationColorizationEnabled().set(enabled)
-    }
+    internal fun setTranslationColorizationEnabled(enabled: Boolean) = preferenceWriter.setTranslationColorizationEnabled(enabled)
 
-    internal fun setTranslationColorizationModel(model: ColorizationModel) {
-        translationPreferences.translationColorizationModel().set(model)
-    }
+    internal fun setTranslationColorizationModel(model: ColorizationModel) = preferenceWriter.setTranslationColorizationModel(model)
 
-    internal fun setTranslationColorCombineMode(mode: ColorCombineMode) {
-        translationPreferences.colorCombineMode().set(mode)
-    }
+    internal fun setTranslationColorCombineMode(mode: ColorCombineMode) = preferenceWriter.setTranslationColorCombineMode(mode)
 
-    internal fun setTranslationUpscalingEnabled(enabled: Boolean) {
-        translationPreferences.translationUpscalingEnabled().set(enabled)
-    }
+    internal fun setTranslationUpscalingEnabled(enabled: Boolean) = preferenceWriter.setTranslationUpscalingEnabled(enabled)
 
-    internal fun setTranslationEngineCategory(category: TranslationEngineCategory) {
-        translationPreferences.translationEngineCategory().set(category)
-    }
+    internal fun setTranslationEngineCategory(category: TranslationEngineCategory) = preferenceWriter.setTranslationEngineCategory(category)
 
-    internal fun setTranslationStandardEngine(engine: StandardEngine) {
-        translationPreferences.translationStandardEngine().set(engine)
-    }
+    internal fun setTranslationStandardEngine(engine: StandardEngine) = preferenceWriter.setTranslationStandardEngine(engine)
 
-    internal fun setTranslationDeeplApiKey(key: String) {
-        translationPreferences.translationDeeplApiKey().set(key)
-    }
+    internal fun setTranslationDeeplApiKey(key: String) = preferenceWriter.setTranslationDeeplApiKey(key)
 
-    internal fun setTranslationAiEngine(engine: AiEngine) {
-        translationPreferences.translationAiEngine().set(engine)
-    }
+    internal fun setTranslationAiEngine(engine: AiEngine) = preferenceWriter.setTranslationAiEngine(engine)
 
-    internal fun setTranslationAiApiKey(key: String) {
-        val engine = translationPreferences.translationAiEngine().get()
-        translationPreferences.translationAiApiKey(engine).set(key)
-    }
+    internal fun setTranslationAiApiKey(key: String) = preferenceWriter.setTranslationAiApiKey(key)
 
-    internal fun setTranslationAiBaseUrl(url: String) {
-        val engine = translationPreferences.translationAiEngine().get()
-        translationPreferences.translationAiBaseUrl(engine)?.set(url)
-    }
+    internal fun setTranslationAiBaseUrl(url: String) = preferenceWriter.setTranslationAiBaseUrl(url)
 
-    internal fun setTranslationAiModel(model: String) {
-        val engine = translationPreferences.translationAiEngine().get()
-        translationPreferences.translationAiModel(engine).set(model)
-        val recentPref = translationPreferences.translationAiRecentModels(engine)
-        val recentModels = TranslationPreferences.decodeRecentModels(recentPref.get())
-        recentPref.set(TranslationPreferences.encodeRecentModels(listOf(model) + recentModels))
-    }
+    internal fun setTranslationAiModel(model: String) = preferenceWriter.setTranslationAiModel(model)
 
     internal fun fetchAiModels() {
         val aiEngine = translationPreferences.translationAiEngine().get()

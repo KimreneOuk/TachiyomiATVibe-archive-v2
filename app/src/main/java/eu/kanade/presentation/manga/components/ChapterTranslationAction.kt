@@ -6,7 +6,4 @@ enum class ChapterTranslationAction {
     DETAILS,
     CANCEL,
     DELETE,
-
-    /** Colorize-only run on the original pages: no OCR, translation, or inpaint. */
-    COLORIZE,
 }

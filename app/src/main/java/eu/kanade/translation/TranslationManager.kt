@@ -3,9 +3,12 @@ package eu.kanade.translation
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.annotation.VisibleForTesting
+import eu.kanade.tachiyomi.data.translation.TranslationForegroundService
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.coordinator.BatchAdmissionContext
+import eu.kanade.translation.coordinator.BatchQueuePauseState
+import eu.kanade.translation.coordinator.BatchQueueResumeResult
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.coordinator.CompletedDownloadRekeyCoordinator
@@ -290,10 +293,12 @@ class TranslationManager private constructor(
         failureKind: TranslationRequestFailureKind = TranslationRequestFailureKind.DOWNLOAD_FAILED,
     ) = requestCoordinator.markTranslationDownloadFailed(chapterId, reason, failureKind)
 
-    fun markTranslationHandoffFailed(
+    /** Fails only the request this completed download is still attached to. */
+    fun markAttachedDownloadHandoffFailed(
         chapterId: Long,
-        reason: String? = null,
-    ) = requestCoordinator.markTranslationHandoffFailed(chapterId, reason)
+        reason: String?,
+        failureKind: TranslationRequestFailureKind,
+    ): Boolean = requestCoordinator.markAttachedDownloadHandoffFailed(chapterId, reason, failureKind)
 
     fun onDownloadCancelledForTranslation(chapterId: Long) = requestCoordinator.onDownloadCancelled(chapterId)
 
@@ -303,6 +308,14 @@ class TranslationManager private constructor(
 
     fun cancelTranslationRequest(chapterId: Long): Boolean =
         requestCoordinator.cancelTranslationRequest(chapterId)
+
+    /** Fenced cancel: clears the request only while it still carries [expectedGeneration]. */
+    fun cancelTranslationRequestIfCurrent(chapterId: Long, expectedGeneration: Long): Boolean =
+        requestCoordinator.cancelTranslationRequestIfCurrent(chapterId, expectedGeneration)
+
+    /** Acknowledge-or-rearm-or-adopt under one lock; null = the caller is stale. */
+    fun beginTranslationRequestIfCurrent(chapterId: Long, expectedGeneration: Long?): Long? =
+        requestCoordinator.beginTranslationRequestIfCurrent(chapterId, expectedGeneration)
 
     fun clearStaleDownloadFailedRequest(chapterId: Long) = requestCoordinator.clearStaleDownloadFailedRequest(chapterId)
 
@@ -339,6 +352,28 @@ class TranslationManager private constructor(
 
     fun startTranslation() = batchCoordinator.startWithSessionAdmission()
 
+    val batchQueuePauseState: StateFlow<BatchQueuePauseState>
+        get() = batchCoordinator.batchQueuePauseState
+
+    val hasResumableBatchWork: StateFlow<Boolean>
+        get() = batchCoordinator.hasResumableBatchWork
+
+    suspend fun resumeBatchQueue(force: Boolean = false): BatchQueueResumeResult {
+        val result = batchCoordinator.resumeBatchQueue(force)
+        if (result is BatchQueueResumeResult.Resumed) TranslationForegroundService.start(context)
+        return result
+    }
+
+    suspend fun resumeBatchChapter(
+        chapterId: Long,
+        force: Boolean = false,
+        expectedRun: Translation? = null,
+    ): BatchQueueResumeResult {
+        val result = batchCoordinator.resumeBatchChapter(chapterId, force, expectedRun)
+        if (result is BatchQueueResumeResult.Resumed) TranslationForegroundService.start(context)
+        return result
+    }
+
     /** BALANCE/QUALITY starts cannot proceed while the selected model's assets are absent from this build. */
     fun isNeuralStartBlocked(): Boolean =
         LiteRtInpaintingAssetManager.isNeuralStartBlocked(translationPreferences, context)
@@ -364,6 +399,10 @@ class TranslationManager private constructor(
      */
     fun isChapterBatchActive(chapterId: Long, includePaused: Boolean): Boolean =
         batchCoordinator.isChapterBatchActive(chapterId, includePaused)
+
+    val translationQueuePaused: StateFlow<Boolean>
+        get() = batchCoordinator.isPausedFlow
+
     fun translateChapter(
         manga: Manga,
         chapters: Chapter,
@@ -491,8 +530,8 @@ class TranslationManager private constructor(
     fun translateChapterPreflight(manga: Manga, chapter: Chapter): ChapterQueuePreflight =
         batchCoordinator.queuePreflight(chapter.id, manga.source)
 
-    suspend fun cancelRunningChapterForReplace(chapterId: Long) =
-        readerCoordinator.cancelRunningChapterForReplace(chapterId)
+    suspend fun cancelRunningChapterForReplace(expectedRun: Translation, expectedRunGeneration: Long): Boolean =
+        readerCoordinator.cancelRunningChapterForReplace(expectedRun, expectedRunGeneration)
 
     // Progress flow orchestration lives in TranslationProgressProjection;
     // page/display/status truth is projected by ChapterTranslationStore.

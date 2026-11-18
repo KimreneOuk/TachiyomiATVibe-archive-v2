@@ -9,6 +9,7 @@ import eu.kanade.translation.diagnostics.BatchDownloadResult
 import eu.kanade.translation.diagnostics.BatchDownloadStage
 import eu.kanade.translation.diagnostics.BatchDownloadTraceBoundary
 import eu.kanade.translation.diagnostics.BatchDownloadTraceContext
+import eu.kanade.translation.model.TranslationRequestFailureKind
 import eu.kanade.translation.model.onlinePageTranslationKey
 import kotlinx.coroutines.CancellationException
 import logcat.LogPriority
@@ -65,7 +66,11 @@ internal class DownloadTranslationHandoff(
                                     RuntimeException(reason),
                                 )
                             }
-                            translationManager.markTranslationHandoffFailed(download.chapter.id, reason)
+                            translationManager.markAttachedDownloadHandoffFailed(
+                                download.chapter.id,
+                                reason,
+                                TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
+                            )
                             return
                         }
                         traceContext.generation(BatchDownloadTraceBoundary.HANDOFF)?.let { generation ->
@@ -129,7 +134,11 @@ internal class DownloadTranslationHandoff(
                                 ),
                             )
                         }
-                        translationManager.markTranslationHandoffFailed(download.chapter.id, reason)
+                        translationManager.markAttachedDownloadHandoffFailed(
+                            download.chapter.id,
+                            reason,
+                            TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
+                        )
                         return
                     }
                 }
@@ -144,13 +153,30 @@ internal class DownloadTranslationHandoff(
                 )
             }
             if (translationManager.isNeuralStartBlocked()) {
+                val reason =
+                    "Translation could not start after the chapter download: " +
+                        "the selected inpainting model assets are missing from this build"
                 logcat(LogPriority.WARN) {
-                    "Post-download auto-translation skipped for chapter ${download.chapter.id}: " +
+                    "Post-download auto-translation blocked for chapter ${download.chapter.id}: " +
                         "selected inpainting model assets are missing from this build"
                 }
-            } else {
-                translationManager.startTranslationAfterDownloadIfRequested(download.manga, download.chapter)
+                traceContext.generation(BatchDownloadTraceBoundary.HANDOFF)?.let { generation ->
+                    BatchDownloadDiagnostics.handoff(
+                        download.chapter.id,
+                        generation,
+                        stage,
+                        BatchDownloadResult.FAILED,
+                        RuntimeException(reason),
+                    )
+                }
+                translationManager.markAttachedDownloadHandoffFailed(
+                    download.chapter.id,
+                    reason,
+                    TranslationRequestFailureKind.CONFIG_INVALID,
+                )
+                return
             }
+            translationManager.startTranslationAfterDownloadIfRequested(download.manga, download.chapter)
             traceContext.generation(BatchDownloadTraceBoundary.HANDOFF)?.let { generation ->
                 BatchDownloadDiagnostics.handoff(
                     download.chapter.id,
@@ -182,10 +208,11 @@ internal class DownloadTranslationHandoff(
                 )
             }
             logcat(LogPriority.ERROR, error)
-            translationManager.markTranslationHandoffFailed(
+            translationManager.markAttachedDownloadHandoffFailed(
                 download.chapter.id,
                 "Translation could not start after the chapter download: " +
                     (error.message ?: error::class.java.simpleName),
+                TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
             )
         }
     }

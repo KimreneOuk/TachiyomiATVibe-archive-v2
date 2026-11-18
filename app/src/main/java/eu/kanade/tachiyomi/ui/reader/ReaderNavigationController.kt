@@ -77,6 +77,7 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
     private val translationPreferences get() = owner.translationPreferences
     private val translationManager get() = owner.translationManager
     private val manga get() = owner.manga
+    private val lastVisitedWriter get() = owner.lastVisitedWriter
     private var chapterId
         get() = owner.chapterId
         set(value) {
@@ -114,7 +115,18 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
         translationController.cancelTranslationForChapter(chapter)
     private suspend fun observeLiveTranslationStore() = owner.observeLiveTranslationStore()
     fun onActivityFinish() {
+        flushLastVisited()
         deletePendingChapters()
+    }
+
+    fun flushLastVisited() {
+        viewModelScope.launchNonCancellable {
+            lastVisitedWriter.flush()
+        }
+    }
+
+    suspend fun flushLastVisitedSuspend() {
+        lastVisitedWriter.flush()
     }
 
     /**
@@ -128,7 +140,7 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
      * Initializes this presenter with the given [mangaId] and [initialChapterId]. This method will
      * fetch the manga from the database and initialize the initial chapter.
      */
-    suspend fun init(mangaId: Long, initialChapterId: Long): Result<Boolean> {
+    suspend fun init(mangaId: Long, initialChapterId: Long, initialPage: Int? = null): Result<Boolean> {
         if (!needsInit()) return Result.success(true)
         val entryStage = ReaderEntryTrace.begin("vm.init", initialChapterId)
         return try {
@@ -139,6 +151,9 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
                         sourceManager.isInitialized.first { it }
                         mutableState.update { it.copy(manga = manga) }
                         if (chapterId == -1L) chapterId = initialChapterId
+                        if (initialPage != null && chapterPageIndex < 0) {
+                            chapterPageIndex = initialPage
+                        }
 
                         val context = Injekt.get<Application>()
                         val source = sourceManager.getOrStub(manga.source)
@@ -187,7 +202,15 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
             cancelTranslationForChapter(previousChapter)
         }
 
+        if (chapterPageIndex >= 0) {
+            chapter.requestedPage = chapterPageIndex
+        }
+
         loader.loadChapter(chapter)
+
+        if (chapterPageIndex >= 0) {
+            chapter.requestedPage = chapterPageIndex
+        }
 
         val landingIndex = chapter.requestedPage.coerceAtLeast(0)
         if (chapterPageIndex < 0) {
@@ -259,17 +282,6 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
                 val landingPage = pages?.getOrNull(landingIndex) as? ReaderPage
                 if (landingPage != null) {
                     handleAutoTranslation(landingPage, kickCurrentPage = true)
-                }
-            }
-            if (translationPreferences.translationColorizationEnabled().get() &&
-                translationPreferences.autoColorize().get()
-            ) {
-                val pages = chapter.pages
-                val landingIndex = chapter.requestedPage.coerceAtLeast(0)
-                    .coerceAtMost((pages?.lastIndex ?: 0))
-                val landingPage = pages?.getOrNull(landingIndex) as? ReaderPage
-                if (landingPage != null) {
-                    handleAutoColorize(landingPage)
                 }
             }
         }
@@ -424,6 +436,18 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
             updateChapterProgress(selectedChapter, page)
         }
 
+        if (!incognitoMode && page.status != Page.State.ERROR) {
+            val mId = manga?.id
+            val cId = selectedChapter.chapter.id
+            if (mId != null && cId != null) {
+                lastVisitedWriter.recordVisit(
+                    mangaId = mId,
+                    chapterId = cId,
+                    page = pageIndex.toLong(),
+                )
+            }
+        }
+
         if (selectedChapter != getCurrentChapter()) {
             logcat { "Setting ${selectedChapter.chapter.url} as active" }
             loadNewChapter(selectedChapter)
@@ -455,21 +479,6 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
                 }
             }
         }
-        if (translationPreferences.translationColorizationEnabled().get() &&
-            translationPreferences.autoColorize().get()
-        ) {
-            val active = state.value.viewerChapters
-            val stillActive = active != null &&
-                selectedChapter === active.currChapter
-            if (stillActive) {
-                handleAutoColorize(page)
-            } else {
-                logcat {
-                    "Dropping auto-colorize for page ${page.index}: chapter ${selectedChapter.chapter.url} " +
-                        "no longer active (stale cross-chapter event)"
-                }
-            }
-        }
 
         eventChannel.trySend(ReaderViewModel.Event.PageChanged)
     }
@@ -478,9 +487,6 @@ internal class ReaderNavigationController(private val owner: ReaderViewModel) {
         currentPage: ReaderPage,
         kickCurrentPage: Boolean = false,
     ) = translationController.handleAutoTranslation(currentPage, kickCurrentPage)
-
-    private fun handleAutoColorize(currentPage: ReaderPage) =
-        translationController.handleAutoColorize(currentPage)
 
     private fun resetAutoTranslationState() =
         translationController.resetAutoTranslationState()

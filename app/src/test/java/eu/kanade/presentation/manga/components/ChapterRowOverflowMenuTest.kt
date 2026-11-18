@@ -2,87 +2,84 @@ package eu.kanade.presentation.manga.components
 
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.translation.model.Translation
+import eu.kanade.translation.model.TranslationRequestPhase
+import eu.kanade.translation.model.TranslationRequestState
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Menu routing for the chapter row's overflow menu. Every state with
- * observable translation work exposes the progress drawer (DETAILS); only
- * chapters with committed data expose a reset (DELETE).
- */
 class ChapterRowOverflowMenuTest {
+    private fun request(phase: TranslationRequestPhase) = TranslationRequestState(chapterId = 1L, phase = phase)
 
     @Test
-    fun `idle chapter offers translate and colorize`() {
+    fun `translate starts or retries idle and terminal work`() {
         assertEquals(
-            listOf(ChapterTranslationAction.START, ChapterTranslationAction.COLORIZE),
-            chapterOverflowTranslationActions(Translation.State.NOT_TRANSLATED, hasPendingRequest = false),
+            ChapterTranslationAction.START,
+            chapterOverflowTranslationAction(Translation.State.NOT_TRANSLATED, null),
         )
-    }
-
-    @Test
-    fun `pending request offers details and cancel`() {
-        assertEquals(
-            listOf(ChapterTranslationAction.DETAILS, ChapterTranslationAction.CANCEL),
-            chapterOverflowTranslationActions(Translation.State.NOT_TRANSLATED, hasPendingRequest = true),
-        )
-    }
-
-    @Test
-    fun `queued and translating states offer details and cancel`() {
-        listOf(Translation.State.QUEUE, Translation.State.TRANSLATING).forEach { state ->
-            assertEquals(
-                listOf(ChapterTranslationAction.DETAILS, ChapterTranslationAction.CANCEL),
-                chapterOverflowTranslationActions(state, hasPendingRequest = false),
-                "state $state must offer DETAILS and CANCEL",
-            )
-        }
-    }
-
-    @Test
-    fun `paused state offers resume before details and cancel`() {
-        assertEquals(
-            listOf(ChapterTranslationAction.START, ChapterTranslationAction.DETAILS, ChapterTranslationAction.CANCEL),
-            chapterOverflowTranslationActions(Translation.State.PAUSED, hasPendingRequest = false),
-        )
-    }
-
-    @Test
-    fun `states with committed data offer details retranslate and reset`() {
         listOf(
-            Translation.State.TRANSLATED,
-            Translation.State.READY_WITH_WARNINGS,
-            Translation.State.ERROR,
-        ).forEach { state ->
+            TranslationRequestPhase.DOWNLOAD_FAILED,
+            TranslationRequestPhase.ADMISSION_FAILED,
+            TranslationRequestPhase.CANCELLED,
+        ).forEach { phase ->
             assertEquals(
-                listOf(
-                    ChapterTranslationAction.DETAILS,
-                    ChapterTranslationAction.START,
-                    ChapterTranslationAction.DELETE,
-                ),
-                chapterOverflowTranslationActions(state, hasPendingRequest = false),
-                "state $state must offer DETAILS, START and DELETE",
+                ChapterTranslationAction.START,
+                chapterOverflowTranslationAction(Translation.State.NOT_TRANSLATED, request(phase)),
             )
+        }
+        listOf(Translation.State.TRANSLATED, Translation.State.READY_WITH_WARNINGS, Translation.State.ERROR).forEach {
+            assertEquals(ChapterTranslationAction.START, chapterOverflowTranslationAction(it, null))
         }
     }
 
     @Test
-    fun `download menu follows download state`() {
+    fun `translate opens progress for live or paused work`() {
+        listOf(
+            TranslationRequestPhase.STARTING,
+            TranslationRequestPhase.WAITING_FOR_DOWNLOAD,
+            TranslationRequestPhase.PREPARING,
+        ).forEach { phase ->
+            assertEquals(
+                ChapterTranslationAction.DETAILS,
+                chapterOverflowTranslationAction(Translation.State.NOT_TRANSLATED, request(phase)),
+            )
+        }
+        listOf(Translation.State.QUEUE, Translation.State.TRANSLATING, Translation.State.PAUSED).forEach {
+            assertEquals(ChapterTranslationAction.DETAILS, chapterOverflowTranslationAction(it, null))
+        }
+    }
+
+    @Test
+    fun `download is enabled only when a download can be started`() {
+        assertTrue(chapterOverflowDownloadEnabled(Download.State.NOT_DOWNLOADED))
+        assertTrue(chapterOverflowDownloadEnabled(Download.State.ERROR))
+        assertFalse(chapterOverflowDownloadEnabled(Download.State.QUEUE))
+        assertFalse(chapterOverflowDownloadEnabled(Download.State.DOWNLOADING))
+        assertFalse(chapterOverflowDownloadEnabled(Download.State.DOWNLOADED))
+    }
+
+    @Test
+    fun `row glyph is error for failures, progress for live work, none otherwise`() {
         assertEquals(
-            listOf(ChapterDownloadAction.START, ChapterDownloadAction.START_NOW),
-            chapterOverflowDownloadActions(Download.State.NOT_DOWNLOADED),
+            TranslationRowRequestGlyph.ERROR,
+            translationRowRequestGlyph(request(TranslationRequestPhase.DOWNLOAD_FAILED)),
         )
         assertEquals(
-            listOf(ChapterDownloadAction.START_NOW, ChapterDownloadAction.CANCEL),
-            chapterOverflowDownloadActions(Download.State.QUEUE),
+            TranslationRowRequestGlyph.ERROR,
+            translationRowRequestGlyph(request(TranslationRequestPhase.ADMISSION_FAILED)),
         )
+        listOf(
+            TranslationRequestPhase.STARTING,
+            TranslationRequestPhase.WAITING_FOR_DOWNLOAD,
+            TranslationRequestPhase.PREPARING,
+        ).forEach { phase ->
+            assertEquals(TranslationRowRequestGlyph.PROGRESS, translationRowRequestGlyph(request(phase)))
+        }
         assertEquals(
-            listOf(ChapterDownloadAction.DELETE),
-            chapterOverflowDownloadActions(Download.State.DOWNLOADED),
+            TranslationRowRequestGlyph.NONE,
+            translationRowRequestGlyph(request(TranslationRequestPhase.CANCELLED)),
         )
-        assertEquals(
-            listOf(ChapterDownloadAction.START),
-            chapterOverflowDownloadActions(Download.State.ERROR),
-        )
+        assertEquals(TranslationRowRequestGlyph.NONE, translationRowRequestGlyph(null))
     }
 }

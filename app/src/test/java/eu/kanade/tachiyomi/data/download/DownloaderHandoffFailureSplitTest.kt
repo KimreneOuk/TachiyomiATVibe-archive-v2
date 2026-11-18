@@ -117,9 +117,10 @@ class DownloaderHandoffFailureSplitTest {
         // failure must not flip it back to ERROR.
         download.status shouldBe Download.State.DOWNLOADED
         verify {
-            manager.markTranslationHandoffFailed(
+            manager.markAttachedDownloadHandoffFailed(
                 chapterId,
                 match { reason -> reason.contains("rekey boom") },
+                TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
             )
         }
         coVerify(exactly = 0) { manager.startTranslationAfterDownloadIfRequested(any(), any()) }
@@ -144,7 +145,7 @@ class DownloaderHandoffFailureSplitTest {
             onDiskKeys = listOf("000.jpg"),
         )
 
-        verify(exactly = 0) { manager.markTranslationHandoffFailed(any(), any()) }
+        verify(exactly = 0) { manager.markAttachedDownloadHandoffFailed(any(), any(), any()) }
         coVerify(exactly = 0) { manager.startTranslationAfterDownloadIfRequested(any(), any()) }
     }
 
@@ -167,9 +168,10 @@ class DownloaderHandoffFailureSplitTest {
         // The rekey ran; only the handoff failed.
         coVerify(exactly = 1) { manager.rekeyTranslationForCompletedDownload(any(), any(), any(), any(), any()) }
         verify {
-            manager.markTranslationHandoffFailed(
+            manager.markAttachedDownloadHandoffFailed(
                 chapterId,
                 match { reason -> reason.contains("handoff boom") },
+                TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
             )
         }
     }
@@ -192,7 +194,7 @@ class DownloaderHandoffFailureSplitTest {
             manager.rekeyTranslationForCompletedDownload(any(), any(), any(), any(), any())
             manager.startTranslationAfterDownloadIfRequested(any(), any())
         }
-        verify(exactly = 0) { manager.markTranslationHandoffFailed(any(), any()) }
+        verify(exactly = 0) { manager.markAttachedDownloadHandoffFailed(any(), any(), any()) }
     }
 
     @Test
@@ -212,7 +214,7 @@ class DownloaderHandoffFailureSplitTest {
 
         download.status shouldBe Download.State.DOWNLOADED
         coVerify(exactly = 1) { manager.startTranslationAfterDownloadIfRequested(manga, chapter) }
-        verify(exactly = 0) { manager.markTranslationHandoffFailed(any(), any()) }
+        verify(exactly = 0) { manager.markAttachedDownloadHandoffFailed(any(), any(), any()) }
     }
 
     @Test
@@ -233,7 +235,7 @@ class DownloaderHandoffFailureSplitTest {
         }
 
         download.status shouldBe Download.State.DOWNLOADED
-        verify(exactly = 0) { manager.markTranslationHandoffFailed(any(), any()) }
+        verify(exactly = 0) { manager.markAttachedDownloadHandoffFailed(any(), any(), any()) }
     }
 
     @Test
@@ -251,7 +253,31 @@ class DownloaderHandoffFailureSplitTest {
         download.status shouldBe Download.State.DOWNLOADED
         coVerify(exactly = 0) { manager.rekeyTranslationForCompletedDownload(any(), any(), any(), any(), any()) }
         coVerify(exactly = 1) { manager.startTranslationAfterDownloadIfRequested(any(), any()) }
-        verify(exactly = 0) { manager.markTranslationHandoffFailed(any(), any()) }
+        verify(exactly = 0) { manager.markAttachedDownloadHandoffFailed(any(), any(), any()) }
+    }
+
+    @Test
+    fun `missing inpainting model assets fail the handoff honestly instead of a silent skip`() = runBlocking<Unit> {
+        val manager = mockManager()
+        every { manager.isNeuralStartBlocked() } returns true
+        val downloader = downloader(manager)
+        val download = newDownload()
+
+        downloader.handOffAfterFinalization(
+            download = download,
+            pageList = listOf(Page(0, "u0", "iu0")),
+            onDiskKeys = listOf("000.jpg"),
+        )
+
+        download.status shouldBe Download.State.DOWNLOADED
+        verify {
+            manager.markAttachedDownloadHandoffFailed(
+                chapterId,
+                match { reason -> reason.contains("inpainting model") },
+                TranslationRequestFailureKind.CONFIG_INVALID,
+            )
+        }
+        coVerify(exactly = 0) { manager.startTranslationAfterDownloadIfRequested(any(), any()) }
     }
 
     // ----------------------- finalize-stage boundary (behavior unchanged) ----
@@ -308,19 +334,22 @@ class DownloaderHandoffFailureSplitTest {
 
     /**
      * The typed translation-intent failure uses the R10 admission-failure
-     * typing (phase ADMISSION_FAILED, kind QUEUE_ADMISSION_FAILED) â€” the files
-     * are fine, so it is never a download failure. Exercised on a real
-     * in-memory manager like the slice 2 notification tests.
+     * typing on the fenced write: phase ADMISSION_FAILED, kind from the
+     * caller — the files are fine, so it is never a download failure.
      */
     @Test
-    fun `markTranslationHandoffFailed writes ADMISSION_FAILED with QUEUE_ADMISSION_FAILED durably`() {
+    fun `markAttachedDownloadHandoffFailed writes ADMISSION_FAILED durably`() {
         val preferences = InMemorySharedPreferences()
         val manager = uninitializedManager(preferences)
         manager.queueTranslationAfterDownload(manga, chapter)
         manager.pendingTranslationRequests.value.getValue(chapterId).phase shouldBe
             TranslationRequestPhase.WAITING_FOR_DOWNLOAD
 
-        manager.markTranslationHandoffFailed(chapterId, "Translation could not start after the chapter download: rekey boom")
+        manager.markAttachedDownloadHandoffFailed(
+            chapterId,
+            "Translation could not start after the chapter download: rekey boom",
+            TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
+        )
 
         val state = manager.pendingTranslationRequests.value.getValue(chapterId)
         state.phase shouldBe TranslationRequestPhase.ADMISSION_FAILED
@@ -331,10 +360,10 @@ class DownloaderHandoffFailureSplitTest {
     }
 
     @Test
-    fun `markTranslationHandoffFailed is a no-op without a pending request`() {
+    fun `markAttachedDownloadHandoffFailed is a no-op without a pending request`() {
         val manager = uninitializedManager(InMemorySharedPreferences())
 
-        manager.markTranslationHandoffFailed(chapterId, "boom")
+        manager.markAttachedDownloadHandoffFailed(chapterId, "boom", TranslationRequestFailureKind.CONFIG_INVALID)
 
         manager.pendingTranslationRequests.value.isEmpty() shouldBe true
     }

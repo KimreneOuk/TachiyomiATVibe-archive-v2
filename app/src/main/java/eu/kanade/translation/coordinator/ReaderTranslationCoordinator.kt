@@ -79,6 +79,7 @@ internal class ReaderTranslationCoordinator(
     private val readerGeneration = AtomicLong()
     private val readerStopEpoch = AtomicLong()
     private val chapterCancellations = ConcurrentHashMap.newKeySet<String>()
+    private val chapterReplacementCancellations = ConcurrentHashMap.newKeySet<String>()
     private val chapterCancellationJobs = ConcurrentHashMap<String, Job>()
     private val chapterCancellationLock = Any()
     private val outcomes = ReaderOutcomeStore()
@@ -354,6 +355,7 @@ internal class ReaderTranslationCoordinator(
             if (batchSwitchPauseRequested ||
                 readerStopInFlight ||
                 chapterKey in chapterCancellations ||
+                chapterKey in chapterReplacementCancellations ||
                 isBatchActiveForChapter(chapterKey)
             ) {
                 return@withLock null
@@ -366,6 +368,7 @@ internal class ReaderTranslationCoordinator(
             if (batchSwitchPauseRequested ||
                 readerStopInFlight ||
                 chapterKey in chapterCancellations ||
+                chapterKey in chapterReplacementCancellations ||
                 isBatchActiveForChapter(chapterKey) ||
                 !admitReaderSession(chapterId)
             ) {
@@ -806,11 +809,28 @@ internal class ReaderTranslationCoordinator(
     fun cancelPageTranslation(chapterId: Long, pageKey: String): Boolean =
         cancelPageAsync(chapterId.toString(), pageKey)
 
-    suspend fun cancelRunningChapterForReplace(chapterId: Long) {
-        val chapter = batchCoordinator?.queuedTranslationOrNull(chapterId)?.chapter ?: return
-        cancelChapter(chapterId.toString())
-        activeStores?.get(chapterId)?.clearTransientQueuePages("Replaced by another chapter's batch")
-        batchCoordinator.removeFromQueue(chapter)
+    suspend fun cancelRunningChapterForReplace(expectedRun: Translation, expectedRunGeneration: Long): Boolean {
+        val chapterId = expectedRun.chapter.id ?: return false
+        val chapterKey = chapterId.toString()
+        val reserved = sessionBindingMutex.withLock {
+            val queue = batchCoordinator ?: return@withLock false
+            if (!queue.reserveRunningChapterForReplace(expectedRun, expectedRunGeneration)) return@withLock false
+            chapterReplacementCancellations.add(chapterKey)
+            chapterCancellations.add(chapterKey)
+            invalidateSession(chapterKey)
+            true
+        }
+        if (!reserved) return false
+
+        try {
+            cancelChapter(chapterKey)
+            activeStores?.get(chapterId)?.clearTransientQueuePages("Replaced by another chapter's batch")
+            return batchCoordinator?.removeReplacedChapterIfCurrent(expectedRun, expectedRunGeneration) == true
+        } finally {
+            batchCoordinator?.releaseChapterReplacementReservation(expectedRun, expectedRunGeneration)
+            chapterReplacementCancellations.remove(chapterKey)
+            chapterCancellations.remove(chapterKey)
+        }
     }
 
     suspend fun cancelPageTranslations(chapterId: Long, reason: String = "Translation cancelled") {
@@ -913,6 +933,7 @@ internal class ReaderTranslationCoordinator(
         autoEnabledChapters.clear()
         sessionBindings.clear()
         chapterCancellations.clear()
+        chapterReplacementCancellations.clear()
         outcomes.clearAll()
         viewport.clear()
         sessionSwitchProtocol.clear()

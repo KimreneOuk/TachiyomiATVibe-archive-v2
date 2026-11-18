@@ -3,6 +3,7 @@ package eu.kanade.translation.persistence
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import org.junit.jupiter.api.Test
 
 class ChapterArtifactDeletionTest {
@@ -181,5 +182,45 @@ class ChapterArtifactDeletionTest {
         } else {
             io.exists(layout.manifestFileName) shouldBe false
         }
+    }
+
+    @Test
+    fun `captureClassified identifies unsupported newer schemas`() {
+        val io = FakeChapterDocumentIo()
+        AtomicChapterDocuments(io).publishJson(
+            layout.manifestFileName,
+            ChapterArtifactManifest(chapterKey = layout.chapterKey, schemaVersion = 999),
+        ) shouldBe true
+
+        val capture = ChapterArtifactDeletionPlan.captureClassified(io, "Chapter 1.json")
+        capture.shouldBeInstanceOf<ArtifactDeletionPlanCapture.UnsupportedNewerSchema>()
+        (capture as ArtifactDeletionPlanCapture.UnsupportedNewerSchema).schemaVersion shouldBe 999
+        // Legacy capture returns null for newer schemas
+        ChapterArtifactDeletionPlan.capture(io, "Chapter 1.json") shouldBe null
+    }
+
+    @Test
+    fun `captureClassified identifies absent chapters`() {
+        val io = FakeChapterDocumentIo()
+        val capture = ChapterArtifactDeletionPlan.captureClassified(io, "Chapter 1.json")
+        capture shouldBe ArtifactDeletionPlanCapture.Absent
+    }
+
+    @Test
+    fun `captureClassified identifies ready deletion plan for current schema`() {
+        val io = FakeChapterDocumentIo()
+        AtomicChapterDocuments(io).publishJson(layout.manifestFileName, manifest()) shouldBe true
+
+        val capture = ChapterArtifactDeletionPlan.captureClassified(io, "Chapter 1.json")
+        capture.shouldBeInstanceOf<ArtifactDeletionPlanCapture.Ready>()
+    }
+
+    @Test
+    fun `captureClassified identifies unreadable corrupt manifests`() {
+        val io = FakeChapterDocumentIo()
+        io.write(layout.manifestFileName, "not valid json {".toByteArray()) shouldBe true
+
+        val capture = ChapterArtifactDeletionPlan.captureClassified(io, "Chapter 1.json")
+        capture.shouldBeInstanceOf<ArtifactDeletionPlanCapture.Unreadable>()
     }
 }

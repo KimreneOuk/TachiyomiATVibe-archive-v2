@@ -257,6 +257,7 @@ class MangaScreenModelMultiSelectBatchTest {
             setMangaCategories = mockk(relaxed = true),
             mangaRepository = mockk(relaxed = true),
             filterChaptersForDownload = mockk(relaxed = true),
+            getMangaLastVisited = mockk(relaxed = true),
         )
         awaitUntil("screen state becomes Success") { successState() != null }
         initialCollectorJobs = model.screenModelScope.coroutineContext[Job]?.children?.toSet().orEmpty()

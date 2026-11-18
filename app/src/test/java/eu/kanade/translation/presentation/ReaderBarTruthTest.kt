@@ -13,7 +13,8 @@ import org.junit.jupiter.api.Test
 /**
  * The reader bottom bar uses the same phase truth as the progress sheet.
  * During a resume rebuild it shows rebuild/restore copy instead of a frozen
- * "Batch X/Y" count, while preserving the existing wording and visibility.
+ * "Batch X/Y" count. Wording stays short and legacy where it existed; the
+ * pre-registration building-context window now surfaces like the sheet's.
  */
 class ReaderBarTruthTest {
 
@@ -164,18 +165,20 @@ class ReaderBarTruthTest {
     }
 
     @Test
-    fun `idle queued and building-context snapshots keep the bar hidden`() {
+    fun `idle queue snapshots keep the bar hidden - building context surfaces`() {
         TranslationUiTruth.readerBarLine(
             snapshot(state = Translation.State.QUEUE, batchPhase = TranslationBatchPhase.IDLE),
         ).shouldBeNull()
         TranslationUiTruth.readerBarLine(
             snapshot(state = Translation.State.NOT_TRANSLATED, batchPhase = TranslationBatchPhase.IDLE),
         ).shouldBeNull()
-        // TRANSLATING with an IDLE phase (pre-registration window) was hidden
-        // before U; it stays hidden — the bar only surfaces real phases.
-        TranslationUiTruth.readerBarLine(
+        // Pre-registration TRANSLATING surfaces the same building-context truth
+        // the progress sheet shows instead of staying hidden.
+        val line = TranslationUiTruth.readerBarLine(
             snapshot(state = Translation.State.TRANSLATING, batchPhase = TranslationBatchPhase.IDLE),
-        ).shouldBeNull()
+        )!!
+        line.kind shouldBe BatchStatusLineKind.BUILDING_CONTEXT
+        line.fallback shouldBe "Building context & scanning completed pages..."
     }
 
     // ------------------------------ sheet status line shares the same truth ---

@@ -122,11 +122,19 @@ internal class ChapterTranslationAccessController(
         }
         val store = if (chapterId != null) {
             activeStores.getOrCreate(chapterId, document.registryKey) {
-                ChapterTranslationStore.openArtifactSuspend(document.parent, document.fileName)
+                ChapterTranslationStore.openArtifactSuspend(
+                    document.parent,
+                    document.fileName,
+                    lazyPageSnapshots = true,
+                )
             }
         } else {
             activeStores.getOrCreateFile(document.registryKey) {
-                ChapterTranslationStore.openArtifactSuspend(document.parent, document.fileName)
+                ChapterTranslationStore.openArtifactSuspend(
+                    document.parent,
+                    document.fileName,
+                    lazyPageSnapshots = true,
+                )
             }
         }
         if (!hadActive) durableStatusResolver.clearDurableStatusCache()
@@ -216,7 +224,11 @@ internal class ChapterTranslationAccessController(
         val registered = activeStores.getOrCreate(chapterId, document?.registryKey) {
             freshlyCreated = true
             if (manifestProbe?.exists == true) {
-                ChapterTranslationStore.openArtifactSuspend(document.parent, fileName)
+                ChapterTranslationStore.openArtifactSuspend(
+                    document.parent,
+                    fileName,
+                    lazyPageSnapshots = true,
+                )
             } else {
                 ChapterTranslationStore.lazy(
                     artifactParent = document?.parent,
@@ -226,6 +238,11 @@ internal class ChapterTranslationAccessController(
             }
         } ?: return null
         registered.enableLazyPersistence()
+        registered.writeDrain.cancelPendingUnregister()
+        registered.writeDrain.onEventualUnregister = {
+            activeStores.remove(chapterId)
+            durableStatusResolver.clearDurableStatusCache()
+        }
         if (freshlyCreated) {
             // The fresh open's orphaned-candidate sweep may have rewritten the
             // manifest; cached durable statuses must not outlive that repair.
@@ -243,8 +260,21 @@ internal class ChapterTranslationAccessController(
         return registered
     }
 
-    suspend fun unregisterActiveTranslationStore(chapterId: Long) {
-        activeStores.remove(chapterId)?.markDefunct()
-        durableStatusResolver.clearDurableStatusCache()
+    suspend fun unregisterActiveTranslationStore(chapterId: Long, force: Boolean = false): Boolean {
+        val store = activeStores.get(chapterId) ?: return true
+        return when (val outcome = store.markDefunct(force)) {
+            is StoreDefunctOutcome.Flushed,
+            is StoreDefunctOutcome.FlushedWithDeferred -> {
+                activeStores.remove(chapterId)
+                durableStatusResolver.clearDurableStatusCache()
+                true
+            }
+            is StoreDefunctOutcome.IncompleteRetained -> {
+                logcat(LogPriority.WARN) {
+                    "TachiyomiAT retained active translation store for chapter $chapterId: drain incomplete (${outcome.pendingCount} pending)"
+                }
+                false
+            }
+        }
     }
 }

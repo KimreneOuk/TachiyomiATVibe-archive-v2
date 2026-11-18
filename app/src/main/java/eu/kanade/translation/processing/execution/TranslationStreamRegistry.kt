@@ -231,6 +231,11 @@ class TranslationStreamRegistry(
         }
     }
 
+    sealed interface ChapterRetirementDispatch {
+        data object Executed : ChapterRetirementDispatch
+        data class Deferred(val pendingLeaseCount: Int) : ChapterRetirementDispatch
+    }
+
     /**
      * Defers a destructive chapter-image-directory removal until every cleaned
      * stream currently held for the chapter has closed or reached the bounded
@@ -242,29 +247,27 @@ class TranslationStreamRegistry(
         mangaId: Long,
         chapterId: Long,
         deleteChapter: () -> Unit,
-    ) {
-        val keys = synchronized(cleanedLeaseLock) {
-            cleanedLeases.keys.filter {
-                it.sourceId == sourceId && it.mangaId == mangaId && it.chapterId == chapterId
+    ): ChapterRetirementDispatch {
+        synchronized(cleanedLeaseLock) {
+            val matching = cleanedLeases.entries.filter { (key, record) ->
+                key.sourceId == sourceId && key.mangaId == mangaId && key.chapterId == chapterId && record.readers > 0
             }
-        }
-        if (keys.isEmpty()) {
-            runCatching(deleteChapter)
-            return
-        }
-        val remaining = java.util.concurrent.atomic.AtomicInteger(keys.size)
-        val deleteWhenReleased = {
-            if (remaining.decrementAndGet() == 0) runCatching(deleteChapter)
-        }
-        keys.forEach { key ->
-            retireCleanedImage(
-                sourceId = key.sourceId,
-                mangaId = key.mangaId,
-                chapterId = key.chapterId,
-                pageKey = key.pageKey,
-                imageName = key.imageName,
-                delete = deleteWhenReleased,
-            )
+            if (matching.isEmpty()) {
+                runCatching(deleteChapter)
+                return ChapterRetirementDispatch.Executed
+            }
+            val remaining = java.util.concurrent.atomic.AtomicInteger(matching.size)
+            val deleteWhenReleased = {
+                if (remaining.decrementAndGet() == 0) runCatching(deleteChapter)
+            }
+            matching.forEach { (key, record) ->
+                record.pendingDeletes += deleteWhenReleased
+                cleanupScope.launch {
+                    delay(cleanedRetirementGraceMs)
+                    expireCleanedImageLease(key)
+                }
+            }
+            return ChapterRetirementDispatch.Deferred(matching.size)
         }
     }
 
@@ -293,6 +296,19 @@ class TranslationStreamRegistry(
                     key.imageName == imageName
             }
             .sumOf { (_, record) -> record.readers }
+    }
+
+    fun hasActiveCleanedImageReadersForChapter(
+        sourceId: Long,
+        mangaId: Long,
+        chapterId: Long,
+    ): Boolean = synchronized(cleanedLeaseLock) {
+        cleanedLeases.entries.any { (key, record) ->
+            key.sourceId == sourceId &&
+                key.mangaId == mangaId &&
+                key.chapterId == chapterId &&
+                record.readers > 0
+        }
     }
 
     private fun releaseCleanedImageLease(key: CleanedLeaseKey) {

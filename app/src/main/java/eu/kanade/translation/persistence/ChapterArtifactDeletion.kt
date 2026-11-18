@@ -25,6 +25,14 @@ data class ChapterArtifactDeletionResult(
     val complete: Boolean get() = failures.isEmpty()
 }
 
+/** Classification of deletion plan capture before teardown begins. */
+sealed interface ArtifactDeletionPlanCapture {
+    data class Ready(val plan: ChapterArtifactDeletionPlan) : ArtifactDeletionPlanCapture
+    data class UnsupportedNewerSchema(val schemaVersion: Int) : ArtifactDeletionPlanCapture
+    data class Unreadable(val reason: String) : ArtifactDeletionPlanCapture
+    data object Absent : ArtifactDeletionPlanCapture
+}
+
 /** Captures artifact-owned paths before teardown; read-only until [delete] after workers are cancelled and joined. */
 class ChapterArtifactDeletionPlan private constructor(
     private val io: ChapterDocumentIo,
@@ -145,8 +153,8 @@ class ChapterArtifactDeletionPlan private constructor(
     }
 
     companion object {
-        /** Captures a deletion plan without opening a translation store. */
-        fun capture(io: ChapterDocumentIo, artifactFileName: String): ChapterArtifactDeletionPlan? {
+        /** Classified plan capture; detects unsupported newer schemas before destructive operations. */
+        fun captureClassified(io: ChapterDocumentIo, artifactFileName: String): ArtifactDeletionPlanCapture {
             val layout = ChapterArtifactLayout.fromArtifactFileName(artifactFileName)
             val documents = AtomicChapterDocuments(io)
             val manifest = runCatching {
@@ -154,21 +162,54 @@ class ChapterArtifactDeletionPlan private constructor(
             }.getOrNull()
             // Never destroy a document owned by a newer schema version.
             if (manifest?.schemaVersion?.let { it > ChapterArtifactManifest.SCHEMA_VERSION } == true) {
-                return null
+                return ArtifactDeletionPlanCapture.UnsupportedNewerSchema(manifest.schemaVersion)
             }
             val siblings = ownedManifestSiblingNames(io, layout.manifestFileName)
-            if (manifest == null &&
-                !io.exists(layout.artifactRootDirectoryName) &&
-                siblings.none { io.exists(it) }
-            ) {
-                return null
+            if (manifest != null) {
+                return ArtifactDeletionPlanCapture.Ready(
+                    ChapterArtifactDeletionPlan(
+                        io = io,
+                        layout = layout,
+                        manifestSiblingNames = siblings,
+                    ),
+                )
             }
-            return ChapterArtifactDeletionPlan(
-                io = io,
-                layout = layout,
-                manifestSiblingNames = siblings,
+
+            val manifestFileExists = io.exists(layout.manifestFileName) ||
+                io.exists(AtomicChapterDocuments.backupNameFor(layout.manifestFileName))
+            if (manifestFileExists) {
+                val rawBytes = io.read(layout.manifestFileName)
+                    ?: io.read(AtomicChapterDocuments.backupNameFor(layout.manifestFileName))
+                val rawString = rawBytes?.toString(Charsets.UTF_8).orEmpty()
+                val detectedVersion = Regex(""""schemaVersion"\s*:\s*(\d+)""").find(rawString)
+                    ?.groupValues?.getOrNull(1)?.toIntOrNull()
+                if (detectedVersion != null && detectedVersion > ChapterArtifactManifest.SCHEMA_VERSION) {
+                    return ArtifactDeletionPlanCapture.UnsupportedNewerSchema(detectedVersion)
+                }
+                return ArtifactDeletionPlanCapture.Unreadable(
+                    "manifest or backup exists but cannot be validated: ${layout.manifestFileName}",
+                )
+            }
+
+            if (!io.exists(layout.artifactRootDirectoryName) && siblings.none { io.exists(it) }) {
+                return ArtifactDeletionPlanCapture.Absent
+            }
+
+            return ArtifactDeletionPlanCapture.Ready(
+                ChapterArtifactDeletionPlan(
+                    io = io,
+                    layout = layout,
+                    manifestSiblingNames = siblings,
+                ),
             )
         }
+
+        /** Captures a deletion plan without opening a translation store. */
+        fun capture(io: ChapterDocumentIo, artifactFileName: String): ChapterArtifactDeletionPlan? =
+            when (val result = captureClassified(io, artifactFileName)) {
+                is ArtifactDeletionPlanCapture.Ready -> result.plan
+                else -> null
+            }
 
         private fun ownedManifestSiblingNames(io: ChapterDocumentIo, manifestName: String): List<String> {
             val corruptBase = AtomicChapterDocuments.corruptNameFor(manifestName)
@@ -198,8 +239,10 @@ data class ChapterResetReceipt(
     val failures: List<String>,
     val removedFiles: Int = 0,
     val removedDirs: Int = 0,
+    val deferredLeasedFiles: Int = 0,
 ) {
     val completed: Boolean get() = failures.isEmpty()
+    val confirmedRemovedFiles: Int get() = removedFiles
 
     companion object {
         val COMPLETE = ChapterResetReceipt(failures = emptyList())
@@ -208,10 +251,12 @@ data class ChapterResetReceipt(
             failures: List<String>,
             removedFiles: Int = 0,
             removedDirs: Int = 0,
+            deferredLeasedFiles: Int = 0,
         ): ChapterResetReceipt = ChapterResetReceipt(
             failures = failures.filter { it.isNotBlank() }.distinct(),
             removedFiles = removedFiles,
             removedDirs = removedDirs,
+            deferredLeasedFiles = deferredLeasedFiles,
         )
     }
 }

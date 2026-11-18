@@ -12,7 +12,6 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,49 +40,19 @@ import tachiyomi.presentation.core.components.material.DISABLED_ALPHA
 import tachiyomi.presentation.core.components.material.IconButtonTokens
 import tachiyomi.presentation.core.i18n.stringResource
 
-/**
- * Menu items the chapter row's overflow menu offers for the translation
- * coordinator, derived from the chapter's translation state. Chapters with
- * observable work always expose the progress drawer; only chapters with
- * committed data expose a reset.
- */
-internal fun chapterOverflowTranslationActions(
+internal fun chapterOverflowTranslationAction(
     state: Translation.State,
-    hasPendingRequest: Boolean,
-): List<ChapterTranslationAction> = when (state) {
-    Translation.State.NOT_TRANSLATED ->
-        if (hasPendingRequest) {
-            listOf(ChapterTranslationAction.DETAILS, ChapterTranslationAction.CANCEL)
-        } else {
-            listOf(ChapterTranslationAction.START, ChapterTranslationAction.COLORIZE)
-        }
-    Translation.State.QUEUE, Translation.State.TRANSLATING ->
-        listOf(ChapterTranslationAction.DETAILS, ChapterTranslationAction.CANCEL)
-    Translation.State.PAUSED ->
-        listOf(
-            ChapterTranslationAction.START,
-            ChapterTranslationAction.DETAILS,
-            ChapterTranslationAction.CANCEL,
-        )
-    Translation.State.TRANSLATED,
-    Translation.State.READY_WITH_WARNINGS,
-    Translation.State.ERROR,
-    ->
-        listOf(
-            ChapterTranslationAction.DETAILS,
-            ChapterTranslationAction.START,
-            ChapterTranslationAction.DELETE,
-        )
+    request: TranslationRequestState?,
+): ChapterTranslationAction = when {
+    state == Translation.State.QUEUE || state == Translation.State.TRANSLATING ||
+        state == Translation.State.PAUSED -> ChapterTranslationAction.DETAILS
+    state == Translation.State.NOT_TRANSLATED && request != null && !request.isTerminal ->
+        ChapterTranslationAction.DETAILS
+    else -> ChapterTranslationAction.START
 }
 
-/** Download menu items for the chapter row's overflow menu. */
-internal fun chapterOverflowDownloadActions(state: Download.State): List<ChapterDownloadAction> = when (state) {
-    Download.State.NOT_DOWNLOADED -> listOf(ChapterDownloadAction.START, ChapterDownloadAction.START_NOW)
-    Download.State.QUEUE, Download.State.DOWNLOADING ->
-        listOf(ChapterDownloadAction.START_NOW, ChapterDownloadAction.CANCEL)
-    Download.State.DOWNLOADED -> listOf(ChapterDownloadAction.DELETE)
-    Download.State.ERROR -> listOf(ChapterDownloadAction.START)
-}
+internal fun chapterOverflowDownloadEnabled(state: Download.State): Boolean =
+    state == Download.State.NOT_DOWNLOADED || state == Download.State.ERROR
 
 /**
  * The chapter row's single action entry point: a three-dot button opening a
@@ -95,57 +64,35 @@ fun ChapterRowOverflowMenu(
     enabled: Boolean,
     translationStateProvider: () -> Translation.State,
     translationRequestProvider: () -> TranslationRequestState?,
-    downloadedProvider: () -> Boolean,
     downloadStateProvider: () -> Download.State,
     onTranslationAction: ((ChapterTranslationAction) -> Unit)?,
     onDownloadAction: ((ChapterDownloadAction) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
-    val translationActions = chapterOverflowTranslationActions(
-        state = translationStateProvider(),
-        hasPendingRequest = translationRequestProvider() != null,
-    )
-    val downloadActions = if (onDownloadAction != null) {
-        chapterOverflowDownloadActions(downloadStateProvider())
-    } else {
-        emptyList()
-    }
-
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         DropdownMenu(
             expanded = isMenuExpanded,
             onDismissRequest = { isMenuExpanded = false },
         ) {
-            translationActions.forEach { action ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = translationActionLabel(
-                                action = action,
-                                state = translationStateProvider(),
-                                downloaded = downloadedProvider(),
-                            ),
-                        )
-                    },
-                    onClick = {
-                        isMenuExpanded = false
-                        onTranslationAction?.invoke(action)
-                    },
-                )
-            }
-            if (translationActions.isNotEmpty() && downloadActions.isNotEmpty()) {
-                HorizontalDivider()
-            }
-            downloadActions.forEach { action ->
-                DropdownMenuItem(
-                    text = { Text(text = downloadActionLabel(action)) },
-                    onClick = {
-                        isMenuExpanded = false
-                        onDownloadAction?.invoke(action)
-                    },
-                )
-            }
+            DropdownMenuItem(
+                text = { Text(text = stringResource(ATMR.strings.manga_translate)) },
+                enabled = onTranslationAction != null,
+                onClick = {
+                    isMenuExpanded = false
+                    onTranslationAction?.invoke(
+                        chapterOverflowTranslationAction(translationStateProvider(), translationRequestProvider()),
+                    )
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(text = stringResource(MR.strings.manga_download)) },
+                enabled = onDownloadAction != null && chapterOverflowDownloadEnabled(downloadStateProvider()),
+                onClick = {
+                    isMenuExpanded = false
+                    onDownloadAction?.invoke(ChapterDownloadAction.START)
+                },
+            )
         }
         Box(
             modifier = Modifier
@@ -171,33 +118,6 @@ fun ChapterRowOverflowMenu(
             )
         }
     }
-}
-
-@Composable
-private fun translationActionLabel(
-    action: ChapterTranslationAction,
-    state: Translation.State,
-    downloaded: Boolean,
-): String = when (action) {
-    ChapterTranslationAction.START -> when (state) {
-        Translation.State.PAUSED -> stringResource(MR.strings.action_resume)
-        Translation.State.NOT_TRANSLATED -> stringResource(
-            if (downloaded) ATMR.strings.manga_translate else ATMR.strings.manga_translate_download_first,
-        )
-        else -> stringResource(ATMR.strings.reader_page_retranslate_action)
-    }
-    ChapterTranslationAction.DETAILS -> stringResource(ATMR.strings.manga_translation_details)
-    ChapterTranslationAction.CANCEL -> stringResource(ATMR.strings.manga_translation_cancel)
-    ChapterTranslationAction.DELETE -> stringResource(ATMR.strings.manga_chapter_reset_data)
-    ChapterTranslationAction.COLORIZE -> stringResource(ATMR.strings.manga_colorize)
-}
-
-@Composable
-private fun downloadActionLabel(action: ChapterDownloadAction): String = when (action) {
-    ChapterDownloadAction.START -> stringResource(MR.strings.manga_download)
-    ChapterDownloadAction.START_NOW -> stringResource(MR.strings.action_start_downloading_now)
-    ChapterDownloadAction.CANCEL -> stringResource(MR.strings.action_cancel)
-    ChapterDownloadAction.DELETE -> stringResource(MR.strings.action_delete)
 }
 
 /**
@@ -231,6 +151,17 @@ fun ChapterRowStatus(
     }
 }
 
+/** Terminal phase shown without motion; failures get the error glyph. */
+internal fun translationRowRequestGlyph(request: TranslationRequestState?): TranslationRowRequestGlyph = when {
+    request == null -> TranslationRowRequestGlyph.NONE
+    request.phase == TranslationRequestPhase.DOWNLOAD_FAILED ||
+        request.phase == TranslationRequestPhase.ADMISSION_FAILED -> TranslationRowRequestGlyph.ERROR
+    request.phase == TranslationRequestPhase.CANCELLED -> TranslationRowRequestGlyph.NONE
+    else -> TranslationRowRequestGlyph.PROGRESS
+}
+
+internal enum class TranslationRowRequestGlyph { NONE, PROGRESS, ERROR }
+
 @Composable
 private fun TranslationStatusGlyph(
     state: Translation.State,
@@ -238,10 +169,10 @@ private fun TranslationStatusGlyph(
     progress: TranslationProgressSnapshot?,
 ) {
     when (state) {
-        Translation.State.NOT_TRANSLATED -> when {
-            request == null -> {}
-            request.phase == TranslationRequestPhase.DOWNLOAD_FAILED -> ErrorGlyph()
-            else -> ProgressGlyph(color = MaterialTheme.colorScheme.primary)
+        Translation.State.NOT_TRANSLATED -> when (translationRowRequestGlyph(request)) {
+            TranslationRowRequestGlyph.NONE -> {}
+            TranslationRowRequestGlyph.PROGRESS -> ProgressGlyph(color = MaterialTheme.colorScheme.primary)
+            TranslationRowRequestGlyph.ERROR -> ErrorGlyph()
         }
         Translation.State.QUEUE, Translation.State.TRANSLATING -> ProgressGlyph(
             color = MaterialTheme.colorScheme.primary,

@@ -7,8 +7,10 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.util.lang.toTimestampString
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.PageColorizeOutcome
+import eu.kanade.translation.coordinator.BatchQueueResumeResult
 import eu.kanade.translation.coordinator.ReaderPageWork
 import eu.kanade.translation.coordinator.ReaderSessionToken
 import eu.kanade.translation.coordinator.ReaderSubmission
@@ -31,6 +33,7 @@ import tachiyomi.i18n.at.ATMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.InputStream
+import java.util.Date
 
 internal class ReaderTranslationActions(private val controller: ReaderTranslationController) {
     private val owner get() = controller.owner
@@ -154,7 +157,9 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
         }
 
         viewModelScope.launchIO {
-            val receipt = translationManager.deleteTranslation(chapter.toDomainChapter()!!, manga, source)
+            val receipt = withContext(NonCancellable) {
+                translationManager.deleteTranslation(chapter.toDomainChapter()!!, manga, source)
+            }
             // Re-subscribe to the (now fresh) store AFTER teardown. deleteTranslation
             // has already evicted the old store, so openOrCreate... resolves a new
             // lazy store that the next translate also resolves — reader and
@@ -170,7 +175,7 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
                     app.toast(
                         app.stringResource(
                             ATMR.strings.reader_chapter_reset_complete,
-                            receipt.removedFiles,
+                            receipt.confirmedRemovedFiles,
                             receipt.removedDirs,
                         ),
                     )
@@ -543,19 +548,41 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
         }
     }
 
-    /** Re-arms the current durable batch; provider cooldowns are enforced by the manager. */
-    internal fun retryCurrentBatch(force: Boolean = false) {
-        val chapterId = getCurrentChapter()?.chapter?.id ?: return
+    /** Re-arms the reader card's chapter after a recoverable non-durable result. */
+    internal fun retryCurrentBatch(chapterId: Long, force: Boolean = false) {
         viewModelScope.launchIO {
             val resumed = translationManager.requeueTranslation(chapterId, force)
             if (resumed) {
                 translationManager.startTranslation()
             } else {
                 withUIContext {
-                    Injekt.get<Application>().toast(
-                        "Translation is still paused; retry when the provider cooldown expires",
-                    )
+                    val app = Injekt.get<Application>()
+                    app.toast(app.stringResource(ATMR.strings.reader_activity_resume_rejected))
                 }
+            }
+        }
+    }
+
+    internal fun resumeBatchChapter(chapterId: Long) {
+        viewModelScope.launchIO {
+            val feedback = translationManager.resumeBatchChapter(chapterId)
+                .toReaderBatchResumeFeedback()
+            if (feedback == ReaderBatchResumeFeedback.None) return@launchIO
+
+            withUIContext {
+                val app = Injekt.get<Application>()
+                val message = when (feedback) {
+                    ReaderBatchResumeFeedback.None -> null
+                    ReaderBatchResumeFeedback.PauseUnwinding ->
+                        app.stringResource(ATMR.strings.batch_translation_resume_pause_unwinding)
+                    is ReaderBatchResumeFeedback.RetryDeferred -> app.stringResource(
+                        ATMR.strings.batch_translation_resume_retry_deferred,
+                        Date(feedback.retryAtEpochMs).toTimestampString(),
+                    )
+                    ReaderBatchResumeFeedback.Rejected ->
+                        app.stringResource(ATMR.strings.reader_activity_resume_rejected)
+                }
+                if (message != null) app.toast(message)
             }
         }
     }
@@ -698,6 +725,30 @@ internal enum class ReaderColorizeOutcome {
     TRANSLATION_JOB_ACTIVE,
     QUEUED,
     QUEUE_FAILED,
+}
+
+internal sealed interface ReaderBatchResumeFeedback {
+    data object None : ReaderBatchResumeFeedback
+    data object PauseUnwinding : ReaderBatchResumeFeedback
+    data class RetryDeferred(val retryAtEpochMs: Long) : ReaderBatchResumeFeedback
+    data object Rejected : ReaderBatchResumeFeedback
+}
+
+internal fun BatchQueueResumeResult.toReaderBatchResumeFeedback(): ReaderBatchResumeFeedback = when (this) {
+    is BatchQueueResumeResult.Resumed,
+    BatchQueueResumeResult.AlreadyRunning,
+    -> ReaderBatchResumeFeedback.None
+    BatchQueueResumeResult.PauseUnwinding -> ReaderBatchResumeFeedback.PauseUnwinding
+    is BatchQueueResumeResult.RetryDeferred -> ReaderBatchResumeFeedback.RetryDeferred(retryAtEpochMs)
+    is BatchQueueResumeResult.BatchRetryDeferred -> retryAtEpochMsByChapterId.values.minOrNull()
+        ?.let { ReaderBatchResumeFeedback.RetryDeferred(it) }
+        ?: ReaderBatchResumeFeedback.Rejected
+    BatchQueueResumeResult.NoResumableWork,
+    is BatchQueueResumeResult.QueueItemMissing,
+    is BatchQueueResumeResult.StaleQueueItem,
+    is BatchQueueResumeResult.NotResumable,
+    is BatchQueueResumeResult.SessionRejected,
+    -> ReaderBatchResumeFeedback.Rejected
 }
 
 internal inline fun resolveReaderColorizeOutcome(

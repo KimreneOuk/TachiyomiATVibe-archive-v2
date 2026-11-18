@@ -18,7 +18,6 @@ import tachiyomi.domain.translation.TranslationEngineCategory
 data class TranslationSettingsState(
     val enabled: Boolean = false,
     val autoTranslate: Boolean = false,
-    val autoColorize: Boolean = false,
     val translateFromLanguage: String = "",
     val translateButtonWithControls: Boolean = false,
     val floaterEnabled: Boolean = true,

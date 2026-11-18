@@ -70,7 +70,7 @@ class PageInpaintingEngineTest {
     }
 
     @Test
-    fun `BALANCE with no neural session fails the page unless fallback pref is enabled`() {
+    fun `BALANCE with no neural session fails the page`() {
         val inpainter = mockk<NeuralInpaintingCoordinator>()
         every { inpainter.isInitialized() } returns false
         every { inpainter.freeTextNeuralFill = any() } just runs
@@ -78,40 +78,11 @@ class PageInpaintingEngineTest {
         val page = PageTranslation()
         page.inpaintMaskBoxes = listOf(InpaintMaskBox(10, 20, 40, 60, 2))
 
-        PageInpaintingEngine(InpaintingMode.BALANCE, inpainter, qualityFallbackPref = { false }, notifyInpaintFailed = {})
+        PageInpaintingEngine(InpaintingMode.BALANCE, inpainter, notifyInpaintFailed = {})
             .inpaint(bitmap(), page) shouldBe null
 
         page.inpaintStatus shouldBe StageStatus.FAILED
         page.errorMessage?.contains("unavailable") shouldBe true
-
-        val cleaned = mockk<Bitmap>()
-        every { inpainter.lastRunDegraded } returns false
-        every { inpainter.inpaintRegions(any(), any(), any(), any(), any()) } returns cleaned
-        val page2 = PageTranslation()
-        page2.inpaintMaskBoxes = listOf(InpaintMaskBox(10, 20, 40, 60, 2))
-        PageInpaintingEngine(InpaintingMode.BALANCE, inpainter, qualityFallbackPref = { true })
-            .inpaint(bitmap(), page2) shouldBe cleaned
-        page2.inpaintStatus shouldBe StageStatus.READY
-    }
-
-    @Test
-    fun `fallback pref is read live per inpaint call`() {
-        val inpainter = mockk<NeuralInpaintingCoordinator>()
-        every { inpainter.isInitialized() } returns false
-        every { inpainter.freeTextNeuralFill = any() } just runs
-        every { inpainter.bubbleNeuralFill = any() } just runs
-        every { inpainter.lastRunDegraded } returns false
-        every { inpainter.inpaintRegions(any(), any(), any(), any(), any()) } returns mockk()
-        val page1 = PageTranslation().apply { inpaintMaskBoxes = listOf(InpaintMaskBox(0, 0, 10, 10, 2)) }
-        val page2 = PageTranslation().apply { inpaintMaskBoxes = listOf(InpaintMaskBox(0, 0, 10, 10, 2)) }
-        var pref = false
-        val engine = PageInpaintingEngine(InpaintingMode.QUALITY, inpainter, qualityFallbackPref = { pref }, notifyInpaintFailed = {})
-
-        engine.inpaint(bitmap(), page1)
-        page1.inpaintStatus shouldBe StageStatus.FAILED
-        pref = true
-        engine.inpaint(bitmap(), page2)
-        page2.inpaintStatus shouldBe StageStatus.READY
     }
 
     @Test
@@ -215,14 +186,12 @@ class PageInpaintingEngineTest {
     }
 
     @Test
-    fun `LiteRT model with unavailable interpreter falls back to the classical dispatch`() {
+    fun `LiteRT model with unavailable interpreter fails the page`() {
         val inpainter = mockk<NeuralInpaintingCoordinator>()
         val litert = mockk<LiteRTMangaInpaintingEngine>()
         every { inpainter.isInitialized() } returns false
         every { inpainter.freeTextNeuralFill = any() } just runs
         every { inpainter.bubbleNeuralFill = any() } just runs
-        every { inpainter.lastRunDegraded } returns false
-        every { inpainter.inpaintRegions(any(), any(), any(), any(), any()) } returns mockk()
         every { litert.isAvailable() } returns false
         val page = PageTranslation().apply { inpaintMaskBoxes = listOf(InpaintMaskBox(0, 0, 10, 10, 2)) }
 
@@ -230,20 +199,11 @@ class PageInpaintingEngineTest {
             InpaintingMode.QUALITY,
             inpainter,
             litertInpainter = litert,
-            qualityFallbackPref = { true },
-        ).inpaint(bitmap(), page)
+            notifyInpaintFailed = {},
+        ).inpaint(bitmap(), page) shouldBe null
 
-        verify {
-            inpainter.inpaintRegions(
-                any(),
-                any(),
-                any(),
-                RegionDispatch(RegionBackend.SMOOTH_DIFFUSION, RegionBackend.OPENCV_TELEA),
-                any(),
-            )
-        }
-        verify { inpainter.freeTextNeuralFill = null }
-        verify { inpainter.bubbleNeuralFill = null }
+        page.inpaintStatus shouldBe StageStatus.FAILED
+        page.errorMessage?.contains("unavailable") shouldBe true
     }
 
     @Test
@@ -344,15 +304,15 @@ class PageInpaintingEngineTest {
     fun `a failed page announces to the user while success and cancellation stay silent`() {
         val announced = mutableListOf<String>()
 
-        // Neural-less QUALITY needs an explicit fallback pref or the engine
-        // throws before reaching the backend under test.
+        // FAST never gates on neural sessions, so every coordinator shape
+        // below reaches the backend under test.
         val failing = mockk<NeuralInpaintingCoordinator>()
         every { failing.isInitialized() } returns false
         every { failing.freeTextNeuralFill = any() } just runs
         every { failing.bubbleNeuralFill = any() } just runs
         every { failing.inpaintRegions(any(), any(), any(), any(), any()) } throws IllegalStateException("cleanup failed")
         val failedPage = PageTranslation().apply { inpaintMaskBoxes = listOf(InpaintMaskBox(0, 0, 10, 10, 2)) }
-        PageInpaintingEngine(InpaintingMode.QUALITY, failing, qualityFallbackPref = { true }, notifyInpaintFailed = announced::add)
+        PageInpaintingEngine(InpaintingMode.FAST, failing, notifyInpaintFailed = announced::add)
             .inpaint(bitmap(), failedPage)
 
         val succeeding = mockk<NeuralInpaintingCoordinator>()
@@ -362,7 +322,7 @@ class PageInpaintingEngineTest {
         every { succeeding.lastRunDegraded } returns false
         every { succeeding.inpaintRegions(any(), any(), any(), any(), any()) } returns mockk()
         val readyPage = PageTranslation().apply { inpaintMaskBoxes = listOf(InpaintMaskBox(0, 0, 10, 10, 2)) }
-        PageInpaintingEngine(InpaintingMode.QUALITY, succeeding, qualityFallbackPref = { true }, notifyInpaintFailed = announced::add)
+        PageInpaintingEngine(InpaintingMode.FAST, succeeding, notifyInpaintFailed = announced::add)
             .inpaint(bitmap(), readyPage)
 
         val cancelling = mockk<NeuralInpaintingCoordinator>()
@@ -372,12 +332,12 @@ class PageInpaintingEngineTest {
         every { cancelling.inpaintRegions(any(), any(), any(), any(), any()) } throws CancellationException("cancelled")
         val cancelledPage = PageTranslation().apply { inpaintMaskBoxes = listOf(InpaintMaskBox(0, 0, 10, 10, 2)) }
         try {
-            PageInpaintingEngine(InpaintingMode.QUALITY, cancelling, qualityFallbackPref = { true }, notifyInpaintFailed = announced::add)
+            PageInpaintingEngine(InpaintingMode.FAST, cancelling, notifyInpaintFailed = announced::add)
                 .inpaint(bitmap(), cancelledPage)
         } catch (_: CancellationException) {
         }
 
-        announced shouldBe listOf("QUALITY")
+        announced shouldBe listOf("FAST")
     }
 
     private fun assertMaskProcessed(page: PageTranslation) {

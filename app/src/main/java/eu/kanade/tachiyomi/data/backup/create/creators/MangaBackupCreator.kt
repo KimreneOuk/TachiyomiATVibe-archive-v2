@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.data.backup.create.creators
 import eu.kanade.tachiyomi.data.backup.create.BackupOptions
 import eu.kanade.tachiyomi.data.backup.models.BackupChapter
 import eu.kanade.tachiyomi.data.backup.models.BackupHistory
+import eu.kanade.tachiyomi.data.backup.models.BackupLastVisited
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.backupChapterMapper
 import eu.kanade.tachiyomi.data.backup.models.backupTrackMapper
@@ -10,6 +11,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import tachiyomi.data.DatabaseHandler
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.history.interactor.GetHistory
+import tachiyomi.domain.manga.interactor.GetMangaLastVisited
 import tachiyomi.domain.manga.model.Manga
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -18,6 +20,7 @@ class MangaBackupCreator(
     private val handler: DatabaseHandler = Injekt.get(),
     private val getCategories: GetCategories = Injekt.get(),
     private val getHistory: GetHistory = Injekt.get(),
+    private val getMangaLastVisited: GetMangaLastVisited = Injekt.get(),
 ) {
 
     suspend operator fun invoke(mangas: List<Manga>, options: BackupOptions): List<BackupManga> {
@@ -71,6 +74,18 @@ class MangaBackupCreator(
                 }
                 if (history.isNotEmpty()) {
                     mangaObject.history = history
+                }
+            }
+
+            val lastVisited = getMangaLastVisited.await(manga.id)
+            if (lastVisited != null) {
+                val chapter = handler.awaitOneOrNull { chaptersQueries.getChapterById(lastVisited.chapterId) }
+                if (chapter != null) {
+                    mangaObject.lastVisited = BackupLastVisited(
+                        url = chapter.url,
+                        lastVisitedPage = lastVisited.lastVisitedPage,
+                        visitedAt = lastVisited.visitedAt,
+                    )
                 }
             }
         }

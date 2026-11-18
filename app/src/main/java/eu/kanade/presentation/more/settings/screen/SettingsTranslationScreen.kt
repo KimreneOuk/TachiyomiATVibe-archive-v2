@@ -90,22 +90,10 @@ object SettingsTranslationScreen : SearchableSettings {
                     title = stringResource(ATMR.strings.pref_colorization_enabled),
                     subtitle = stringResource(ATMR.strings.pref_colorization_enabled_summary),
                 ),
-                Preference.PreferenceItem.SwitchPreference(
-                    pref = translationPreferences.autoColorize(),
-                    title = stringResource(ATMR.strings.pref_auto_colorize),
-                    subtitle = stringResource(ATMR.strings.pref_auto_colorize_summary),
-                    enabled = colorizationEnabled,
-                ),
                 Preference.PreferenceItem.ListPreference(
                     pref = translationPreferences.translationColorizationModel(),
                     title = stringResource(ATMR.strings.pref_colorization_model),
                     entries = models.toImmutableMap(),
-                    enabled = colorizationEnabled,
-                ),
-                Preference.PreferenceItem.SwitchPreference(
-                    pref = translationPreferences.preferFfdnetDenoising(),
-                    title = stringResource(ATMR.strings.pref_ffdnet_denoising),
-                    subtitle = stringResource(ATMR.strings.pref_ffdnet_denoising_summary),
                     enabled = colorizationEnabled,
                 ),
             ),
@@ -170,14 +158,7 @@ object SettingsTranslationScreen : SearchableSettings {
         }
         return Preference.PreferenceGroup(
             title = stringResource(ATMR.strings.pref_inpainting_mode),
-            preferenceItems = preferenceItems.add(
-                Preference.PreferenceItem.SwitchPreference(
-                    pref = translationPreferences.translationInpaintQualityFallback(),
-                    title = "Neural → classical fallback",
-                    subtitle = "Use classical inpainting when the neural model is unavailable (Balance/Quality)",
-                    enabled = inpaintMode == "BALANCE" || inpaintMode == "QUALITY",
-                ),
-            ),
+            preferenceItems = preferenceItems,
         )
     }
 

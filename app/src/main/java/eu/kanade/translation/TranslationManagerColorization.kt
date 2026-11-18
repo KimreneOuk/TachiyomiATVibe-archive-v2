@@ -62,11 +62,5 @@ internal class TranslationManagerColorization(
                 .drop(1)
                 .collect(::swapColorizationEngine)
         }
-        scope.launch {
-            preferences.preferFfdnetDenoising().changes()
-                .distinctUntilChanged()
-                .drop(1)
-                .collect { swapColorizationEngine(currentModel()) }
-        }
     }
 }

@@ -78,6 +78,7 @@ internal class AdmissionTestFixture(
                     it.status = Translation.State.QUEUE
                 }
             }
+            true
         }
         every { translator.removeFromQueue(any<Chapter>()) } answers {
             val removedId = firstArg<Chapter>().id

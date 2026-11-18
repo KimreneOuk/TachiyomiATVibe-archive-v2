@@ -118,7 +118,10 @@ class ReaderViewModel @JvmOverloads constructor(
     internal val streamRegistry: TranslationStreamRegistry = Injekt.get(),
     internal val chapterCache: ChapterCache = Injekt.get(),
     val translationPreferences: tachiyomi.domain.translation.TranslationPreferences = Injekt.get(),
+    private val upsertMangaLastVisited: tachiyomi.domain.manga.interactor.UpsertMangaLastVisited = Injekt.get(),
 ) : ViewModel() {
+
+    internal val lastVisitedWriter by lazy { ReaderLastVisitedWriter(upsertMangaLastVisited, viewModelScope) }
 
     internal val mutableState = MutableStateFlow(State())
     val state = mutableState.asStateFlow()
@@ -173,13 +176,11 @@ class ReaderViewModel @JvmOverloads constructor(
                     translationPreferences.translationColorizationEnabled().changes(),
                     combine(
                         translationPreferences.translationColorizationModel().changes(),
-                        translationPreferences.autoColorize().changes(),
                         translationPreferences.translationUpscalingEnabled().changes(),
                         translationPreferences.colorCombineMode().changes(),
-                    ) { model, autoColorize, upscalingEnabled, combineMode ->
+                    ) { model, upscalingEnabled, combineMode ->
                         TranslationColorizationSettings(
                             model = model,
-                            autoColorize = autoColorize,
                             upscalingEnabled = upscalingEnabled,
                             combineMode = combineMode,
                         )
@@ -291,7 +292,6 @@ class ReaderViewModel @JvmOverloads constructor(
             inpaintingNeuralModel = requestOptions.language.image.inpaintingNeuralModel,
             colorizationEnabled = requestOptions.language.image.colorizationEnabled,
             colorizationModel = requestOptions.language.image.colorization.model,
-            autoColorize = requestOptions.language.image.colorization.autoColorize,
             upscalingEnabled = requestOptions.language.image.colorization.upscalingEnabled,
             colorCombineMode = requestOptions.language.image.colorization.combineMode,
             engineCategory = engineSettings.category,
@@ -576,7 +576,6 @@ class ReaderViewModel @JvmOverloads constructor(
         // via the Translation settings sheet each session. It then stays on while
         // navigating within this reader session.
         translationPreferences.autoTranslate().set(false)
-        translationPreferences.autoColorize().set(false)
 
         // S3 (Milestone M2): Warm up recognition engines when translation is enabled.
         if (translationPreferences.translationEnabled().get()) {
@@ -611,14 +610,6 @@ class ReaderViewModel @JvmOverloads constructor(
             .onEach { enabled ->
                 translationController.onReaderAutoToggled(enabled)
             }
-            .launchIn(viewModelScope)
-
-        combine(
-            translationPreferences.translationColorizationEnabled().changes(),
-            translationPreferences.autoColorize().changes(),
-        ) { colorEnabled, autoColor -> colorEnabled && autoColor }
-            .distinctUntilChanged()
-            .onEach { if (it) translationController.colorizeCurrentPageForAuto() }
             .launchIn(viewModelScope)
 
         // Compute-epoch rebind trigger: when the active translator family
@@ -867,7 +858,9 @@ class ReaderViewModel @JvmOverloads constructor(
 
     fun onActivityFinish() = navigationController.onActivityFinish()
     fun needsInit() = navigationController.needsInit()
-    suspend fun init(mangaId: Long, initialChapterId: Long): Result<Boolean> = navigationController.init(mangaId, initialChapterId)
+    suspend fun init(mangaId: Long, initialChapterId: Long, initialPage: Int? = null): Result<Boolean> = navigationController.init(mangaId, initialChapterId, initialPage)
+    fun flushLastVisited() = navigationController.flushLastVisited()
+    suspend fun flushLastVisitedSuspend() = navigationController.flushLastVisitedSuspend()
     suspend fun preload(chapter: ReaderChapter) = navigationController.preload(chapter)
     fun onViewerLoaded(viewer: Viewer?) = navigationController.onViewerLoaded(viewer)
     fun onPageSelected(page: ReaderPage) = navigationController.onPageSelected(page)
@@ -986,17 +979,21 @@ class ReaderViewModel @JvmOverloads constructor(
     fun stopAllTranslation() =
         translationController.stopAllTranslation()
 
-    fun retryCurrentBatch(force: Boolean = false) =
-        translationController.retryCurrentBatch(force)
+    fun retryCurrentBatch(chapterId: Long, force: Boolean = false) =
+        translationController.retryCurrentBatch(chapterId, force)
+
+    fun resumeBatchChapter(chapterId: Long) = translationController.resumeBatchChapter(chapterId)
+
+    fun pauseActiveBatch() = translationController.pauseActiveBatch()
+
+    fun cancelQueuedTranslationRequest(chapterId: Long) =
+        translationController.cancelQueuedTranslationRequest(chapterId)
 
     fun setTranslationEnabled(enabled: Boolean) =
         translationController.setTranslationEnabled(enabled)
 
     fun setAutoTranslate(auto: Boolean) =
         translationController.setAutoTranslate(auto)
-
-    fun setAutoColorize(auto: Boolean) =
-        translationController.setAutoColorize(auto)
 
     /** TachiyomiAT: translate button presentation (adaptive ghost vs. with-controls). */
     fun setTranslateButtonWithControls(withControls: Boolean) =
@@ -1142,7 +1139,6 @@ private data class TranslationCoreSettings(
 
 private data class TranslationColorizationSettings(
     val model: ColorizationModel,
-    val autoColorize: Boolean,
     val upscalingEnabled: Boolean,
     val combineMode: ColorCombineMode,
 )

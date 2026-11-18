@@ -3,8 +3,10 @@ package eu.kanade.presentation.manga
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,18 +20,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -44,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastAny
 import androidx.compose.ui.util.fastMap
@@ -55,6 +55,7 @@ import eu.kanade.presentation.manga.components.ExpandableMangaDescription
 import eu.kanade.presentation.manga.components.MangaActionRow
 import eu.kanade.presentation.manga.components.MangaBottomActionMenu
 import eu.kanade.presentation.manga.components.MangaChapterListItem
+import eu.kanade.presentation.manga.components.MangaFloatingResumeBar
 import eu.kanade.presentation.manga.components.MangaInfoBox
 import eu.kanade.presentation.manga.components.MangaToolbar
 import eu.kanade.presentation.manga.components.MissingChapterCountListItem
@@ -72,11 +73,10 @@ import tachiyomi.domain.source.model.StubSource
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.TwoPanelBox
 import tachiyomi.presentation.core.components.VerticalFastScroller
-import tachiyomi.presentation.core.components.material.ExtendedFloatingActionButton
+import tachiyomi.presentation.core.components.material.FabPosition
 import tachiyomi.presentation.core.components.material.PullRefresh
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.stringResource
-import tachiyomi.presentation.core.util.shouldExpandFAB
 import java.time.Instant
 
 @Composable
@@ -87,6 +87,7 @@ fun MangaScreen(
     isTabletUi: Boolean,
     chapterSwipeStartAction: LibraryPreferences.ChapterSwipeAction,
     chapterSwipeEndAction: LibraryPreferences.ChapterSwipeAction,
+    resumeTarget: MangaScreenModel.ResumeTarget? = null,
     onBackClicked: () -> Unit,
     onChapterClicked: (Chapter) -> Unit,
     onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
@@ -143,6 +144,7 @@ fun MangaScreen(
             state = state,
             snackbarHostState = snackbarHostState,
             nextUpdate = nextUpdate,
+            resumeTarget = resumeTarget,
             chapterSwipeStartAction = chapterSwipeStartAction,
             chapterSwipeEndAction = chapterSwipeEndAction,
             onBackClicked = onBackClicked,
@@ -182,6 +184,7 @@ fun MangaScreen(
             chapterSwipeStartAction = chapterSwipeStartAction,
             chapterSwipeEndAction = chapterSwipeEndAction,
             nextUpdate = nextUpdate,
+            resumeTarget = resumeTarget,
             onBackClicked = onBackClicked,
             onChapterClicked = onChapterClicked,
             onDownloadChapter = onDownloadChapter,
@@ -220,6 +223,7 @@ private fun MangaScreenSmallImpl(
     state: MangaScreenModel.State.Success,
     snackbarHostState: SnackbarHostState,
     nextUpdate: Instant?,
+    resumeTarget: MangaScreenModel.ResumeTarget? = null,
     chapterSwipeStartAction: LibraryPreferences.ChapterSwipeAction,
     chapterSwipeEndAction: LibraryPreferences.ChapterSwipeAction,
     onBackClicked: () -> Unit,
@@ -345,28 +349,24 @@ private fun MangaScreenSmallImpl(
             )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
-            val isFABVisible = remember(chapters) {
-                chapters.fastAny { !it.chapter.read } && !isAnySelected
-            }
             AnimatedVisibility(
-                visible = isFABVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                visible = resumeTarget != null && !isAnySelected,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
             ) {
-                ExtendedFloatingActionButton(
-                    text = {
-                        val isReading = remember(state.chapters) {
-                            state.chapters.fastAny { it.chapter.read }
-                        }
-                        Text(
-                            text = stringResource(if (isReading) MR.strings.action_resume else MR.strings.action_start),
-                        )
-                    },
-                    icon = { Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null) },
-                    onClick = onContinueReading,
-                    expanded = chapterListState.shouldExpandFAB(),
-                )
+                if (resumeTarget != null) {
+                    MangaFloatingResumeBar(
+                        target = resumeTarget,
+                        manga = state.manga,
+                        onClick = onContinueReading,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .widthIn(max = 500.dp)
+                            .fillMaxWidth(),
+                    )
+                }
             }
         },
     ) { contentPadding ->
@@ -390,7 +390,11 @@ private fun MangaScreenSmallImpl(
                     contentPadding = PaddingValues(
                         start = contentPadding.calculateStartPadding(layoutDirection),
                         end = contentPadding.calculateEndPadding(layoutDirection),
-                        bottom = contentPadding.calculateBottomPadding(),
+                        bottom = if (resumeTarget != null && !isAnySelected) {
+                            contentPadding.calculateBottomPadding() + 76.dp
+                        } else {
+                            contentPadding.calculateBottomPadding()
+                        },
                     ),
                 ) {
                     item(
@@ -478,6 +482,7 @@ fun MangaScreenLargeImpl(
     state: MangaScreenModel.State.Success,
     snackbarHostState: SnackbarHostState,
     nextUpdate: Instant?,
+    resumeTarget: MangaScreenModel.ResumeTarget? = null,
     chapterSwipeStartAction: LibraryPreferences.ChapterSwipeAction,
     chapterSwipeEndAction: LibraryPreferences.ChapterSwipeAction,
     onBackClicked: () -> Unit,
@@ -601,30 +606,24 @@ fun MangaScreenLargeImpl(
             }
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
-            val isFABVisible = remember(chapters) {
-                chapters.fastAny { !it.chapter.read } && !isAnySelected
-            }
             AnimatedVisibility(
-                visible = isFABVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                visible = resumeTarget != null && !isAnySelected,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
             ) {
-                ExtendedFloatingActionButton(
-                    text = {
-                        val isReading = remember(state.chapters) {
-                            state.chapters.fastAny { it.chapter.read }
-                        }
-                        Text(
-                            text = stringResource(
-                                if (isReading) MR.strings.action_resume else MR.strings.action_start,
-                            ),
-                        )
-                    },
-                    icon = { Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null) },
-                    onClick = onContinueReading,
-                    expanded = chapterListState.shouldExpandFAB(),
-                )
+                if (resumeTarget != null) {
+                    MangaFloatingResumeBar(
+                        target = resumeTarget,
+                        manga = state.manga,
+                        onClick = onContinueReading,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .widthIn(max = 500.dp)
+                            .fillMaxWidth(),
+                    )
+                }
             }
         },
     ) { contentPadding ->
@@ -689,7 +688,11 @@ fun MangaScreenLargeImpl(
                             state = chapterListState,
                             contentPadding = PaddingValues(
                                 top = contentPadding.calculateTopPadding(),
-                                bottom = contentPadding.calculateBottomPadding(),
+                                bottom = if (resumeTarget != null && !isAnySelected) {
+                                    contentPadding.calculateBottomPadding() + 76.dp
+                                } else {
+                                    contentPadding.calculateBottomPadding()
+                                },
                             ),
                         ) {
                             item(

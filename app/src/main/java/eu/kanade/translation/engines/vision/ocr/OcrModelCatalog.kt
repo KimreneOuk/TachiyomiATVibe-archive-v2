@@ -62,6 +62,9 @@ object OcrModelCatalog {
         }
     }
 
+    fun languageFromPreference(value: String): TextRecognizerLanguage =
+        TextRecognizerLanguage.entries.firstOrNull { it.name == value } ?: TextRecognizerLanguage.CHINESE
+
     fun isCompatible(model: OcrModel, language: TextRecognizerLanguage): Boolean {
         return entryFor(model)?.supports(language) == true
     }

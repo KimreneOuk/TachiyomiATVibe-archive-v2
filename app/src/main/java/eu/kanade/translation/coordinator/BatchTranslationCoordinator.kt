@@ -10,6 +10,7 @@ import eu.kanade.translation.model.BatchExecutionMode
 import eu.kanade.translation.model.TextRecognizerLanguage
 import eu.kanade.translation.model.TextTranslatorLanguage
 import eu.kanade.translation.model.Translation
+import eu.kanade.translation.model.TranslationProgressSnapshot
 import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.persistence.TranslationFileProvider
 import eu.kanade.translation.processing.ChapterBatchExecutor
@@ -27,6 +28,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -34,12 +36,17 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchIO
@@ -71,6 +78,10 @@ internal class BatchTranslationCoordinator(
     // DI-resolved lazily on first use, so test constructions stay Injekt-free.
     // Kept last: positional test constructions above stay source-compatible.
     private val onlineColorizeStreams: OnlineColorizePageStreamResolver? = null,
+    /** Terminal snapshot for a chapter; gates the not-saved retry rearm.
+     *  Session-scoped in-memory LRU: absent after process death, 20-entry
+     *  eviction, or a newer run replacing the chapter. */
+    private val terminalSnapshotProvider: (Long) -> TranslationProgressSnapshot? = { null },
 ) : Closeable {
 
     private val colorizeStreams: OnlineColorizePageStreamResolver
@@ -124,6 +135,7 @@ internal class BatchTranslationCoordinator(
     fun rearmQueuedChapter(chapterId: Long): Boolean {
         synchronized(queueMutationLock) {
             val translation = _queueState.value.firstOrNull { it.chapter.id == chapterId } ?: return false
+            if (replacementReservations.containsKey(chapterId)) return false
             // A crash can persist any status into the queue; leaving a stale
             // terminal entry here wedges it out of selectChapterWave forever.
             if (translation.status == Translation.State.QUEUE ||
@@ -132,7 +144,7 @@ internal class BatchTranslationCoordinator(
                 return true
             }
             translation.status = Translation.State.QUEUE
-            isPaused = false
+            markQueueUnpaused()
             _queueState.update { it.toList() }
             persistQueue()
             return true
@@ -141,12 +153,69 @@ internal class BatchTranslationCoordinator(
 
     fun queuePreflight(chapterId: Long?, sourceId: Long): ChapterQueuePreflight {
         if (chapterId == null) return ChapterQueuePreflight.NoConflict
-        val conflict = findRunningSameSourceConflict(
-            queueState.value.map { it.toQueuedChapterView() },
-            chapterId,
-            sourceId,
-        ) ?: return ChapterQueuePreflight.NoConflict
-        return ChapterQueuePreflight.RunningConflict(conflict.chapterId, conflict.chapterName)
+        return synchronized(queueMutationLock) {
+            val queue = _queueState.value
+            val conflict = findRunningSameSourceConflict(
+                queue.map { it.toQueuedChapterView() },
+                chapterId,
+                sourceId,
+            ) ?: return@synchronized ChapterQueuePreflight.NoConflict
+            val run = queue.firstOrNull { it.chapter.id == conflict.chapterId }
+                ?: return@synchronized ChapterQueuePreflight.NoConflict
+            val runGeneration = run.activeRunGenerationOrNull()
+                ?: return@synchronized ChapterQueuePreflight.NoConflict
+            ChapterQueuePreflight.RunningConflict(conflict.chapterId, conflict.chapterName, run, runGeneration)
+        }
+    }
+
+    /** Reserves the exact run observed by preflight until its cancellation completes. */
+    fun reserveRunningChapterForReplace(expectedRun: Translation, expectedRunGeneration: Long): Boolean =
+        synchronized(queueMutationLock) {
+            val chapterId = expectedRun.chapter.id ?: return@synchronized false
+            val current = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+            if (current !== expectedRun) return@synchronized false
+            if (expectedRun.activeRunGenerationOrNull() != expectedRunGeneration) return@synchronized false
+            if (replacementReservations.containsKey(chapterId)) return@synchronized false
+            replacementReservations[chapterId] = ReplacementReservation(expectedRun, expectedRunGeneration)
+            replacementReservationChanges.tryEmit(Unit)
+            true
+        }
+
+    /** Removes only the reserved run; a changed queue slot makes replacement unsafe. */
+    fun removeReplacedChapterIfCurrent(expectedRun: Translation, expectedRunGeneration: Long): Boolean =
+        synchronized(queueMutationLock) {
+            val chapterId = expectedRun.chapter.id ?: return@synchronized false
+            val reservation = replacementReservations[chapterId]
+            if (reservation?.run !== expectedRun || reservation.runGeneration != expectedRunGeneration) {
+                return@synchronized false
+            }
+            val current = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+            if (current != null && (current !== expectedRun || current.runGeneration != expectedRunGeneration)) {
+                replacementReservations.remove(chapterId)
+                replacementReservationChanges.tryEmit(Unit)
+                return@synchronized false
+            }
+            if (current === expectedRun) {
+                if (expectedRun.status == Translation.State.TRANSLATING || expectedRun.status == Translation.State.QUEUE) {
+                    expectedRun.status = Translation.State.NOT_TRANSLATED
+                }
+                _queueState.update { it - expectedRun }
+                persistQueue()
+            }
+            replacementReservations.remove(chapterId)
+            replacementReservationChanges.tryEmit(Unit)
+            true
+        }
+
+    fun releaseChapterReplacementReservation(expectedRun: Translation, expectedRunGeneration: Long) {
+        synchronized(queueMutationLock) {
+            val chapterId = expectedRun.chapter.id ?: return
+            val reservation = replacementReservations[chapterId]
+            if (reservation?.run === expectedRun && reservation.runGeneration == expectedRunGeneration) {
+                replacementReservations.remove(chapterId)
+                replacementReservationChanges.tryEmit(Unit)
+            }
+        }
     }
 
     fun evictStaleQueuedChapters(keepChapterId: Long, sourceId: Long) {
@@ -163,6 +232,26 @@ internal class BatchTranslationCoordinator(
     }
 
     private val queueMutationLock = Any()
+    private data class ReplacementReservation(val run: Translation, val runGeneration: Long)
+    private val replacementReservations = mutableMapOf<Long, ReplacementReservation>()
+    private val replacementReservationChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    internal fun beginTranslationRun(translation: Translation): Boolean = synchronized(queueMutationLock) {
+        val chapterId = translation.chapter.id ?: return@synchronized false
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return@synchronized false
+        if (replacementReservations.containsKey(chapterId)) return@synchronized false
+        translation.status = Translation.State.TRANSLATING
+        true
+    }
+
+    private fun isChapterReplacementReserved(chapterId: Long): Boolean = synchronized(queueMutationLock) {
+        replacementReservations.containsKey(chapterId)
+    }
+
+    private fun selectAvailableChapterWave(queue: List<Translation>): List<Translation> =
+        selectChapterWave(queue).filterNot { translation ->
+            translation.chapter.id?.let(::isChapterReplacementReserved) == true
+        }
 
     private val queuePersistence = BatchQueuePersistence(
         context = context,
@@ -181,6 +270,7 @@ internal class BatchTranslationCoordinator(
         batchTrackerFactory = batchTrackerFactory,
         onBatchClosed = onBatchClosed,
         activeChapters = activeChapters,
+        beginTranslationRun = ::beginTranslationRun,
     )
 
     fun persistedQueueChapterIds(): Set<Long> = synchronized(queueMutationLock) {
@@ -216,15 +306,65 @@ internal class BatchTranslationCoordinator(
     }
 
     suspend fun restoreQueue() {
-        isPaused = true
         queuePersistence.restoreQueue(
             queueLock = queueMutationLock,
             currentQueue = { _queueState.value },
             applyRestored = { _queueState.value = it },
         )
+        synchronized(queueLifecycleLock) {
+            if (queueState.value.isEmpty()) {
+                markQueueUnpaused()
+            } else {
+                _batchQueuePauseState.value = BatchQueuePauseState.PAUSED
+            }
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _hasResumableBatchWork = MutableStateFlow(false)
+    val hasResumableBatchWork: StateFlow<Boolean> = _hasResumableBatchWork.asStateFlow()
+
+    private val _batchQueuePauseState = MutableStateFlow(BatchQueuePauseState.NOT_PAUSED)
+    val batchQueuePauseState: StateFlow<BatchQueuePauseState> = _batchQueuePauseState.asStateFlow()
+    val isPausedFlow: StateFlow<Boolean> = batchQueuePauseState
+        .map { it == BatchQueuePauseState.PAUSED }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
+    private val queueLifecycleLock = Any()
+    private val resumeMutex = Mutex()
+
+    init {
+        scope.launchIO {
+            queueState.flatMapLatest { queue ->
+                if (queue.isEmpty()) {
+                    flowOf(false)
+                } else {
+                    merge(*queue.map(Translation::statusFlow).toTypedArray())
+                        .map { queue.any(::isResumableQueueEntry) }
+                        .onStart { emit(queue.any(::isResumableQueueEntry)) }
+                }
+            }.collect { _hasResumableBatchWork.value = it }
+        }
+    }
+
+    private fun isResumableQueueEntry(translation: Translation): Boolean =
+        translation.status == Translation.State.QUEUE || translation.status == Translation.State.PAUSED
+
+    private fun markQueueUnpaused() {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return
+        _batchQueuePauseState.value = BatchQueuePauseState.NOT_PAUSED
+    }
+
+    private fun markQueuePauseRequested() {
+        _batchQueuePauseState.value = BatchQueuePauseState.REQUESTED
+    }
+
+    private fun finishQueuePauseAfterDrain() {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+            _batchQueuePauseState.value = BatchQueuePauseState.PAUSED
+        }
+    }
 
     @Volatile
     private var translationJob: Job? = null
@@ -233,9 +373,6 @@ internal class BatchTranslationCoordinator(
 
     val isRunning: Boolean
         get() = translationJob?.isActive == true
-
-    @Volatile
-    var isPaused: Boolean = false
 
     // Serialize job admission so concurrent requests cannot both observe an
     // idle translator and launch duplicate work for the queue head.
@@ -247,14 +384,17 @@ internal class BatchTranslationCoordinator(
     private val inFlightChapterIds: MutableSet<Long> = ConcurrentHashMap.newKeySet()
     private val inFlightClaimReleasedSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-    fun start(): Boolean {
+    fun start(): Boolean = synchronized(queueLifecycleLock) lifecycle@{
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+            return@lifecycle false
+        }
         if (queueState.value.isEmpty()) {
-            return false
+            return@lifecycle false
         }
 
         synchronized(translatorLaunchLock) {
             if (isRunning) {
-                return false
+                return@lifecycle false
             }
 
             // A generic queue start does not resurrect failed entries after a
@@ -263,20 +403,25 @@ internal class BatchTranslationCoordinator(
             val pending = queueState.value.filter {
                 it.status != Translation.State.TRANSLATED &&
                     it.status != Translation.State.PAUSED &&
-                    it.status != Translation.State.ERROR
+                    it.status != Translation.State.ERROR &&
+                    it.chapter.id?.let { chapterId -> !isChapterReplacementReserved(chapterId) } ?: true
             }
             if (pending.isEmpty()) {
-                return false
+                return@lifecycle false
             }
             pending.forEach { if (it.status != Translation.State.QUEUE) it.status = Translation.State.QUEUE }
-            isPaused = false
+            markQueueUnpaused()
             launchTranslatorJob()
-            return pending.isNotEmpty()
+            pending.isNotEmpty()
         }
     }
 
     fun stop(reason: String? = null, closeEngines: Boolean = false) {
-        cancelTranslatorJob()
+        if (reason == null) {
+            cancelTranslatorJob()
+        } else {
+            requestQueuePause(retainForSession = false)
+        }
         // Interrupted chapters stay resumable: their per-page artifacts are
         // durable, so a later Start continues from the planner's reuse scan.
         queueState.value.filter { it.status == Translation.State.TRANSLATING }
@@ -292,7 +437,11 @@ internal class BatchTranslationCoordinator(
         // request engine closure tear them down so the next run can rebuild
         // after a provider, model, language, or OCR configuration change.
         if (reason != null && !closeEngines) return
-        isPaused = false
+        synchronized(queueLifecycleLock) {
+            if (_batchQueuePauseState.value != BatchQueuePauseState.REQUESTED) {
+                markQueueUnpaused()
+            }
+        }
         finishSessionIfQueueIdle()
         processor.closeEngines()
     }
@@ -308,66 +457,291 @@ internal class BatchTranslationCoordinator(
     }
 
     fun pause() {
-        cancelTranslatorJob()
-        queueState.value.filter { it.status == Translation.State.TRANSLATING }
-            .forEach { it.status = Translation.State.QUEUE }
-        isPaused = true
+        requestQueuePause(retainForSession = false)
     }
 
     /** Non-blocking pause; [cancelTranslatorJobAndJoinForSession] retains the job if unwinding exceeds one join. */
     fun pauseForSessionSwitch() {
-        val job = translationJob
-        if (job != null) {
-            job.cancel()
-            translationJob = null
-            sessionSwitchProtocol.retain(job)
-        }
-        queueState.value.filter { it.status == Translation.State.TRANSLATING }
-            .forEach { it.status = Translation.State.QUEUE }
-        isPaused = true
+        requestQueuePause(retainForSession = true)
     }
 
-    suspend fun requeueExisting(chapterId: Long, force: Boolean = false): Boolean {
+    private fun requestQueuePause(retainForSession: Boolean) {
+        val cancelledJob: Job?
+        synchronized(queueLifecycleLock) {
+            markQueuePauseRequested()
+            cancelledJob = translationJob
+            translationJob = null
+            cancelledJob?.cancel()
+            if (retainForSession) cancelledJob?.let(sessionSwitchProtocol::retain)
+            synchronized(queueMutationLock) {
+                _queueState.value
+                    .filter { it.status == Translation.State.TRANSLATING }
+                    .forEach { it.status = Translation.State.QUEUE }
+                _queueState.update { it.toList() }
+                persistQueue()
+            }
+            if (cancelledJob == null && inFlightChapterIds.isEmpty()) {
+                finishQueuePauseAfterDrain()
+            }
+        }
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+            scope.launchIO {
+                cancelledJob?.join()
+                while (inFlightChapterIds.isNotEmpty()) {
+                    withTimeoutOrNull(IN_FLIGHT_CLAIM_RETRY_MS) {
+                        inFlightClaimReleasedSignal.first()
+                    }
+                }
+                synchronized(queueLifecycleLock) { finishQueuePauseAfterDrain() }
+            }
+        }
+    }
+
+    private data class ResumeCandidate(
+        val translation: Translation,
+        val runGeneration: Long,
+    )
+
+    suspend fun resumeBatchQueue(force: Boolean = false): BatchQueueResumeResult = resumeMutex.withLock {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+            return@withLock BatchQueueResumeResult.PauseUnwinding
+        }
+        if (isRunning) return@withLock BatchQueueResumeResult.AlreadyRunning
+
+        val candidates = synchronized(queueMutationLock) {
+            _queueState.value.filter(::isResumableQueueEntry)
+                .map { ResumeCandidate(it, it.runGeneration) }
+        }
+        if (candidates.isEmpty()) return@withLock BatchQueueResumeResult.NoResumableWork
+
+        val retryTimes = candidates.associate { candidate ->
+            val chapterId = candidate.translation.chapter.id ?: return@withLock BatchQueueResumeResult.NoResumableWork
+            chapterId to queuePersistence.durableQueueState(candidate.translation)?.nextEligibleRetryAtEpochMs
+        }
+        val now = System.currentTimeMillis()
+        val deferred = retryTimes.mapNotNull { (chapterId, retryAt) ->
+            if (!force && retryAt != null && retryAt > now) chapterId to retryAt else null
+        }.toMap()
+        val eligible = candidates.filter { candidate ->
+            candidate.translation.chapter.id !in deferred
+        }
+
+        synchronized(queueLifecycleLock) lifecycle@{
+            if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+                return@lifecycle BatchQueueResumeResult.PauseUnwinding
+            }
+            if (isRunning) return@lifecycle BatchQueueResumeResult.AlreadyRunning
+            val eligibleIds = eligible.mapNotNullTo(mutableSetOf()) { it.translation.chapter.id }
+            if (eligibleIds.isEmpty()) {
+                val staleId = updateResumeCandidates(candidates, emptySet(), deferred.keys)
+                if (staleId != null) return@lifecycle BatchQueueResumeResult.StaleQueueItem(staleId)
+                return@lifecycle BatchQueueResumeResult.BatchRetryDeferred(deferred)
+            }
+
+            val update = admitAndUpdateResumeCandidates(candidates, eligibleIds, deferred.keys)
+            update.staleChapterId?.let { return@lifecycle BatchQueueResumeResult.StaleQueueItem(it) }
+            update.rejection?.let { return@lifecycle BatchQueueResumeResult.SessionRejected(it) }
+            val eligibleRuns = eligible.mapTo(mutableSetOf()) { it.translation }
+            if (!startSelectedRunsWhileLocked(eligibleRuns)) {
+                return@lifecycle BatchQueueResumeResult.NoResumableWork
+            }
+            BatchQueueResumeResult.Resumed(eligibleIds, deferred)
+        }
+    }
+
+    suspend fun resumeBatchChapter(
+        chapterId: Long,
+        force: Boolean = false,
+        expectedRun: Translation? = null,
+    ): BatchQueueResumeResult = resumeMutex.withLock {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+            return@withLock BatchQueueResumeResult.PauseUnwinding
+        }
+        if (expectedRun != null && expectedRun.chapter.id != chapterId) {
+            return@withLock BatchQueueResumeResult.StaleQueueItem(chapterId)
+        }
+        val candidate = synchronized(queueMutationLock) {
+            val current = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+                ?: return@synchronized null
+            if (expectedRun != null && current !== expectedRun) return@withLock BatchQueueResumeResult.StaleQueueItem(chapterId)
+            if (current.status == Translation.State.TRANSLATING || isChapterTranslationInFlight(chapterId)) {
+                return@withLock BatchQueueResumeResult.AlreadyRunning
+            }
+            if (!isResumableQueueEntry(current)) {
+                return@withLock BatchQueueResumeResult.NotResumable(chapterId, current.status)
+            }
+            ResumeCandidate(current, current.runGeneration)
+        } ?: return@withLock BatchQueueResumeResult.QueueItemMissing(chapterId)
+
+        val retryAt = queuePersistence.durableQueueState(candidate.translation)?.nextEligibleRetryAtEpochMs
+        if (!force && retryAt != null && retryAt > System.currentTimeMillis()) {
+            return@withLock BatchQueueResumeResult.RetryDeferred(chapterId, retryAt)
+        }
+
+        synchronized(queueLifecycleLock) lifecycle@{
+            if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) {
+                return@lifecycle BatchQueueResumeResult.PauseUnwinding
+            }
+            val update = admitAndUpdateResumeCandidates(
+                listOf(candidate),
+                setOf(chapterId),
+                emptySet(),
+            )
+            update.staleChapterId?.let { return@lifecycle BatchQueueResumeResult.StaleQueueItem(it) }
+            update.rejection?.let { return@lifecycle BatchQueueResumeResult.SessionRejected(it) }
+            if (update.alreadyRunning) return@lifecycle BatchQueueResumeResult.AlreadyRunning
+            if (!startSelectedRunsWhileLocked(setOf(candidate.translation))) {
+                return@lifecycle BatchQueueResumeResult.NoResumableWork
+            }
+            BatchQueueResumeResult.Resumed(setOf(chapterId))
+        }
+    }
+
+    private fun updateResumeCandidates(
+        candidates: List<ResumeCandidate>,
+        eligibleChapterIds: Set<Long>,
+        deferredChapterIds: Set<Long>,
+    ): Long? = synchronized(queueMutationLock) {
+        val stale = staleResumeCandidate(candidates)
+        if (stale != null) return@synchronized stale.translation.chapter.id
+        applyResumeCandidateStates(candidates, eligibleChapterIds, deferredChapterIds)
+        null
+    }
+
+    private data class ResumeAdmissionUpdate(
+        val staleChapterId: Long? = null,
+        val rejection: SessionRejection? = null,
+        val alreadyRunning: Boolean = false,
+    )
+
+    private fun admitAndUpdateResumeCandidates(
+        candidates: List<ResumeCandidate>,
+        eligibleChapterIds: Set<Long>,
+        deferredChapterIds: Set<Long>,
+    ): ResumeAdmissionUpdate = synchronized(queueMutationLock) {
+        val active = candidates.firstOrNull { candidate ->
+            val chapterId = candidate.translation.chapter.id
+            val current = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+            current === candidate.translation &&
+                current.runGeneration == candidate.runGeneration &&
+                (current.status == Translation.State.TRANSLATING || isChapterTranslationInFlight(chapterId))
+        }
+        if (active != null) return@synchronized ResumeAdmissionUpdate(alreadyRunning = true)
+        val stale = staleResumeCandidate(candidates)
+        if (stale != null) {
+            return@synchronized ResumeAdmissionUpdate(staleChapterId = stale.translation.chapter.id)
+        }
+        val admission = sessionCoordinator?.requestBatchSession(eligibleChapterIds)
+        if (admission is SessionAdmission.Rejected) {
+            return@synchronized ResumeAdmissionUpdate(rejection = admission.reason)
+        }
+
+        applyResumeCandidateStates(candidates, eligibleChapterIds, deferredChapterIds)
+        ResumeAdmissionUpdate()
+    }
+
+    private fun staleResumeCandidate(candidates: List<ResumeCandidate>): ResumeCandidate? =
+        candidates.firstOrNull { candidate ->
+            val chapterId = candidate.translation.chapter.id
+            val current = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+            current == null ||
+                current !== candidate.translation ||
+                current.runGeneration != candidate.runGeneration ||
+                !isResumableQueueEntry(current)
+        }
+
+    private fun applyResumeCandidateStates(
+        candidates: List<ResumeCandidate>,
+        eligibleChapterIds: Set<Long>,
+        deferredChapterIds: Set<Long>,
+    ) {
+        var changed = false
+        candidates.forEach { candidate ->
+            val chapterId = candidate.translation.chapter.id ?: return@forEach
+            val translation = candidate.translation
+            if (chapterId in eligibleChapterIds && translation.status == Translation.State.PAUSED) {
+                translation.status = Translation.State.QUEUE
+                changed = true
+            } else if (chapterId in deferredChapterIds && translation.status == Translation.State.QUEUE) {
+                translation.status = Translation.State.PAUSED
+                changed = true
+            }
+        }
+        if (changed) {
+            _queueState.update { it.toList() }
+            persistQueue()
+        }
+    }
+
+    private fun startSelectedRunsWhileLocked(runs: Set<Translation>): Boolean {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return false
+        val runnable = queueState.value.filter { queued ->
+            runs.any { it === queued } &&
+                (queued.status == Translation.State.QUEUE || queued.status == Translation.State.PAUSED)
+        }
+        if (runnable.isEmpty()) return false
+        runnable.filter { it.status == Translation.State.PAUSED }
+            .forEach { it.status = Translation.State.QUEUE }
+        markQueueUnpaused()
+        if (!isRunning) launchTranslatorJob(runnable.toSet())
+        return true
+    }
+
+    suspend fun requeueExisting(chapterId: Long, force: Boolean = false): Boolean = resumeMutex.withLock {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return@withLock false
         val translation = queueState.value.firstOrNull { it.chapter.id == chapterId }
         if (translation == null) {
             logcat(LogPriority.INFO) { "TachiyomiAT requeue: chapter $chapterId is not in the queue" }
-            return false
+            return@withLock false
         }
         val durable = queuePersistence.durableQueueState(translation)
         val next = durable?.nextEligibleRetryAtEpochMs
         if (!force && next != null && next > System.currentTimeMillis()) {
             logcat(LogPriority.INFO) { "TachiyomiAT requeue: chapter $chapterId backoff until $next" }
-            return false
+            return@withLock false
         }
-        val rearmed = synchronized(queueMutationLock) {
-            val current = _queueState.value.firstOrNull { it.chapter.id == chapterId } ?: return@synchronized false
-            if (current.status != Translation.State.PAUSED && durable?.status != Translation.State.PAUSED) {
-                return@synchronized current.status == Translation.State.QUEUE
+        synchronized(queueLifecycleLock) {
+            if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return@synchronized false
+            val rearmed = synchronized(queueMutationLock) {
+                if (replacementReservations.containsKey(chapterId)) return@synchronized false
+                val current = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+                    ?: return@synchronized false
+                if (current !== translation) return@synchronized false
+                val durablePaused = durable?.status == Translation.State.PAUSED
+                val nonDurableWarning = current.status == Translation.State.READY_WITH_WARNINGS &&
+                    terminalSnapshotProvider(chapterId)?.nonDurableFailure == true
+                if (current.status != Translation.State.PAUSED && !durablePaused && !nonDurableWarning) {
+                    return@synchronized current.status == Translation.State.QUEUE
+                }
+                current.status = Translation.State.QUEUE
+                markQueueUnpaused()
+                _queueState.update { it.toList() }
+                persistQueue()
+                true
             }
-            current.status = Translation.State.QUEUE
-            isPaused = false
-            _queueState.update { it.toList() }
-            persistQueue()
+            if (!rearmed) {
+                logcat(LogPriority.INFO) {
+                    "TachiyomiAT requeue: chapter $chapterId not rearmed (status=${translation.status})"
+                }
+                return@synchronized false
+            }
+            if (!isRunning) launchTranslatorJob()
             true
         }
-        if (!rearmed) {
-            logcat(LogPriority.INFO) {
-                "TachiyomiAT requeue: chapter $chapterId not rearmed (status=${translation.status})"
-            }
-            return false
-        }
-        if (!isRunning) launchTranslatorJob()
-        return true
     }
 
     fun clearQueue() {
         cancelTranslatorJob()
         internalClearQueue()
-        isPaused = false
+        synchronized(queueLifecycleLock) {
+            if (_batchQueuePauseState.value != BatchQueuePauseState.REQUESTED) {
+                markQueueUnpaused()
+            }
+        }
         finishSessionIfQueueIdle()
     }
 
-    private fun launchTranslatorJob() {
+    private fun launchTranslatorJob(onlyRuns: Set<Translation>? = null) {
         synchronized(translatorLaunchLock) {
             if (isRunning) {
                 return
@@ -375,16 +749,31 @@ internal class BatchTranslationCoordinator(
 
             translationJob = scope.launchIO {
                 try {
+                    if (onlyRuns != null) {
+                        while (true) {
+                            val wave = selectAvailableChapterWave(
+                                queueState.value.filter { queued -> onlyRuns.any { it === queued } },
+                            )
+                            if (wave.isEmpty()) break
+                            supervisorScope {
+                                wave.map { launchTranslationJob(it) }.joinAll()
+                            }
+                        }
+                        return@launchIO
+                    }
+
                     val activeTranslationFlow = queueState.transformLatest { queue ->
-                        emit(selectChapterWave(queue))
+                        emit(selectAvailableChapterWave(queue))
                         if (queue.isEmpty()) return@transformLatest
                         // Wake the wave on any entry status flip (e.g. a raw pause)
                         // or in-flight claim release; selection always recomputes live.
                         val statusWakes: Flow<List<Translation>> =
-                            queue.map(Translation::statusFlow).merge().map { selectChapterWave(queue) }
+                            queue.map(Translation::statusFlow).merge().map { selectAvailableChapterWave(queue) }
                         val claimWakes: Flow<List<Translation>> =
-                            inFlightClaimReleasedSignal.map { selectChapterWave(queue) }
-                        emitAll(merge(statusWakes, claimWakes))
+                            inFlightClaimReleasedSignal.map { selectAvailableChapterWave(queue) }
+                        val reservationWakes: Flow<List<Translation>> =
+                            replacementReservationChanges.map { selectAvailableChapterWave(queue) }
+                        emitAll(merge(statusWakes, claimWakes, reservationWakes))
                     }
 
                     supervisorScope {
@@ -442,8 +831,6 @@ internal class BatchTranslationCoordinator(
                     )
             ) {
                 removeFromQueue(translation)
-            } else if (translation.status == Translation.State.PAUSED) {
-                isPaused = true
             }
             if (translation.status != Translation.State.PAUSED &&
                 reconciliation?.nonDurableFailure != true &&
@@ -536,25 +923,25 @@ internal class BatchTranslationCoordinator(
         probedSourcePageCount: Int? = null,
         sourceCountKnown: Boolean = false,
         colorizeOnly: Boolean = false,
-    ) {
-        val source = sourceManager.get(manga.source) as? HttpSource ?: return
-        val existing = queueState.value.firstOrNull { it.chapter.id == chapter.id }
-        if (existing != null) {
+    ): Boolean {
+        val chapterId = chapter.id ?: return false
+        val source = sourceManager.get(manga.source) as? HttpSource ?: return false
+        val existingResult = synchronized(queueMutationLock) {
+            if (replacementReservations.containsKey(chapterId)) return@synchronized false
+            val existing = _queueState.value.firstOrNull { it.chapter.id == chapterId }
+                ?: return@synchronized null
             if (existing.status != Translation.State.TRANSLATING) {
                 // A re-arm adopts the caller's latest intent: re-clicking
                 // "Colorize chapter" over a stopped TRANSLATION entry (or
                 // vice versa) must not resume the previous run's mode.
                 val modeChanged = existing.colorizeOnly != colorizeOnly
                 existing.colorizeOnly = colorizeOnly
-                existing.chapter.id?.let(::rearmQueuedChapter)
-                // An already-QUEUE entry short-circuits inside rearm without
-                // persisting, so a mode flip on that entry is saved here.
-                if (modeChanged && existing.status == Translation.State.QUEUE) {
-                    persistQueue()
-                }
+                rearmQueuedChapter(chapterId)
+                if (modeChanged && existing.status == Translation.State.QUEUE) persistQueue()
             }
-            return
+            true
         }
+        if (existingResult != null) return existingResult
         // A colorize-only run never translates, so an invalid or unsupported
         // language configuration is irrelevant and must not block queueing.
         val fromLang: TextRecognizerLanguage
@@ -574,7 +961,7 @@ internal class BatchTranslationCoordinator(
                 scope.launchUI {
                     context.toast(e.message ?: "Invalid translation configuration")
                 }
-                return
+                return false
             }
             if (TranslationEngineBuilder.isMlKitActive(translationPreferences) &&
                 !TextTranslatorLanguage.mlkitSupportedLanguages().contains(toLang)
@@ -582,7 +969,7 @@ internal class BatchTranslationCoordinator(
                 scope.launchUI {
                     context.toast(ATMR.strings.error_mlkit_language_unsupported)
                 }
-                return
+                return false
             }
         }
         val executionMode = if (translationPreferences.translationRequireCharging().get()) {
@@ -596,7 +983,7 @@ internal class BatchTranslationCoordinator(
             translation.sourceCountKnown = true
         }
         translation.colorizeOnly = colorizeOnly
-        addToQueue(translation)
+        return addToQueue(translation)
     }
 
     // Internal so focused tests can drive the exact
@@ -620,24 +1007,25 @@ internal class BatchTranslationCoordinator(
         }
     }
 
-    private fun addToQueue(translation: Translation) {
-        synchronized(queueMutationLock) {
-            val existing = _queueState.value.firstOrNull { it.chapter.id == translation.chapter.id }
-            if (existing != null) {
-                if (existing.status != Translation.State.TRANSLATING) {
-                    existing.status = Translation.State.QUEUE
-                    isPaused = false
-                    _queueState.update { it.toList() }
-                    persistQueue()
-                }
-                return
+    private fun addToQueue(translation: Translation): Boolean = synchronized(queueMutationLock) {
+        val chapterId = translation.chapter.id ?: return@synchronized false
+        if (replacementReservations.containsKey(chapterId)) return@synchronized false
+        val existing = _queueState.value.firstOrNull { it.chapter.id == translation.chapter.id }
+        if (existing != null) {
+            if (existing.status != Translation.State.TRANSLATING) {
+                existing.status = Translation.State.QUEUE
+                markQueueUnpaused()
+                _queueState.update { it.toList() }
+                persistQueue()
             }
-            translation.status = Translation.State.QUEUE
-            _queueState.update {
-                it + translation
-            }
-            persistQueue()
+            return@synchronized true
         }
+        translation.status = Translation.State.QUEUE
+        _queueState.update {
+            it + translation
+        }
+        persistQueue()
+        true
     }
 
     private fun removeFromQueue(translation: Translation) {
@@ -675,6 +1063,7 @@ internal class BatchTranslationCoordinator(
 
     /** Public batch entry: acquire session ownership, start queued work, and expose foreground work. */
     fun startWithSessionAdmission(): Boolean {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return false
         val chapterIds = queueState.value.mapNotNull { it.chapter.id }.toSet()
         if (sessionCoordinator?.requestBatchSession(chapterIds) == false) {
             logcat(LogPriority.WARN) { "BatchTranslationCoordinator: batch session rejected for $chapterIds" }
@@ -687,6 +1076,7 @@ internal class BatchTranslationCoordinator(
 
     /** Requeue a chapter only after the batch lane has acquired its session. */
     suspend fun requeueWithSessionAdmission(chapterId: Long, force: Boolean = false): Boolean {
+        if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return false
         if (sessionCoordinator?.requestBatchSession(setOf(chapterId)) == false) {
             logcat(LogPriority.WARN) { "TachiyomiAT requeue: batch session rejected for chapter $chapterId" }
             return false

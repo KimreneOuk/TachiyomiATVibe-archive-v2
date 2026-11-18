@@ -11,17 +11,11 @@ import kotlinx.coroutines.CancellationException
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.NeuralInpaintModel
-import tachiyomi.domain.translation.TranslationPreferences
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 
 class PageInpaintingEngine(
     private val mode: InpaintingMode,
     private val inpainter: NeuralInpaintingCoordinator = NeuralInpaintingCoordinator(),
     private val litertInpainter: LiteRTMangaInpaintingEngine? = null,
-    private val qualityFallbackPref: () -> Boolean = {
-        Injekt.get<TranslationPreferences>().translationInpaintQualityFallback().get()
-    },
     private val neuralModel: NeuralInpaintModel = NeuralInpaintModel.LAMA_LITERT_GPU,
     private val notifyInpaintFailed: (String) -> Unit = { InpaintingFailureNotifier.announce(it) },
 ) {
@@ -55,27 +49,13 @@ class PageInpaintingEngine(
                 "boxes=${input.boxes.size}",
             )
 
-            // Neural modes fail without sessions unless the preference allows
-            // classical fallback. Read the setting live for every page.
+            // Neural modes fail honestly without sessions: a silent classical
+            // substitution would degrade Balance/Quality output invisibly.
             if (mode.resolveDispatch(neuralAvailable = true).usesNeural && !neuralAvailable) {
-                val fallbackAllowed = try {
-                    qualityFallbackPref()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    logcat(LogPriority.WARN, e) { "Could not read the neural inpainting fallback preference; keeping it disabled" }
-                    false
-                }
-                if (fallbackAllowed) {
-                    logcat(LogPriority.WARN) {
-                        "$mode inpainting: neural $neuralModelDisplayName model not loaded; classical fallback enabled by user setting"
-                    }
-                } else {
-                    throw IllegalStateException(
-                        "$mode inpainting unavailable (neural model not loaded); " +
-                            "set inpainting to FAST, load the $neuralModelDisplayName model, or enable the neural fallback in Translation settings",
-                    )
-                }
+                throw IllegalStateException(
+                    "$mode inpainting unavailable (neural model not loaded); " +
+                        "set inpainting to FAST or load the $neuralModelDisplayName model",
+                )
             }
 
             // Both selectable neural models execute through the shared LiteRT
@@ -85,37 +65,19 @@ class PageInpaintingEngine(
             // Bubble masks stay segmentation-only so speech bubble stroke
             // borders are never erased to a rectangle.
             val cleaned = if (mode != InpaintingMode.FAST) {
-                val lama = litertInpainter
-                if (lama != null && lama.isAvailable()) {
-                    // LiteRT Manga LaMa GPU serves both region classes in
-                    // BALANCE/QUALITY: free-text line groups through
-                    // freeTextNeuralFill, and QUALITY bubble segmentation-mask
-                    // tiles through bubbleNeuralFill. Bubble masks stay
-                    // segmentation-only so speech bubble stroke borders are
-                    // never erased to a rectangle.
-                    inpainter.freeTextNeuralFill = { image, groupBoxes -> lama.inpaintFreeText(image, groupBoxes) }
-                    inpainter.bubbleNeuralFill = { image, localMask, crop, side ->
-                        lama.inpaintMaskedSquare(image, localMask, crop, side)
-                    }
-                    inpainter.inpaintRegions(
-                        image = bitmap,
-                        boxes = input.boxes,
-                        labels = input.labels,
-                        dispatch = mode.resolveDispatch(neuralAvailable = true),
-                        blocks = pageTranslation.blocks,
-                    )
-                } else {
-                    inpainter.freeTextNeuralFill = null
-                    inpainter.bubbleNeuralFill = null
-                    val dispatch = mode.resolveDispatch(neuralAvailable)
-                    inpainter.inpaintRegions(
-                        image = bitmap,
-                        boxes = input.boxes,
-                        labels = input.labels,
-                        dispatch = dispatch,
-                        blocks = pageTranslation.blocks,
-                    )
+                // The gate above guarantees a live LiteRT session here.
+                val lama = checkNotNull(litertInpainter)
+                inpainter.freeTextNeuralFill = { image, groupBoxes -> lama.inpaintFreeText(image, groupBoxes) }
+                inpainter.bubbleNeuralFill = { image, localMask, crop, side ->
+                    lama.inpaintMaskedSquare(image, localMask, crop, side)
                 }
+                inpainter.inpaintRegions(
+                    image = bitmap,
+                    boxes = input.boxes,
+                    labels = input.labels,
+                    dispatch = mode.resolveDispatch(neuralAvailable = true),
+                    blocks = pageTranslation.blocks,
+                )
             } else {
                 inpainter.freeTextNeuralFill = null
                 inpainter.bubbleNeuralFill = null

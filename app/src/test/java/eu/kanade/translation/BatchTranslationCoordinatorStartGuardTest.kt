@@ -3,15 +3,24 @@ package eu.kanade.translation
 import android.content.Context
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.translation.coordinator.BatchQueuePauseState
+import eu.kanade.translation.coordinator.BatchQueueResumeResult
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
+import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.coordinator.InMemorySharedPreferences
+import eu.kanade.translation.coordinator.ReaderSessionIntent
+import eu.kanade.translation.coordinator.SessionRejection
 import eu.kanade.translation.coordinator.TranslationQueueStore
 import eu.kanade.translation.coordinator.TranslationSessionCoordinator
 import eu.kanade.translation.coordinator.TranslationSessionState
 import eu.kanade.translation.model.TextRecognizerLanguage
 import eu.kanade.translation.model.TextTranslatorLanguage
 import eu.kanade.translation.model.Translation
+import eu.kanade.translation.persistence.ArtifactStage
+import eu.kanade.translation.persistence.ArtifactStageStatus
 import eu.kanade.translation.persistence.ChapterTranslationStore
+import eu.kanade.translation.persistence.DurableFailureMetadata
+import eu.kanade.translation.persistence.FailureCategory
 import eu.kanade.translation.persistence.TranslationFileProvider
 import eu.kanade.translation.processing.TranslationProcessor
 import io.kotest.matchers.shouldBe
@@ -19,9 +28,13 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Test
 import tachiyomi.core.common.preference.Preference
@@ -31,6 +44,9 @@ import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.translation.TranslationEngineCategory
 import tachiyomi.domain.translation.TranslationPreferences
 import java.lang.reflect.Field
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -72,19 +88,7 @@ class BatchTranslationCoordinatorStartGuardTest {
         queue: List<Translation>,
         sessionCoordinator: TranslationSessionCoordinator? = null,
     ): BatchTranslationCoordinator {
-        val translator = BatchTranslationCoordinator(
-            context,
-            provider,
-            downloadProvider,
-            sourceManager,
-            preferences,
-            TranslationQueueStore(context),
-            processor,
-            pageOperation = mockk(relaxed = true),
-            resolveStore = { storeResolver(it) },
-            batchTrackerFactory = { _, _, _ -> null },
-            sessionCoordinator = sessionCoordinator,
-        )
+        val translator = newTranslator(sessionCoordinator)
         // queueState is bound to the constructor-time _queueState instance, so
         // the injected flow must replace BOTH fields to be visible to start().
         val flow = MutableStateFlow(queue)
@@ -93,8 +97,30 @@ class BatchTranslationCoordinatorStartGuardTest {
         return translator
     }
 
+    private fun newTranslator(
+        sessionCoordinator: TranslationSessionCoordinator? = null,
+    ): BatchTranslationCoordinator = BatchTranslationCoordinator(
+        context,
+        provider,
+        downloadProvider,
+        sourceManager,
+        preferences,
+        TranslationQueueStore(context),
+        processor,
+        pageOperation = mockk(relaxed = true),
+        resolveStore = { storeResolver(it) },
+        batchTrackerFactory = { _, _, _ -> null },
+        sessionCoordinator = sessionCoordinator,
+    )
+
     private fun translation(status: Translation.State) =
         Translation(source, manga, chapter).also { it.status = status }
+
+    private fun chapterFor(targetId: Long): Chapter = mockk(relaxed = true) {
+        every { id } returns targetId
+        every { name } returns "Chapter $targetId"
+        every { scanlator } returns null
+    }
 
     /**
      * Every batch "runs" by first entering the store resolver â€” the same
@@ -113,7 +139,9 @@ class BatchTranslationCoordinatorStartGuardTest {
             maxConcurrent.updateAndGet { previous -> maxOf(previous, now) }
             try {
                 resolverEntered?.complete(Unit)
-                resolverRelease?.let { release -> runBlocking { withTimeout(5_000) { release.await() } } }
+                resolverRelease?.let { release ->
+                    withContext(NonCancellable) { withTimeout(5_000) { release.await() } }
+                }
             } finally {
                 concurrent.decrementAndGet()
             }
@@ -175,6 +203,110 @@ class BatchTranslationCoordinatorStartGuardTest {
     }
 
     @Test
+    fun `atomic replacement reservation rejects a newer translating run at the cancel boundary`() {
+        val confirmedRun = translation(Translation.State.TRANSLATING)
+        val newerRun = translation(Translation.State.TRANSLATING)
+        val translator = translatorWithQueue(listOf(newerRun))
+
+        translator.reserveRunningChapterForReplace(confirmedRun, confirmedRun.runGeneration) shouldBe false
+        (translator.queuedTranslationOrNull(chapterId) === newerRun) shouldBe true
+    }
+
+    @Test
+    fun `preflight captures the active queue run identity and generation`() {
+        val run = translation(Translation.State.TRANSLATING)
+        val translator = translatorWithQueue(listOf(run))
+
+        val conflict = translator.queuePreflight(chapterId + 1, source.id)
+            as ChapterQueuePreflight.RunningConflict
+
+        (conflict.run === run) shouldBe true
+        conflict.runGeneration shouldBe run.runGeneration
+    }
+
+    @Test
+    fun `atomic replacement reservation rejects a newer generation of the same run object`() {
+        val run = translation(Translation.State.TRANSLATING)
+        val confirmedGeneration = run.activeRunGenerationOrNull()!!
+        val translator = translatorWithQueue(listOf(run))
+        run.status = Translation.State.QUEUE
+        run.status = Translation.State.TRANSLATING
+
+        translator.reserveRunningChapterForReplace(run, confirmedGeneration) shouldBe false
+        (translator.queuedTranslationOrNull(chapterId) === run) shouldBe true
+    }
+
+    @Test
+    fun `reserved replacement blocks a queued same-instance run from starting`() {
+        val run = translation(Translation.State.TRANSLATING)
+        val generation = run.activeRunGenerationOrNull()!!
+        val translator = translatorWithQueue(listOf(run))
+        translator.reserveRunningChapterForReplace(run, generation) shouldBe true
+        run.status = Translation.State.QUEUE
+
+        translator.beginTranslationRun(run) shouldBe false
+        run.status shouldBe Translation.State.QUEUE
+        run.runGeneration shouldBe generation
+    }
+
+    @Test
+    fun `run start and replacement reservation linearize at the cancellation boundary`() {
+        val run = translation(Translation.State.TRANSLATING)
+        val generation = run.activeRunGenerationOrNull()!!
+        val translator = translatorWithQueue(listOf(run))
+        val start = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val reserved = executor.submit<Boolean> {
+                start.await()
+                translator.reserveRunningChapterForReplace(run, generation)
+            }
+            val began = executor.submit<Boolean> {
+                start.await()
+                run.status = Translation.State.QUEUE
+                translator.beginTranslationRun(run)
+            }
+            start.countDown()
+
+            val reservationWon = reserved.get(5, TimeUnit.SECONDS)
+            val newRunBegan = began.get(5, TimeUnit.SECONDS)
+            (reservationWon && newRunBegan) shouldBe false
+            if (reservationWon) {
+                run.runGeneration shouldBe generation
+                translator.releaseChapterReplacementReservation(run, generation)
+            } else {
+                newRunBegan shouldBe true
+                run.runGeneration shouldBe (generation + 1)
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `replacement reservation blocks same-chapter admission until the exact run is removed`() {
+        every { sourceManager.get(any()) } returns source
+        every { preferences.translationRequireCharging() } returns mockk {
+            every { get() } returns false
+        }
+        val confirmedRun = translation(Translation.State.TRANSLATING)
+        val translator = translatorWithQueue(listOf(confirmedRun))
+
+        val generation = confirmedRun.activeRunGenerationOrNull()!!
+        translator.reserveRunningChapterForReplace(confirmedRun, generation) shouldBe true
+        translator.queueChapter(manga, chapter, colorizeOnly = true) shouldBe false
+        (translator.queuedTranslationOrNull(chapterId) === confirmedRun) shouldBe true
+        confirmedRun.status = Translation.State.PAUSED
+        runBlocking { translator.requeueExisting(chapterId, force = true) } shouldBe false
+        translator.start() shouldBe false
+        confirmedRun.status shouldBe Translation.State.PAUSED
+        translator.removeReplacedChapterIfCurrent(confirmedRun, generation) shouldBe true
+
+        translator.queueChapter(manga, chapter, colorizeOnly = true) shouldBe true
+        (translator.queuedTranslationOrNull(chapterId) === confirmedRun) shouldBe false
+    }
+
+    @Test
     fun `re-arming a stopped entry adopts the caller's latest run mode`() {
         every { sourceManager.get(any()) } returns source
         val stoppedColorize = translation(Translation.State.ERROR).also { it.colorizeOnly = true }
@@ -212,7 +344,7 @@ class BatchTranslationCoordinatorStartGuardTest {
     }
 
     @Test
-    fun `overlapping admissions while a batch is in flight schedule exactly one concurrent batch`() {
+    fun `pause rejects resume while the previous batch claim is unwinding`() {
         val concurrent = AtomicInteger(0)
         val maxConcurrent = AtomicInteger(0)
         val resolverEntered = CompletableDeferred<Unit>()
@@ -227,20 +359,120 @@ class BatchTranslationCoordinatorStartGuardTest {
         }
         val firstJob = translationJob(translator)
 
-        // Overlapping admission for the SAME chapter while batch #1 is still
-        // in flight (the device idiom: pause cancels the translator job, the
-        // next admission re-admits the queued entry while the previous batch
-        // coroutine has not unwound yet).
         translator.pause()
-        translator.start()
-        val restartedJob = translationJob(translator)
+        translator.batchQueuePauseState.value shouldBe BatchQueuePauseState.REQUESTED
+        translator.start() shouldBe false
+        runBlocking {
+            translator.resumeBatchChapter(chapterId) shouldBe BatchQueueResumeResult.PauseUnwinding
+        }
 
         resolverRelease.complete(Unit)
-        awaitJobs(firstJob, restartedJob)
+        awaitJobs(firstJob)
+        runBlocking {
+            withTimeout(5_000) {
+                while (translator.batchQueuePauseState.value != BatchQueuePauseState.PAUSED) delay(10)
+            }
+        }
         translator.isRunning shouldBe false
         concurrent.get() shouldBe 0
         maxConcurrent.get() shouldBe 1
-        translation.status shouldBe Translation.State.ERROR
+        translation.status shouldBe Translation.State.QUEUE
+        translator.batchQueuePauseState.value shouldBe BatchQueuePauseState.PAUSED
+    }
+
+    @Test
+    fun `chapter resume starts only its target and global resume sees queued siblings`() = runBlocking {
+        every { sourceManager.get(any()) } returns source
+        every { preferences.translationRequireCharging() } returns preferenceOf(false)
+        every { provider.findMangaDir(any(), any()) } returns null
+        every { downloadProvider.findChapterDir(any(), any(), any(), any()) } returns null
+        val translator = newTranslator()
+        val focusChapterId = 31L
+        val siblingChapterId = 32L
+        val focusChapter = chapterFor(focusChapterId)
+        val siblingChapter = chapterFor(siblingChapterId)
+        translator.queueChapter(manga, focusChapter, colorizeOnly = true) shouldBe true
+        translator.queueChapter(manga, siblingChapter, colorizeOnly = true) shouldBe true
+        val focus = translator.queuedTranslationOrNull(focusChapterId)!!
+        val sibling = translator.queuedTranslationOrNull(siblingChapterId)!!
+        focus.status = Translation.State.PAUSED
+
+        translator.resumeBatchChapter(focusChapterId, expectedRun = focus) shouldBe
+            BatchQueueResumeResult.Resumed(setOf(focusChapterId))
+        awaitJobs(translationJob(translator))
+        focus.status shouldBe Translation.State.ERROR
+        sibling.status shouldBe Translation.State.QUEUE
+        withTimeout(5_000) {
+            while (!translator.hasResumableBatchWork.value) delay(10)
+        }
+
+        translator.resumeBatchQueue() shouldBe BatchQueueResumeResult.Resumed(setOf(siblingChapterId))
+        awaitJobs(translationJob(translator))
+        sibling.status shouldBe Translation.State.ERROR
+        withTimeout(5_000) {
+            while (translator.hasResumableBatchWork.value) delay(10)
+        }
+    }
+
+    @Test
+    fun `chapter resume reports retry cooldown`() = runBlocking {
+        val retryAt = System.currentTimeMillis() + 60_000
+        val durableFailure = DurableFailureMetadata(
+            pageKey = "page-1",
+            stage = ArtifactStage.TRANSLATION,
+            status = ArtifactStageStatus.FAILED_RETRYABLE,
+            category = FailureCategory.TRANSIENT,
+            retryCount = 1,
+            lastFailedAtEpochMs = System.currentTimeMillis(),
+            nextEligibleRetryAtEpochMs = retryAt,
+        )
+        val store = mockk<ChapterTranslationStore>(relaxed = true) {
+            every { artifactStatus() } returns Translation.State.PAUSED
+            every { durableFailuresSnapshot() } returns mapOf("page-1" to durableFailure)
+        }
+        storeResolver = { store }
+        val run = translation(Translation.State.PAUSED)
+        val translator = translatorWithQueue(listOf(run))
+
+        translator.resumeBatchChapter(chapterId) shouldBe
+            BatchQueueResumeResult.RetryDeferred(chapterId, retryAt)
+        run.status shouldBe Translation.State.PAUSED
+    }
+
+    @Test
+    fun `chapter resume reports a queue item replaced while reading retry metadata`() = runBlocking {
+        every { sourceManager.get(any()) } returns source
+        every { preferences.translationRequireCharging() } returns preferenceOf(false)
+        val resolverEntered = CompletableDeferred<Unit>()
+        val resolverRelease = CompletableDeferred<Unit>()
+        storeResolver = {
+            resolverEntered.complete(Unit)
+            resolverRelease.await()
+            null
+        }
+        val confirmedRun = translation(Translation.State.PAUSED)
+        val translator = translatorWithQueue(listOf(confirmedRun))
+        val resume = async { translator.resumeBatchChapter(chapterId, expectedRun = confirmedRun) }
+        resolverEntered.await()
+
+        translator.removeFromQueue(chapter)
+        translator.queueChapter(manga, chapter, colorizeOnly = true) shouldBe true
+        resolverRelease.complete(Unit)
+
+        resume.await() shouldBe BatchQueueResumeResult.StaleQueueItem(chapterId)
+        (translator.queuedTranslationOrNull(chapterId) === confirmedRun) shouldBe false
+    }
+
+    @Test
+    fun `chapter resume reports session rejection without rearming the queue item`() = runBlocking {
+        val sessions = TranslationSessionCoordinator()
+        sessions.requestReaderSession(ReaderSessionIntent(chapterId = chapterId))
+        val run = translation(Translation.State.PAUSED)
+        val translator = translatorWithQueue(listOf(run), sessions)
+
+        translator.resumeBatchChapter(chapterId) shouldBe
+            BatchQueueResumeResult.SessionRejected(SessionRejection.READER_ACTIVE)
+        run.status shouldBe Translation.State.PAUSED
     }
 
     private fun setField(target: Any, fieldName: String, value: Any) {

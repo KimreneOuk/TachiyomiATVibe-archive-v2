@@ -29,10 +29,38 @@ kotlin {
     }
 }
 
+val migrationFixClasspath by configurations.creating
+
+val compileMigrationFix = tasks.register<JavaCompile>("compileMigrationFix") {
+    source = fileTree("src/migrationFix/java")
+    destinationDirectory.set(layout.buildDirectory.dir("intermediates/migrationFix/classes"))
+    classpath = migrationFixClasspath
+}
+
+val testMigrationFix = tasks.register<JavaExec>("testMigrationFix") {
+    dependsOn(compileMigrationFix)
+    classpath = files(compileMigrationFix.map { it.destinationDirectory }, migrationFixClasspath)
+    mainClass.set("tachiyomi.data.migration.SqliteDriverInitializerTest")
+}
+
+val migrationFixJar = tasks.register<Jar>("migrationFixJar") {
+    dependsOn(compileMigrationFix)
+    from(compileMigrationFix.map { it.destinationDirectory }) {
+        exclude("**/*Test*")
+    }
+    from("src/migrationFix/resources")
+    archiveBaseName.set("sqlite-driver-fix")
+    destinationDirectory.set(layout.buildDirectory.dir("intermediates/migrationFix/jar"))
+}
+
 dependencies {
     implementation(projects.sourceApi)
     implementation(projects.domain)
     implementation(projects.core.common)
 
     api(libs.bundles.sqldelight)
+
+    migrationFixClasspath("app.cash.sqldelight:gradle-plugin:${libs.versions.sqldelight.get()}")
+
+    "DatabaseMigrationEnv"(files(migrationFixJar))
 }

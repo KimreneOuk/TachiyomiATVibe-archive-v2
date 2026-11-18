@@ -1,6 +1,13 @@
 package eu.kanade.presentation.reader.appbars
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -13,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,15 +37,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.designsystem.DesignTokens
+import eu.kanade.presentation.reader.components.ReaderActivityPulse
+import eu.kanade.presentation.reader.components.deriveReaderLiveActivityState
 import eu.kanade.tachiyomi.R
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationProgressSnapshot
@@ -53,7 +65,7 @@ import tachiyomi.presentation.core.i18n.stringResource
 /**
  * Floating bottom navigation dock: chapter prev/next (RTL aware), the page
  * slider with a compact position label, the translate action with its live
- * work-state icon, and the quick actions toggle. One rounded translucent
+ * work-state icon, and the live activity LED. One rounded translucent
  * capsule that floats above the artwork.
  */
 @Composable
@@ -189,10 +201,12 @@ fun ReaderNavigationDock(
                     },
                 ),
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.MoreVert,
-                    contentDescription = stringResource(ATMR.strings.reader_quick_actions),
-                )
+                val pulse = deriveReaderLiveActivityState(
+                    translationState,
+                    translationBatchProgress,
+                    isBatchSession,
+                ).pulse
+                ReaderActivityPulseLed(pulse = pulse)
             }
         }
     }
@@ -304,5 +318,58 @@ fun ReaderTranslationStatusLine(
                     .copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f),
             )
             .padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+}
+
+/**
+ * Activity LED in the dock's former overflow slot. Answers "is anything
+ * happening?" without a tap: breathing while work runs, amber when paused,
+ * blinking on failures, green when ready, hollow while queued, dim when idle.
+ */
+@Composable
+fun ReaderActivityPulseLed(pulse: ReaderActivityPulse, modifier: Modifier = Modifier) {
+    val color = when (pulse) {
+        ReaderActivityPulse.RUNNING -> DesignTokens.AccentPrimary
+        ReaderActivityPulse.DONE -> MaterialTheme.colorScheme.tertiary
+        ReaderActivityPulse.PAUSED -> DesignTokens.StatusWarning
+        ReaderActivityPulse.ATTENTION -> MaterialTheme.colorScheme.error
+        ReaderActivityPulse.QUEUED -> Color.Transparent
+        ReaderActivityPulse.IDLE -> DesignTokens.TextMuted
+    }
+    val transition = rememberInfiniteTransition(label = "activity-led")
+    val animatedAlpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (pulse == ReaderActivityPulse.ATTENTION) 0.25f else 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (pulse == ReaderActivityPulse.ATTENTION) 520 else 1100),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "activity-led-alpha",
+    )
+    val isAnimated = pulse == ReaderActivityPulse.RUNNING ||
+        pulse == ReaderActivityPulse.ATTENTION ||
+        pulse == ReaderActivityPulse.PAUSED
+    val shape = RoundedCornerShape(50)
+    val label = stringResource(ATMR.strings.reader_live_activity)
+    Box(
+        modifier = modifier
+            .size(10.dp)
+            .alpha(
+                if (isAnimated) {
+                    animatedAlpha
+                } else if (pulse == ReaderActivityPulse.IDLE) {
+                    0.4f
+                } else {
+                    1f
+                },
+            )
+            .then(
+                if (pulse == ReaderActivityPulse.QUEUED) {
+                    Modifier.border(BorderStroke(1.5.dp, DesignTokens.TextMuted), shape)
+                } else {
+                    Modifier.background(color = color, shape = shape)
+                },
+            )
+            .semantics { contentDescription = label },
     )
 }

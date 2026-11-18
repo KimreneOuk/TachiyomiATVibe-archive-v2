@@ -258,9 +258,10 @@ internal object ChapterStoreOpener {
     internal suspend fun openArtifactSuspend(
         parent: UniFile,
         fileName: String,
+        lazyPageSnapshots: Boolean = false,
     ): ChapterTranslationStore = withContext(Dispatchers.IO) {
         withArtifactOpenLock(parent, fileName) { _ ->
-            openArtifactOnly(parent, fileName)
+            openArtifactOnly(parent, fileName, lazyPageSnapshots)
         }
     }
 
@@ -351,6 +352,36 @@ internal object ChapterStoreOpener {
         )
     }
 
+    private fun hydrateChapterStateFallbackOnly(
+        manifest: ChapterArtifactManifest,
+    ): ChapterHydration {
+        val artifactPageStates = manifest.pages.mapValues { (_, record) ->
+            val fallback = record.toArtifactPageFallback()
+            OpenArtifactPageState(
+                livePage = fallback,
+                committedPage = if (record.committed != null) fallback else null,
+                hasContentBackedSnapshot = false,
+            )
+        }
+        val legacyPages = artifactPageStates.mapValues { it.value.livePage }
+        val committedPages = artifactPageStates.mapNotNull { (pageKey, opened) ->
+            opened.committedPage?.let { pageKey to it }
+        }.toMap()
+        val retiredCleanedImages = manifest.pages.mapNotNull { (pageKey, record) ->
+            val previous = record.previousCommitted ?: return@mapNotNull null
+            val name = previous.displayBase.fileName
+                ?.takeIf { it != record.committed?.displayBase?.fileName }
+                ?: return@mapNotNull null
+            pageKey to setOf(name)
+        }.toMap()
+
+        return ChapterHydration(
+            legacyPages = legacyPages,
+            committedPages = committedPages,
+            retiredCleanedImages = retiredCleanedImages,
+        )
+    }
+
     private data class OpenArtifactPageState(
         val livePage: PageTranslation,
         val committedPage: PageTranslation?,
@@ -360,6 +391,7 @@ internal object ChapterStoreOpener {
     private suspend fun openArtifactOnly(
         parent: UniFile?,
         fileName: String,
+        lazyPageSnapshots: Boolean = false,
     ): ChapterTranslationStore {
         if (parent == null) {
             return ChapterTranslationStore(
@@ -371,7 +403,12 @@ internal object ChapterStoreOpener {
         val documents = AtomicChapterDocuments(UniFileChapterDocumentIo(parent))
         val artifact = ChapterArtifactEngine(documents, layout)
         val manifest = artifact.load().manifest
-        val hydration = hydrateChapterState(artifact, manifest)
+        val hydration = if (lazyPageSnapshots) {
+            hydrateChapterStateFallbackOnly(manifest)
+        } else {
+            hydrateChapterState(artifact, manifest)
+        }
+        val unhydrated = if (lazyPageSnapshots) manifest.pages.keys else emptySet()
         return ChapterTranslationStore(
             initialPages = hydration.legacyPages,
             artifactStore = artifact,
@@ -380,6 +417,7 @@ internal object ChapterStoreOpener {
             initialRetiredCleanedImages = hydration.retiredCleanedImages,
             artifactParent = parent,
             artifactFileName = fileName,
+            unhydratedPageKeys = unhydrated,
         )
     }
 

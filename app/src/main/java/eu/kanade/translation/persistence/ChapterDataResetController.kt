@@ -31,7 +31,7 @@ internal class ChapterDataResetController(
     private val unregisterActiveTranslationStoreFn: suspend (Long) -> Unit,
     private val streamRegistryProvider: () -> TranslationStreamRegistry,
     private val providerProvider: () -> TranslationFileProvider,
-    private val retireChapterCompanionImagesFn: (Manga, Chapter, Source) -> Int,
+    private val retireChapterCompanionImagesFn: (Manga, Chapter, Source) -> ChapterCompanionRetirement,
     private val retirePageCompanionImageFn: (Manga, Chapter, Source, String, String, () -> Boolean) -> Unit,
     private val durableStatusResolverProvider: () -> DurableChapterStatusResolver,
     private val activeStoresProvider: () -> ActiveChapterStoreRegistry,
@@ -55,14 +55,14 @@ internal class ChapterDataResetController(
         val deletionDocument = withContext(Dispatchers.IO) {
             findTranslationDocumentFn(chapter.name, chapter.scanlator, manga.title, source)
         }
-        val artifactDeletionPlan = deletionDocument?.let { document ->
+        val planCapture = deletionDocument?.let { document ->
             withContext(Dispatchers.IO) {
-                ChapterArtifactDeletionPlan.capture(
+                ChapterArtifactDeletionPlan.captureClassified(
                     chapterIoFactory(document.parent),
                     document.fileName,
                 )
             }
-        }
+        } ?: ArtifactDeletionPlanCapture.Absent
         // SYNCHRONOUS teardown (was fire-and-forget): a delete-then-retranslate let the reader
         // re-bind to the about-to-be-evicted store while the translator wrote to a fresh instance,
         // and a cancelled-but-not-joined batch worker kept writing into the old store after its
@@ -88,27 +88,55 @@ internal class ChapterDataResetController(
         var authorityRemoved = true
         var removedFiles = 0
         var removedDirs = 0
-        artifactDeletionPlan?.let { plan ->
-            val result = withContext(Dispatchers.IO) { plan.delete() }
-            authorityRemoved = result.manifestRemoved
-            removedFiles += result.removedFiles
-            removedDirs += result.removedDirs
-            if (result.destructiveCheckpointUnverified) {
-                failures += "destructive checkpoint unverified: chapter=${chapter.name}"
+        var deferredLeasedFiles = 0
+
+        when (planCapture) {
+            is ArtifactDeletionPlanCapture.UnsupportedNewerSchema -> {
+                authorityRemoved = false
+                failures += "unsupported newer schema preserved: version=${planCapture.schemaVersion} chapter=${chapter.name}"
+                logcat(LogPriority.WARN) {
+                    "TachiyomiAT chapter artifact deletion skipped for unsupported newer schema: " +
+                        "chapter=${chapter.name} version=${planCapture.schemaVersion}"
+                }
             }
-            failures.addAll(result.failures.map { "artifact deletion failed: $it" })
-            logcat(if (result.complete) LogPriority.INFO else LogPriority.ERROR) {
-                "TachiyomiAT chapter artifact deletion: chapter=${chapter.name} " +
-                    "manifestRemoved=${result.manifestRemoved} " +
-                    "artifactTreeRemoved=${result.artifactTreeRemoved} " +
-                    "checkpointUnverified=${result.destructiveCheckpointUnverified} " +
-                    "failures=${result.failures.size}"
+            is ArtifactDeletionPlanCapture.Unreadable -> {
+                authorityRemoved = false
+                failures += "unreadable manifest preserved: chapter=${chapter.name} reason=${planCapture.reason}"
+                logcat(LogPriority.ERROR) {
+                    "TachiyomiAT chapter artifact deletion skipped for unreadable manifest: " +
+                        "chapter=${chapter.name} reason=${planCapture.reason}"
+                }
             }
-            // Legacy flat files are deliberately retained; deletion only owns manifest artifacts.
+            is ArtifactDeletionPlanCapture.Ready -> {
+                val plan = planCapture.plan
+                val result = withContext(Dispatchers.IO) { plan.delete() }
+                authorityRemoved = result.manifestRemoved
+                removedFiles += result.removedFiles
+                removedDirs += result.removedDirs
+                if (result.destructiveCheckpointUnverified) {
+                    failures += "destructive checkpoint unverified: chapter=${chapter.name}"
+                }
+                failures.addAll(result.failures.map { "artifact deletion failed: $it" })
+                logcat(if (result.complete) LogPriority.INFO else LogPriority.ERROR) {
+                    "TachiyomiAT chapter artifact deletion: chapter=${chapter.name} " +
+                        "manifestRemoved=${result.manifestRemoved} " +
+                        "artifactTreeRemoved=${result.artifactTreeRemoved} " +
+                        "checkpointUnverified=${result.destructiveCheckpointUnverified} " +
+                        "failures=${result.failures.size}"
+                }
+            }
+            ArtifactDeletionPlanCapture.Absent -> {
+                // Legacy flat files are deliberately retained; deletion only owns manifest artifacts.
+            }
         }
-        if (authorityRemoved) removedFiles += retireChapterCompanionImagesFn(manga, chapter, source)
+
+        if (authorityRemoved) {
+            val retirement = retireChapterCompanionImagesFn(manga, chapter, source)
+            removedFiles += retirement.confirmedRemoved
+            deferredLeasedFiles += retirement.deferredLeasedFiles
+        }
         durableStatusResolverProvider().clearDurableStatusCache()
-        return ChapterResetReceipt.incomplete(failures, removedFiles, removedDirs)
+        return ChapterResetReceipt.incomplete(failures, removedFiles, removedDirs, deferredLeasedFiles)
     }
 
     suspend fun resetOcrData(chapter: Chapter, manga: Manga, source: Source, pageKey: String): ChapterResetReceipt {

@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
 import eu.kanade.translation.coordinator.ReaderTranslationCoordinator
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
+import eu.kanade.translation.persistence.ChapterCompanionRetirement
 import eu.kanade.translation.persistence.ChapterDataResetController
 import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.persistence.DurableChapterStatusResolver
@@ -102,7 +103,7 @@ class EvictionOffMainTest {
             unregisterActiveTranslationStoreFn = { evictionThread.set(Thread.currentThread()) },
             streamRegistryProvider = { mockk<TranslationStreamRegistry>(relaxed = true) },
             providerProvider = { mockk<TranslationFileProvider>(relaxed = true) },
-            retireChapterCompanionImagesFn = { _, _, _ -> 0 },
+            retireChapterCompanionImagesFn = { _, _, _ -> ChapterCompanionRetirement(0, 0) },
             retirePageCompanionImageFn = { _, _, _, _, _, _ -> },
             durableStatusResolverProvider = { mockk<DurableChapterStatusResolver>(relaxed = true) },
             activeStoresProvider = { ActiveChapterStoreRegistry() },

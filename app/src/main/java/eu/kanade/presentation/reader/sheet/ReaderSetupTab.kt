@@ -12,6 +12,7 @@ import androidx.compose.material.icons.outlined.Animation
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.BrightnessMedium
 import androidx.compose.material.icons.outlined.FilterBAndW
+import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.InvertColors
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Tag
@@ -58,6 +59,7 @@ fun ReaderSetupTab(
     val customBrightnessValue by screenModel.preferences.customBrightnessValue().collectAsState()
     val grayscale by screenModel.preferences.grayscale().collectAsState()
     val invertedColors by screenModel.preferences.invertedColors().collectAsState()
+    val fullscreen by screenModel.preferences.fullscreen().collectAsState()
     val pageTransitions by screenModel.preferences.pageTransitions().collectAsState()
     val volumeKeys by screenModel.preferences.readWithVolumeKeys().collectAsState()
     val showPageNumber by screenModel.preferences.showPageNumber().collectAsState()
@@ -141,6 +143,13 @@ fun ReaderSetupTab(
                 title = stringResource(MR.strings.pref_inverted_colors),
                 checked = invertedColors,
                 onCheckedChange = { screenModel.preferences.invertedColors().set(it) },
+            )
+
+            SwitchCard(
+                icon = Icons.Outlined.Fullscreen,
+                title = stringResource(MR.strings.pref_fullscreen),
+                checked = fullscreen,
+                onCheckedChange = { screenModel.preferences.fullscreen().set(it) },
             )
         }
 

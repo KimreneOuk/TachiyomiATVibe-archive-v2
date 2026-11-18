@@ -262,6 +262,7 @@ class MangaScreenModelTranslationDrawerTest {
             setMangaCategories = mockk(relaxed = true),
             mangaRepository = mockk(relaxed = true),
             filterChaptersForDownload = mockk(relaxed = true),
+            getMangaLastVisited = mockk(relaxed = true),
         )
         // Boot is a one-time wait (not a behavioral assertion): give cold
         // daemons and full-suite JVM churn headroom beyond the default 5s.

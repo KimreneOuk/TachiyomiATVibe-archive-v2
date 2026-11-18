@@ -255,6 +255,7 @@ class MangaScreenModelCancelledBatchReconciliationTest {
             setMangaCategories = mockk(relaxed = true),
             mangaRepository = mockk(relaxed = true),
             filterChaptersForDownload = mockk(relaxed = true),
+            getMangaLastVisited = mockk(relaxed = true),
         )
         // Sleep-free boot wait: bounded state.first{} (no polling loop).
         runBlocking {

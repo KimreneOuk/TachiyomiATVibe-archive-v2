@@ -36,13 +36,6 @@ internal class ReaderUiPrefs(
     fun autoTranslate() = preferenceStore.getBoolean("auto_translate", false)
 
     /**
-     * Reader auto-colorization: when enabled (and [TranslationPreferences.translationColorizationEnabled] is on),
-     * the reader proactively colorizes the current page N and next page N+1 on viewport changes.
-     * Operates without requiring whole-chapter download, coexisting with autoTranslate.
-     */
-    fun autoColorize() = preferenceStore.getBoolean("auto_colorize", false)
-
-    /**
      * TachiyomiAT: translate button presentation on reader pages.
      *
      * One lightweight boolean encodes the two spec modes:

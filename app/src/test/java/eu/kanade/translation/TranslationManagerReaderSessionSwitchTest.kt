@@ -80,6 +80,7 @@ class TranslationManagerReaderSessionSwitchTest {
             }
             every { queueChapter(any(), any(), any(), any(), true) } answers {
                 queueFlow.value = listOf(queuedEntry)
+                true
             }
         }
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -175,6 +176,7 @@ class TranslationManagerReaderSessionSwitchTest {
             }
             every { queueChapter(any(), any(), any(), any(), true) } answers {
                 queueFlow.value = listOf(queuedEntry)
+                true
             }
         }
         val activeStores = ActiveChapterStoreRegistry()

@@ -8,6 +8,7 @@ import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
 import eu.kanade.translation.persistence.ChapterTranslationStore
+import eu.kanade.translation.persistence.StoreDefunctOutcome
 import eu.kanade.translation.persistence.DurableChapterKey
 import eu.kanade.translation.persistence.DurableChapterStatusResolver
 import eu.kanade.translation.persistence.DurableStatus
@@ -62,7 +63,10 @@ class TranslationManagerDeleteResetOrderingTest {
         every { store.state } returns MutableStateFlow(
             mapOf(pageKey to PageTranslation(cleanedImageName = "old.jpg", coloredImageName = "p1.colored.v1.jpg")),
         )
-        coEvery { store.markDefunct() } coAnswers { log("markDefunct") }
+        coEvery { store.markDefunct(any()) } coAnswers {
+            log("markDefunct")
+            StoreDefunctOutcome.Flushed
+        }
         coEvery { store.deletePage(any()) } answers {
             log("deletePage")
             null
@@ -87,6 +91,25 @@ class TranslationManagerDeleteResetOrderingTest {
         every { translator.queueState } returns queue
         every { translator.queuedTranslationOrNull(any()) } answers {
             queue.value.firstOrNull { it.chapter.id == firstArg<Long>() }
+        }
+        every { translator.reserveRunningChapterForReplace(any(), any()) } answers {
+            val expectedRun = firstArg<Translation>()
+            expectedRun.activeRunGenerationOrNull() == secondArg<Long>() &&
+                queue.value.firstOrNull { it.chapter.id == expectedRun.chapter.id } === expectedRun
+        }
+        every { translator.removeReplacedChapterIfCurrent(any(), any()) } answers {
+            val expectedRun = firstArg<Translation>()
+            val expectedRunGeneration = secondArg<Long>()
+            val current = queue.value.firstOrNull { it.chapter.id == expectedRun.chapter.id }
+            if (expectedRun.runGeneration != expectedRunGeneration ||
+                (current != null && (current !== expectedRun || current.runGeneration != expectedRunGeneration))
+            ) {
+                false
+            } else {
+                if (current === expectedRun) queue.value = queue.value - expectedRun
+                log("removeFromQueue")
+                true
+            }
         }
         every { translator.isRunning } returns false
         every { translator.removeFromQueue(any<Chapter>()) } answers { log("removeFromQueue") }
@@ -174,9 +197,10 @@ class TranslationManagerDeleteResetOrderingTest {
         val manga = mockk<Manga>(relaxed = true)
         val chapter = mockk<Chapter>(relaxed = true)
         every { chapter.id } returns 42L
+        val run = queuedTranslation(chapter, manga, source).also { it.status = Translation.State.TRANSLATING }
         val manager = newManager(
             store = storeWithPage("p1"),
-            queue = MutableStateFlow(listOf(queuedTranslation(chapter, manga, source))),
+            queue = MutableStateFlow(listOf(run)),
         )
         // The delete wipe must also drop the memoized translation document —
         // the two caches share one invalidation call, and nothing else pins
@@ -376,9 +400,10 @@ class TranslationManagerDeleteResetOrderingTest {
         val manga = mockk<Manga>(relaxed = true)
         val chapter = mockk<Chapter>(relaxed = true)
         every { chapter.id } returns 42L
+        val run = queuedTranslation(chapter, manga, source).also { it.status = Translation.State.TRANSLATING }
         val manager = newManager(
             store = storeWithPage("p1"),
-            queue = MutableStateFlow(listOf(queuedTranslation(chapter, manga, source))),
+            queue = MutableStateFlow(listOf(run)),
         )
         val cancelStarted = CompletableDeferred<Unit>()
         val cancelRelease = CompletableDeferred<Unit>()
@@ -405,7 +430,7 @@ class TranslationManagerDeleteResetOrderingTest {
         }
         events.clear()
 
-        val job = launch { manager.cancelRunningChapterForReplace(42L) }
+        val job = launch { manager.cancelRunningChapterForReplace(run, run.runGeneration) }
 
         cancelStarted.await()
         assertTrue(
@@ -433,13 +458,17 @@ class TranslationManagerDeleteResetOrderingTest {
 
     @Test
     fun `cancelRunningChapterForReplace returns without side effects for an absent queue entry`() = runTest {
+        val chapter = mockk<Chapter>(relaxed = true)
+        every { chapter.id } returns 42L
+        val run = queuedTranslation(chapter, mockk(relaxed = true), mockk(relaxed = true))
+            .also { it.status = Translation.State.TRANSLATING }
         val manager = newManager(
             store = storeWithPage("p1"),
             queue = MutableStateFlow(emptyList()),
         )
         events.clear()
 
-        manager.cancelRunningChapterForReplace(42L)
+        manager.cancelRunningChapterForReplace(run, run.runGeneration)
 
         assertTrue(
             events.isEmpty(),
@@ -448,19 +477,68 @@ class TranslationManagerDeleteResetOrderingTest {
     }
 
     @Test
+    fun `cancelRunningChapterForReplace leaves a newer same-chapter run untouched`() = runTest {
+        val source = mockk<HttpSource>(relaxed = true)
+        val manga = mockk<Manga>(relaxed = true)
+        val chapter = mockk<Chapter>(relaxed = true)
+        every { chapter.id } returns 42L
+        val confirmedRun = queuedTranslation(chapter, manga, source).also {
+            it.status = Translation.State.TRANSLATING
+        }
+        val newerRun = queuedTranslation(chapter, manga, source).also {
+            it.status = Translation.State.TRANSLATING
+        }
+        val queue = MutableStateFlow(listOf(newerRun))
+        val manager = newManager(storeWithPage("p1"), queue)
+        events.clear()
+
+        assertTrue(
+            !manager.cancelRunningChapterForReplace(confirmedRun, confirmedRun.runGeneration),
+            "the stale run must be refused",
+        )
+
+        assertTrue(events.isEmpty(), "a replacement must not touch the newer run: $events")
+        assertTrue(queue.value.single() === newerRun, "the current queue identity must be retained")
+    }
+
+    @Test
+    fun `cancelRunningChapterForReplace refuses a rearmed same instance at the cancellation boundary`() = runTest {
+        val source = mockk<HttpSource>(relaxed = true)
+        val manga = mockk<Manga>(relaxed = true)
+        val chapter = mockk<Chapter>(relaxed = true)
+        every { chapter.id } returns 42L
+        val run = queuedTranslation(chapter, manga, source).also { it.status = Translation.State.TRANSLATING }
+        val confirmedGeneration = run.activeRunGenerationOrNull()!!
+        val queue = MutableStateFlow(listOf(run))
+        val manager = newManager(storeWithPage("p1"), queue)
+        run.status = Translation.State.QUEUE
+        run.status = Translation.State.TRANSLATING
+        events.clear()
+
+        assertTrue(
+            !manager.cancelRunningChapterForReplace(run, confirmedGeneration),
+            "a stale generation of the same queue object must be refused",
+        )
+
+        assertTrue(events.isEmpty(), "a stale generation must not enter cancellation: $events")
+        assertTrue(queue.value.single() === run, "the current queue entry must remain in place")
+    }
+
+    @Test
     fun `cancelRunningChapterForReplace without an active store still cancels then removes`() = runTest {
         val source = mockk<HttpSource>(relaxed = true)
         val manga = mockk<Manga>(relaxed = true)
         val chapter = mockk<Chapter>(relaxed = true)
         every { chapter.id } returns 42L
+        val run = queuedTranslation(chapter, manga, source).also { it.status = Translation.State.TRANSLATING }
         val manager = newManager(
             store = storeWithPage("p1"),
-            queue = MutableStateFlow(listOf(queuedTranslation(chapter, manga, source))),
+            queue = MutableStateFlow(listOf(run)),
         )
         setField(manager, "activeStores", ActiveChapterStoreRegistry())
         events.clear()
 
-        manager.cancelRunningChapterForReplace(42L)
+        manager.cancelRunningChapterForReplace(run, run.runGeneration)
 
         assertTrue(
             events == listOf("cancelPageTranslations", "removeFromQueue"),

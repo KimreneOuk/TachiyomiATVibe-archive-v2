@@ -30,8 +30,10 @@ import eu.kanade.presentation.manga.DownloadAction
 import eu.kanade.presentation.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.manga.components.ChapterTranslationAction
 import eu.kanade.presentation.util.formattedMessage
+import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
@@ -44,18 +46,25 @@ import eu.kanade.tachiyomi.util.system.activeNetworkState
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.TranslationManager
 import eu.kanade.translation.coordinator.BatchAdmissionDecision
+import eu.kanade.translation.coordinator.BatchQueuePauseState
+import eu.kanade.translation.coordinator.BatchQueueResumeResult
 import eu.kanade.translation.coordinator.ChapterQueuePreflight
 import eu.kanade.translation.engines.inpainting.InpaintingMode
 import eu.kanade.translation.engines.inpainting.litert.LiteRtInpaintingAssetManager
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -86,6 +95,7 @@ import tachiyomi.domain.manga.interactor.GetDuplicateLibraryManga
 import tachiyomi.domain.manga.interactor.GetMangaWithChapters
 import tachiyomi.domain.manga.interactor.SetMangaChapterFlags
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.manga.model.MangaLastVisited
 import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
@@ -133,7 +143,21 @@ class MangaScreenModel(
     private val mangaRepository: MangaRepository = Injekt.get(),
     private val filterChaptersForDownload: FilterChaptersForDownload = Injekt.get(),
     val snackbarHostState: SnackbarHostState = SnackbarHostState(),
+    private val getMangaLastVisited: tachiyomi.domain.manga.interactor.GetMangaLastVisited = Injekt.get(),
+    chapterCache: ChapterCache? = null,
+    downloadProvider: DownloadProvider? = null,
 ) : StateScreenModel<MangaScreenModel.State>(State.Loading) {
+
+    private val chapterCache: ChapterCache? = chapterCache ?: try {
+        Injekt.get()
+    } catch (_: Throwable) {
+        null
+    }
+    private val downloadProvider: DownloadProvider? = downloadProvider ?: try {
+        Injekt.get()
+    } catch (_: Throwable) {
+        null
+    }
 
     private val successState: State.Success?
         get() = state.value as? State.Success
@@ -143,6 +167,33 @@ class MangaScreenModel(
 
     val source: Source?
         get() = successState?.source
+
+    val resumeTarget: StateFlow<ResumeTarget?> = combine(
+        state,
+        getMangaLastVisited.subscribe(mangaId),
+    ) { currentState, lastVisited ->
+        if (currentState !is State.Success) return@combine null
+        resolveResumeTarget(currentState, lastVisited)
+    }
+        .flowOn(Dispatchers.IO)
+        .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val translationQueuePaused: StateFlow<Boolean>
+        get() = translationManager.translationQueuePaused
+
+    val batchQueuePauseState: StateFlow<BatchQueuePauseState>
+        get() = translationManager.batchQueuePauseState
+
+    val hasResumableBatchWork: StateFlow<Boolean>
+        get() = translationManager.hasResumableBatchWork
+
+    suspend fun resumeBatchQueue(): BatchQueueResumeResult = translationManager.resumeBatchQueue()
+
+    fun resumeBatchQueue(onResult: (BatchQueueResumeResult) -> Unit) =
+        translationCoordinator.resumeBatchQueue(onResult)
+
+    suspend fun resumeBatchChapter(chapterId: Long, force: Boolean = false): BatchQueueResumeResult =
+        translationManager.resumeBatchChapter(chapterId, force)
 
     private val isFavorited: Boolean
         get() = manga?.favorite ?: false
@@ -474,20 +525,10 @@ class MangaScreenModel(
             onTranslationsQueuedBehindDownloads = ::warnTranslationsQueuedBehindDownloads,
             onTranslationCancelled = ::showTranslationCancelledNotice,
             onTranslationResumePaused = ::showTranslationResumePausedNotice,
-            onColorizeUnavailable = ::showColorizeUnavailableNotice,
             inpaintStartBlocked = {
                 LiteRtInpaintingAssetManager.isNeuralStartBlocked(translationPreferences, context)
             },
         )
-    }
-
-    private fun showColorizeUnavailableNotice() {
-        screenModelScope.launch {
-            snackbarHostState.showSnackbar(
-                message = context.stringResource(ATMR.strings.manga_colorize_unavailable),
-                duration = SnackbarDuration.Short,
-            )
-        }
     }
 
     /**
@@ -732,6 +773,113 @@ class MangaScreenModel(
         return successState.chapters.getNextUnread(successState.manga)
     }
 
+    data class ResumeTarget(
+        val chapter: Chapter,
+        val initialPage: Int? = null,
+        val totalPages: Int? = null,
+        val isCompleted: Boolean = false,
+        val cachedThumbnailUri: String? = null,
+    )
+
+    /**
+     * Resolves the target chapter and page for resume reading.
+     *
+     * 1. If [GetMangaLastVisited] returns a last-visited entry for this manga:
+     *    Checks whether the recorded chapter exists in the available chapter list.
+     *    If found, returns that chapter and the recorded page, even if the chapter is marked read.
+     * 2. Deleted / Missing Chapter Fallback:
+     *    If the last-visited chapter is not found in the chapter list (e.g. deleted from library/source
+     *    or filtered out), falls back to [getNextUnreadChapter()] with null initial page.
+     * 3. If no last-visited entry exists, falls back to [getNextUnreadChapter()].
+     */
+    suspend fun getResumeTarget(): ResumeTarget? {
+        val success = successState ?: return null
+        val lastVisited = getMangaLastVisited.await(mangaId)
+        return resolveResumeTarget(success, lastVisited)
+    }
+
+    private fun resolveResumeTarget(success: State.Success, lastVisited: MangaLastVisited?): ResumeTarget? {
+        if (lastVisited != null) {
+            val targetChapter = success.chapters.find { it.chapter.id == lastVisited.chapterId }?.chapter
+            if (targetChapter != null) {
+                val pageIndex = lastVisited.lastVisitedPage.toInt()
+                val (cachedUri, totalPages) = resolveThumbnailAndPageCount(success.manga, success.source, targetChapter, pageIndex)
+                return ResumeTarget(
+                    chapter = targetChapter,
+                    initialPage = pageIndex,
+                    totalPages = totalPages,
+                    isCompleted = targetChapter.read,
+                    cachedThumbnailUri = cachedUri,
+                )
+            }
+        }
+        val nextUnread = success.chapters.getNextUnread(success.manga) ?: return null
+        val (cachedUri, totalPages) = resolveThumbnailAndPageCount(success.manga, success.source, nextUnread, 0)
+        return ResumeTarget(
+            chapter = nextUnread,
+            initialPage = null,
+            totalPages = totalPages,
+            isCompleted = false,
+            cachedThumbnailUri = cachedUri,
+        )
+    }
+
+    private fun resolveThumbnailAndPageCount(
+        manga: Manga,
+        source: Source,
+        chapter: Chapter,
+        targetPageIndex: Int,
+    ): Pair<String?, Int?> {
+        var cachedUri: String? = null
+        var totalPages: Int? = null
+
+        val cache = chapterCache
+        if (cache != null) {
+            try {
+                val cachedPages = cache.getPageListFromCache(chapter)
+                if (cachedPages.isNotEmpty()) {
+                    totalPages = cachedPages.size
+                    val page = cachedPages.getOrNull(targetPageIndex)
+                    val imageUrl = page?.imageUrl
+                    if (imageUrl != null && cache.isImageInCache(imageUrl)) {
+                        val file = cache.getImageFile(imageUrl)
+                        if (file.exists() && file.length() > 0) {
+                            cachedUri = file.toURI().toString()
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+
+        val provider = downloadProvider
+        if (cachedUri == null && provider != null) {
+            try {
+                val chapterDir = provider.findChapterDir(
+                    chapter.name,
+                    chapter.scanlator,
+                    manga.title,
+                    source,
+                )
+                if (chapterDir != null) {
+                    val pages = downloadManager.buildPageList(chapterDir)
+                    if (pages.isNotEmpty()) {
+                        if (totalPages == null) {
+                            totalPages = pages.size
+                        }
+                        val targetPage = pages.getOrNull(targetPageIndex)?.second
+                        if (targetPage?.uri != null) {
+                            cachedUri = targetPage.uri.toString()
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+
+        return cachedUri to totalPages
+    }
+
     private fun getUnreadChapters(): List<Chapter> {
         val chapterItems = if (skipFiltered) filteredChapters.orEmpty() else allChapters.orEmpty()
         return chapterItems
@@ -820,6 +968,12 @@ class MangaScreenModel(
     fun confirmChapterTranslation(item: ChapterList.Item) =
         translationCoordinator.confirmChapterTranslation(item)
 
+    fun confirmChapterTranslation(item: ChapterList.Item, expectedGeneration: Long?) =
+        translationCoordinator.confirmChapterTranslation(item, expectedGeneration = expectedGeneration)
+
+    fun finishChapterDownloadFirst(item: ChapterList.Item, expectedGeneration: Long?) =
+        translationCoordinator.finishChapterDownloadFirst(item, expectedGeneration)
+
     fun resumeChapterTranslation(item: ChapterList.Item, force: Boolean = false) =
         translationCoordinator.resumeChapterTranslation(item, force)
 
@@ -831,6 +985,12 @@ class MangaScreenModel(
 
     fun finishDownloadBeforeTranslation(dialog: Dialog.PartialDownloadTranslation) =
         translationCoordinator.finishDownloadBeforeTranslation(dialog)
+
+    fun dismissPartialDownloadDecision(dialog: Dialog.PartialDownloadTranslation) =
+        translationCoordinator.dismissPartialDownloadDecision(dialog)
+
+    fun dismissInpaintModelMissingDialog(dialog: Dialog.InpaintModelMissing) =
+        translationCoordinator.dismissInpaintModelMissingDialog(dialog)
 
     fun translatePartialDownloadNow(dialog: Dialog.PartialDownloadTranslation) =
         translationCoordinator.translatePartialDownloadNow(dialog)
@@ -1129,11 +1289,19 @@ class MangaScreenModel(
         data class ChapterReset(
             val item: ChapterList.Item,
         ) : Dialog
+
+        // Confirms translating a chapter (or the whole selection). For the
+        // single-chapter path [readiness] carries the read-only pre-flight
+        // so the choices appear before anything is acknowledged.
+        // [requestGenerationAtDisplay] fences stale callbacks against
+        // requests that appeared or changed while the dialog was open.
         data class ConfirmTranslation(
             val item: ChapterList.Item,
             //  slice 2 (R6): the confirmation represents the whole
-            // selection; empty means the single [item] (legacy shape).
+            // selection; empty means the single [item] (single-chapter shape).
             val group: List<ChapterList.Item> = emptyList(),
+            val readiness: ChapterTranslationReadiness? = null,
+            val requestGenerationAtDisplay: Long? = null,
         ) : Dialog
 
         // Confirms cancelling an actively translating chapter of the same
@@ -1141,21 +1309,27 @@ class MangaScreenModel(
         data class RunningTranslationConflict(
             val item: ChapterList.Item,
             val conflict: ChapterQueuePreflight.RunningConflict,
+            val requestGeneration: Long,
         ) : Dialog
 
         // Routes mid-download candidates: finish download first or translate
-        // what exists with honest partial manifest accounting.
+        // what exists with honest partial manifest accounting. [generations]
+        // fences dismissal against later replacement requests.
         data class PartialDownloadTranslation(
             val group: List<ChapterList.Item>,
             val decisions: Map<Long, BatchAdmissionDecision>,
+            val generations: Map<Long, Long> = emptyMap(),
         ) : Dialog
 
         // BALANCE/QUALITY start blocked because the selected neural model's
         // assets are absent from this build; continue offers a FAST switch.
+        // [onDismiss] carries the partial-decision resolution when the guard
+        // replaced that dialog mid-chain.
         data class InpaintModelMissing(
             val modeName: String,
             val modelName: String,
             val onContinue: () -> Unit,
+            val onDismiss: (() -> Unit)? = null,
         ) : Dialog
     }
 

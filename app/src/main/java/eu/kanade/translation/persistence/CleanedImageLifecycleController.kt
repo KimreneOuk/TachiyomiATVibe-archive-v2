@@ -23,11 +23,20 @@ internal fun isFreshOrphanedCleanedImage(lastModified: Long, nowEpochMs: Long): 
 private fun isDerivedCompanionImageName(name: String): Boolean =
     name.contains(".cleaned.") || name.contains(".colored.")
 
+/** Outcome of retiring a chapter's companion images. */
+data class ChapterCompanionRetirement(
+    val confirmedRemoved: Int = 0,
+    val deferredLeasedFiles: Int = 0,
+) {
+    val totalSubmitted: Int get() = confirmedRemoved + deferredLeasedFiles
+}
+
 /** Owns cleaned-image lookup, retirement, and cleanup for translation artifacts. */
 internal class CleanedImageLifecycleController(
     private val applicationScopeProvider: () -> CoroutineScope,
     private val streamRegistryProvider: () -> TranslationStreamRegistry,
     private val providerProvider: () -> TranslationFileProvider,
+    private val activeStoresProvider: (() -> ActiveChapterStoreRegistry)? = null,
 ) {
 
     // Resolve lifecycle dependencies on demand so unused cleanup paths do not create scopes.
@@ -52,11 +61,6 @@ internal class CleanedImageLifecycleController(
      * chapter. The store only exposes names after its committed pointer is
      * reconstructed; deletion still goes through the stream registry so a
      * reader stream held across a reopen cannot be invalidated.
-     *
-     * Launched on the application IO scope: the registry executes a retired
-     * image's delete callback inline when no lease is held, which is SAF
-     * binder I/O — it must never run on the caller's thread (the reader
-     * resolves stores from page binds).
      */
     fun scheduleRetiredCleanedImageCleanup(
         store: ChapterTranslationStore,
@@ -131,24 +135,38 @@ internal class CleanedImageLifecycleController(
         mangaId: Long,
     ) {
         val directory = provider.findCompanionImageDirMemoized(mangaTitle, source, chapterName, scanlator) ?: return
-        val referenced = store.referencedCleanedImageNames() + store.referencedColoredImageNames()
+        if (streamRegistry.hasActiveCleanedImageReadersForChapter(source.id, mangaId, chapterId)) return
+        val activeStore = activeStoresProvider?.invoke()?.get(chapterId)
+        val referenced = store.referencedCleanedImageNames() +
+            (activeStore?.referencedCleanedImageNames().orEmpty())
         val pageKeys = store.state.value.keys
+        val activePageKeys = activeStore?.state?.value?.keys.orEmpty()
         val now = System.currentTimeMillis()
         var deletedImages = 0
         directory.listFiles()
             ?.asSequence()
             ?.mapNotNull { file -> file.name?.let { it to file } }
             ?.filter { (name, file) ->
-                file.isFile && isDerivedCompanionImageName(name) && !name.endsWith(".identity.json")
+                // Conservatively defer all colored images: only clean non-colored derived companions
+                file.isFile && isDerivedCompanionImageName(name) && !name.endsWith(".identity.json") && !name.contains(".colored.")
             }
             ?.filterNot { (name, file) ->
                 name in referenced ||
                     streamRegistry.activeCleanedImageReadersForChapter(source.id, mangaId, chapterId, name) > 0 ||
-                    pageKeys.any { pageKey -> !store.mayDeleteImage(pageKey, name) } ||
+                    pageKeys.any { pageKey -> !store.mayDeleteCleanedImage(pageKey, name) } ||
+                    activePageKeys.any { pageKey -> activeStore?.mayDeleteCleanedImage(pageKey, name) == false } ||
                     isFreshOrphanedCleanedImage(file.lastModified(), now)
             }
             ?.take(MAX_ORPHANED_CLEANED_IMAGES_PER_SWEEP)
             ?.forEach { (name, file) ->
+                val currentActive = activeStoresProvider?.invoke()?.get(chapterId)
+                val currentReferenced = store.referencedCleanedImageNames() +
+                    (currentActive?.referencedCleanedImageNames().orEmpty())
+                if (name in currentReferenced) return@forEach
+                if (streamRegistry.activeCleanedImageReadersForChapter(source.id, mangaId, chapterId, name) > 0) return@forEach
+                if (store.state.value.keys.any { !store.mayDeleteCleanedImage(it, name) }) return@forEach
+                if (currentActive != null && currentActive.state.value.keys.any { !currentActive.mayDeleteCleanedImage(it, name) }) return@forEach
+
                 val deleted = runCatching { file.delete() }.getOrDefault(false)
                 if (deleted) {
                     deletedImages++
@@ -169,18 +187,29 @@ internal class CleanedImageLifecycleController(
                 (imageName to file).takeIf {
                     file.isFile &&
                         name.endsWith(".identity.json") &&
-                        isDerivedCompanionImageName(imageName)
+                        isDerivedCompanionImageName(imageName) &&
+                        !imageName.contains(".colored.")
                 }
             }
             ?.filterNot { (imageName, sidecar) ->
                 directory.findFile(imageName)?.exists() == true ||
                     imageName in referenced ||
                     streamRegistry.activeCleanedImageReadersForChapter(source.id, mangaId, chapterId, imageName) > 0 ||
-                    pageKeys.any { pageKey -> !store.mayDeleteImage(pageKey, imageName) } ||
+                    pageKeys.any { pageKey -> !store.mayDeleteCleanedImage(pageKey, imageName) } ||
+                    activePageKeys.any { pageKey -> activeStore?.mayDeleteCleanedImage(pageKey, imageName) == false } ||
                     isFreshOrphanedCleanedImage(sidecar.lastModified(), now)
             }
             ?.take(remainingBudget)
             ?.forEach { (imageName, sidecar) ->
+                val currentActive = activeStoresProvider?.invoke()?.get(chapterId)
+                val currentReferenced = store.referencedCleanedImageNames() +
+                    (currentActive?.referencedCleanedImageNames().orEmpty())
+                if (imageName in currentReferenced) return@forEach
+                if (directory.findFile(imageName)?.exists() == true) return@forEach
+                if (streamRegistry.activeCleanedImageReadersForChapter(source.id, mangaId, chapterId, imageName) > 0) return@forEach
+                if (store.state.value.keys.any { !store.mayDeleteCleanedImage(it, imageName) }) return@forEach
+                if (currentActive != null && currentActive.state.value.keys.any { !currentActive.mayDeleteCleanedImage(it, imageName) }) return@forEach
+
                 val deleted = runCatching { sidecar.delete() }.getOrDefault(false)
                 logcat(if (deleted) LogPriority.INFO else LogPriority.WARN) {
                     "TachiyomiAT orphaned cleaned image identity sweep: chapter=$chapterName " +
@@ -191,16 +220,14 @@ internal class CleanedImageLifecycleController(
 
     /**
      * Retires every derived companion image of the chapter (cleaned, colored,
-     * rendered), keeping `.nomedia`. Returns the number of image files retired;
-     * the deferred lease case still deletes them later, the count reports the
-     * submitted set.
+     * rendered), keeping `.nomedia`.
      */
     fun retireChapterCompanionImages(
         manga: Manga,
         chapter: Chapter,
         source: Source,
-    ): Int {
-        val chapterId = chapter.id ?: return 0
+    ): ChapterCompanionRetirement {
+        val chapterId = chapter.id ?: return ChapterCompanionRetirement()
         val directory = provider.findCompanionImageDirMemoized(manga.title, source, chapter.name, chapter.scanlator)
         val namesAtRetirement = directory
             ?.listFiles()
@@ -209,16 +236,25 @@ internal class CleanedImageLifecycleController(
             ?.filterNot { it == ".nomedia" }
             ?.toSet()
             .orEmpty()
-        streamRegistry.retireCleanedImagesForChapter(
+        if (namesAtRetirement.isEmpty()) return ChapterCompanionRetirement()
+
+        val confirmed = java.util.concurrent.atomic.AtomicInteger(0)
+        val dispatch = streamRegistry.retireCleanedImagesForChapter(
             sourceId = source.id,
             mangaId = manga.id,
             chapterId = chapterId,
         ) {
             namesAtRetirement.forEach { imageName ->
-                directory?.findFile(imageName)?.delete()
+                val deleted = directory?.findFile(imageName)?.delete() == true
+                if (deleted) confirmed.incrementAndGet()
             }
         }
-        return namesAtRetirement.size
+        return when (dispatch) {
+            is TranslationStreamRegistry.ChapterRetirementDispatch.Executed ->
+                ChapterCompanionRetirement(confirmedRemoved = confirmed.get(), deferredLeasedFiles = 0)
+            is TranslationStreamRegistry.ChapterRetirementDispatch.Deferred ->
+                ChapterCompanionRetirement(confirmedRemoved = 0, deferredLeasedFiles = namesAtRetirement.size)
+        }
     }
 
     fun retirePageCompanionImage(

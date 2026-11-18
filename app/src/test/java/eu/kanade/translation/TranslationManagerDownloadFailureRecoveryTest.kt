@@ -130,7 +130,10 @@ class TranslationManagerDownloadFailureRecoveryTest {
         every { translator.queueState } returns queue
         every { translator.isRunning } returns false
         val queued = Translation(source, manga, chapter).also { it.status = Translation.State.QUEUE }
-        every { translator.queueChapter(manga, chapter) } answers { queue.value = listOf(queued) }
+        every { translator.queueChapter(manga, chapter) } answers {
+            queue.value = listOf(queued)
+            true
+        }
         val manager = uninitializedManager(
             store,
             translator,

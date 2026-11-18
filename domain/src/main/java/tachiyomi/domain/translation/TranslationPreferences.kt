@@ -72,8 +72,6 @@ class TranslationPreferences(
 
     fun autoTranslate() = readerUiPrefs.autoTranslate()
 
-    fun autoColorize() = readerUiPrefs.autoColorize()
-
     fun translateButtonWithControls() = readerUiPrefs.translateButtonWithControls()
 
     fun translateFromLanguage() = readerUiPrefs.translateFromLanguage()
@@ -87,14 +85,10 @@ class TranslationPreferences(
     fun translationInpaintingNeuralModel(): Preference<NeuralInpaintModel> =
         pipelinePrefs.translationInpaintingNeuralModel()
 
-    fun translationInpaintQualityFallback() = pipelinePrefs.translationInpaintQualityFallback()
-
     fun translationColorizationEnabled() = pipelinePrefs.translationColorizationEnabled()
 
     fun translationColorizationModel(): Preference<ColorizationModel> =
         pipelinePrefs.translationColorizationModel()
-
-    fun preferFfdnetDenoising() = pipelinePrefs.preferFfdnetDenoising()
 
     fun colorCombineMode(): Preference<ColorCombineMode> =
         pipelinePrefs.colorCombineMode()

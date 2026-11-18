@@ -3,6 +3,7 @@ package eu.kanade.translation.presentation
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.model.TranslationBatchPhase
 import eu.kanade.translation.model.TranslationProgressSnapshot
+import eu.kanade.translation.model.TranslationRequestFailureKind
 import eu.kanade.translation.model.TranslationRequestPhase
 import eu.kanade.translation.model.TranslationRequestState
 import eu.kanade.translation.processing.batch.progress.TranslationBatchProgressTracker
@@ -219,5 +220,40 @@ class TranslationSheetRetryTruthTest {
         val truth = callTruth("forSheetRetryAction", 2, "download failed request", downloadFailed, true)
         truth.shouldNotBeNull()
         prop(truth, "label").toString() shouldBe "Retry translation"
+    }
+
+    @Test
+    fun `admission failed request phase offers retry control`() {
+        val admissionFailed = TranslationProgressSnapshot.empty(1L, Translation.State.NOT_TRANSLATED)
+            .copy(
+                requestState = TranslationRequestState(
+                    chapterId = 1L,
+                    phase = TranslationRequestPhase.ADMISSION_FAILED,
+                    failureKind = TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
+                ),
+            )
+        val truth = callTruth("forSheetRetryAction", 2, "admission failed request", admissionFailed, true)
+        truth.shouldNotBeNull()
+        prop(truth, "label").toString() shouldBe "Retry translation"
+        prop(truth, "severity").toString() shouldBe "ERROR"
+    }
+
+    @Test
+    fun `admission failed offers no retry when restart is not wired`() {
+        val admissionFailed = TranslationProgressSnapshot.empty(1L, Translation.State.NOT_TRANSLATED)
+            .copy(
+                requestState = TranslationRequestState(
+                    chapterId = 1L,
+                    phase = TranslationRequestPhase.ADMISSION_FAILED,
+                ),
+            )
+        val truth = callTruth(
+            "forSheetRetryAction",
+            2,
+            "admission failed without restart wiring",
+            admissionFailed,
+            false,
+        )
+        truth shouldBe null
     }
 }

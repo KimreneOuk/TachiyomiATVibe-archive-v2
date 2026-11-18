@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.manga
 
 import android.content.Context
 import android.content.Intent
+import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -37,6 +38,7 @@ import eu.kanade.presentation.manga.DuplicateMangaDialog
 import eu.kanade.presentation.manga.EditCoverAction
 import eu.kanade.presentation.manga.MangaScreen
 import eu.kanade.presentation.manga.components.BatchChapterStatus
+import eu.kanade.presentation.manga.components.BatchTranslationSettingsSheet
 import eu.kanade.presentation.manga.components.ChapterTranslationAction
 import eu.kanade.presentation.manga.components.ConfirmTranslationDialog
 import eu.kanade.presentation.manga.components.DeleteChaptersDialog
@@ -65,6 +67,8 @@ import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.coordinator.BatchAdmissionDecision
+import eu.kanade.translation.coordinator.BatchQueuePauseState
+import eu.kanade.translation.coordinator.BatchQueueResumeResult
 import eu.kanade.translation.model.TranslationProgressSnapshot
 import kotlinx.coroutines.launch
 import logcat.LogPriority
@@ -77,6 +81,9 @@ import tachiyomi.i18n.MR
 import tachiyomi.i18n.at.ATMR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.LoadingScreen
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import java.util.Date
 
 class MangaScreen(
     private val mangaId: Long,
@@ -104,6 +111,8 @@ class MangaScreen(
         }
 
         val state by screenModel.state.collectAsStateWithLifecycle()
+        val batchQueuePauseState by screenModel.batchQueuePauseState.collectAsStateWithLifecycle()
+        val hasResumableBatchWork by screenModel.hasResumableBatchWork.collectAsStateWithLifecycle()
 
         if (state is MangaScreenModel.State.Loading) {
             LoadingScreen()
@@ -111,7 +120,11 @@ class MangaScreen(
         }
 
         val successState = state as MangaScreenModel.State.Success
+        val resumeTarget by screenModel.resumeTarget.collectAsStateWithLifecycle()
         val isHttpSource = remember { successState.source is HttpSource }
+        val batchTranslationSettingsModel = remember(screenModel) {
+            BatchTranslationSettingsModel(Injekt.get(), scope)
+        }
 
         LaunchedEffect(successState.manga, screenModel.source) {
             if (isHttpSource) {
@@ -128,6 +141,7 @@ class MangaScreen(
         MangaScreen(
             state = successState,
             snackbarHostState = screenModel.snackbarHostState,
+            resumeTarget = resumeTarget,
             nextUpdate = successState.manga.expectedNextUpdate,
             isTabletUi = isTabletUi(),
             chapterSwipeStartAction = screenModel.chapterSwipeStartAction,
@@ -172,7 +186,14 @@ class MangaScreen(
             onTagSearch = { scope.launch { performGenreSearch(navigator, it, screenModel.source!!) } },
             onFilterButtonClicked = screenModel::showSettingsDialog,
             onRefresh = screenModel::fetchAllFromSource,
-            onContinueReading = { continueReading(context, screenModel.getNextUnreadChapter()) },
+            onContinueReading = {
+                scope.launch {
+                    val target = screenModel.getResumeTarget()
+                    if (target != null) {
+                        openChapter(context, target.chapter, target.initialPage)
+                    }
+                }
+            },
             onSearch = { query, global -> scope.launch { performSearch(navigator, query, global) } },
             onCoverClicked = screenModel::showCoverDialog,
             onShareClicked = { shareManga(context, screenModel.manga, screenModel.source) }.takeIf { isHttpSource },
@@ -195,6 +216,59 @@ class MangaScreen(
         )
 
         var showScanlatorsDialog by remember { mutableStateOf(false) }
+        var showBatchTranslationSettings by remember { mutableStateOf(false) }
+        var batchSettingsChapterId by remember { mutableStateOf<Long?>(null) }
+
+        val handleBatchResumeResult: (BatchQueueResumeResult) -> Unit = { result ->
+            scope.launch {
+                when (result) {
+                    is BatchQueueResumeResult.Resumed -> {
+                        showBatchTranslationSettings = false
+                        result.deferredRetryAtEpochMsByChapterId.values.minOrNull()?.let { retryAt ->
+                            screenModel.snackbarHostState.showSnackbar(
+                                message = context.stringResource(
+                                    ATMR.strings.batch_translation_resume_retry_deferred,
+                                    DateFormat.getTimeFormat(context).format(Date(retryAt)),
+                                ),
+                            )
+                        }
+                    }
+                    BatchQueueResumeResult.AlreadyRunning -> showBatchTranslationSettings = false
+                    BatchQueueResumeResult.PauseUnwinding -> {
+                        screenModel.snackbarHostState.showSnackbar(
+                            message = context.stringResource(ATMR.strings.batch_translation_resume_pause_unwinding),
+                        )
+                    }
+                    BatchQueueResumeResult.NoResumableWork -> Unit
+                    is BatchQueueResumeResult.BatchRetryDeferred -> {
+                        val retryAt = result.retryAtEpochMsByChapterId.values.minOrNull()
+                        val message = if (retryAt != null) {
+                            context.stringResource(
+                                ATMR.strings.batch_translation_resume_retry_deferred,
+                                DateFormat.getTimeFormat(context).format(Date(retryAt)),
+                            )
+                        } else {
+                            context.stringResource(ATMR.strings.reader_activity_resume_rejected)
+                        }
+                        screenModel.snackbarHostState.showSnackbar(message = message)
+                    }
+                    is BatchQueueResumeResult.SessionRejected,
+                    is BatchQueueResumeResult.QueueItemMissing,
+                    is BatchQueueResumeResult.StaleQueueItem,
+                    is BatchQueueResumeResult.NotResumable,
+                    is BatchQueueResumeResult.RetryDeferred,
+                    -> {
+                        screenModel.snackbarHostState.showSnackbar(
+                            message = context.stringResource(ATMR.strings.reader_activity_resume_rejected),
+                        )
+                    }
+                }
+            }
+        }
+
+        val requestBatchResume: () -> Unit = {
+            screenModel.resumeBatchQueue(onResult = handleBatchResumeResult)
+        }
 
         val onDismissRequest = { screenModel.dismissDialog() }
         when (val dialog = successState.dialog) {
@@ -297,6 +371,19 @@ class MangaScreen(
 
             is MangaScreenModel.Dialog.TranslationProgress -> {
                 val item = successState.chapters.firstOrNull { it.id == dialog.chapterId }
+                val canChangeBatchSettings = hasResumableBatchWork ||
+                    item?.translationState == eu.kanade.translation.model.Translation.State.TRANSLATING
+                val onPauseChangeSettings: (() -> Unit)? = if (canChangeBatchSettings) {
+                    {
+                        if (batchQueuePauseState == BatchQueuePauseState.NOT_PAUSED) {
+                            screenModel.setTranslationQueuePaused(true)
+                        }
+                        batchSettingsChapterId = dialog.chapterId
+                        showBatchTranslationSettings = true
+                    }
+                } else {
+                    null
+                }
                 // Queue rows: this chapter plus everything in active or
                 // retryable translation work, in chapter order.
                 val queueStatuses = successState.chapters
@@ -323,18 +410,10 @@ class MangaScreen(
                 TranslationProgressSheet(
                     snapshot = item?.translationProgress ?: TranslationProgressSnapshot.empty(dialog.chapterId),
                     queue = queueStatuses,
+                    queuePauseState = batchQueuePauseState,
+                    hasResumableBatchWork = hasResumableBatchWork,
                     onDismissRequest = onDismissRequest,
-                    onResume = {
-                        if (item != null) {
-                            if (item.translationState == eu.kanade.translation.model.Translation.State.PAUSED ||
-                                item.translationState == eu.kanade.translation.model.Translation.State.QUEUE
-                            ) {
-                                screenModel.resumeChapterTranslation(item)
-                            } else {
-                                screenModel.confirmChapterTranslation(item)
-                            }
-                        }
-                    },
+                    onResume = requestBatchResume,
                     onReadNow = {
                         if (item != null && item.translationProgress?.canReadTranslated == true) {
                             screenModel.dismissDialog()
@@ -347,7 +426,16 @@ class MangaScreen(
                         }
                         screenModel.dismissDialog()
                     },
-                    onPauseResume = screenModel::setTranslationQueuePaused,
+                    onPauseResume = { paused ->
+                        if (paused) {
+                            if (batchQueuePauseState == BatchQueuePauseState.NOT_PAUSED) {
+                                screenModel.setTranslationQueuePaused(true)
+                            }
+                        } else {
+                            requestBatchResume()
+                        }
+                    },
+                    onPauseChangeSettings = onPauseChangeSettings,
                     // TachiyomiAT  a cancelled/terminal-failed batch gets a
                     // working restart from the sheet (the aborted banner alone
                     // dead-ended; the indicator routed every tap here).
@@ -389,20 +477,32 @@ class MangaScreen(
                     chapterNames = dialog.group
                         .ifEmpty { listOf(dialog.item) }
                         .map { it.chapter.name },
+                    readiness = dialog.readiness,
                     showAgain = screenModel.translationConfirmPretranslate(),
                     onShowAgainChange = screenModel::setConfirmPretranslate,
                     onOpenSettings = {
-                        screenModel.dismissDialog()
-                        navigator.push(SettingsScreen(SettingsScreen.Destination.Translation))
+                        batchSettingsChapterId = null
+                        showBatchTranslationSettings = true
                     },
-                    onConfirm = { screenModel.confirmChapterTranslation(dialog.item) },
+                    onConfirm = {
+                        screenModel.confirmChapterTranslation(
+                            dialog.item,
+                            expectedGeneration = dialog.requestGenerationAtDisplay,
+                        )
+                    },
+                    onFinishDownloadFirst = {
+                        screenModel.finishChapterDownloadFirst(
+                            dialog.item,
+                            dialog.requestGenerationAtDisplay,
+                        )
+                    },
                     onDismissRequest = onDismissRequest,
                 )
             }
 
             is MangaScreenModel.Dialog.InpaintModelMissing -> {
                 AlertDialog(
-                    onDismissRequest = onDismissRequest,
+                    onDismissRequest = { screenModel.dismissInpaintModelMissingDialog(dialog) },
                     title = {
                         Text(text = stringResource(ATMR.strings.translation_inpaint_model_missing_title))
                     },
@@ -421,7 +521,7 @@ class MangaScreen(
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = onDismissRequest) {
+                        TextButton(onClick = { screenModel.dismissInpaintModelMissingDialog(dialog) }) {
                             Text(text = stringResource(MR.strings.action_cancel))
                         }
                     },
@@ -476,19 +576,19 @@ class MangaScreen(
                     }.toTypedArray(),
                 )
                 AlertDialog(
-                    onDismissRequest = { screenModel.dismissDialog() },
-                    title = { Text(text = "Chapter still downloading") },
+                    onDismissRequest = { screenModel.dismissPartialDownloadDecision(dialog) },
+                    title = { Text(text = stringResource(ATMR.strings.manga_translate_still_downloading_title)) },
                     text = {
                         Text(text = body)
                     },
                     confirmButton = {
                         TextButton(onClick = { screenModel.translatePartialDownloadNow(dialog) }) {
-                            Text(text = "Translate what exists")
+                            Text(text = stringResource(ATMR.strings.manga_translate_what_exists))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { screenModel.finishDownloadBeforeTranslation(dialog) }) {
-                            Text(text = "Finish download first")
+                            Text(text = stringResource(ATMR.strings.manga_translate_finish_download_first))
                         }
                     },
                 )
@@ -505,6 +605,22 @@ class MangaScreen(
             }
         }
 
+        if (showBatchTranslationSettings) {
+            val batchSettingsState by batchTranslationSettingsModel.state.collectAsStateWithLifecycle()
+            val settingsPhase = resolveBatchTranslationSettingsPhase(
+                isPreStart = batchSettingsChapterId == null,
+                pauseState = batchQueuePauseState,
+                hasResumableBatchWork = hasResumableBatchWork,
+            )
+            BatchTranslationSettingsSheet(
+                state = batchSettingsState,
+                phase = settingsPhase,
+                actions = batchTranslationSettingsModel,
+                onDismissRequest = { showBatchTranslationSettings = false },
+                onResume = requestBatchResume.takeIf { settingsPhase == BatchTranslationSettingsPhase.PAUSED },
+            )
+        }
+
         if (showScanlatorsDialog) {
             ScanlatorFilterDialog(
                 availableScanlators = successState.availableScanlators,
@@ -519,8 +635,8 @@ class MangaScreen(
         if (unreadChapter != null) openChapter(context, unreadChapter)
     }
 
-    private fun openChapter(context: Context, chapter: Chapter) {
-        context.startActivity(ReaderActivity.newIntent(context, chapter.mangaId, chapter.id))
+    private fun openChapter(context: Context, chapter: Chapter, initialPage: Int? = null) {
+        context.startActivity(ReaderActivity.newIntent(context, chapter.mangaId, chapter.id, initialPage))
     }
 
     private fun getMangaUrl(manga_: Manga?, source_: Source?): String? {

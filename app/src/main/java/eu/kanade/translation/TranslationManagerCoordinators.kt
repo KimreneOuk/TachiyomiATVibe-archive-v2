@@ -48,6 +48,7 @@ internal class TranslationManagerCoordinators(
     queueStore: TranslationQueueStore,
     batchStoreResolver: suspend (Translation) -> ChapterTranslationStore?,
     batchTrackerFactory: (Long, ChapterTranslationStore, List<String>) -> eu.kanade.translation.processing.batch.progress.TranslationBatchProgressTracker?,
+    terminalSnapshotProvider: (Long) -> eu.kanade.translation.model.TranslationProgressSnapshot?,
     onBatchClosed: suspend (Manga, Chapter, HttpSource, ChapterTranslationStore) -> Unit,
     batchCoordinatorOverride: BatchTranslationCoordinator? = null,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
@@ -95,6 +96,7 @@ internal class TranslationManagerCoordinators(
         batchTrackerFactory = batchTrackerFactory,
         onBatchClosed = onBatchClosed,
         sessionCoordinator = sessionCoordinator,
+        terminalSnapshotProvider = terminalSnapshotProvider,
     )
 
     val readerCoordinator = readerCoordinatorOverride ?: ReaderTranslationCoordinator(
@@ -213,6 +215,7 @@ internal fun TranslationManager.createCoordinatorRuntime(): TranslationManagerCo
             permitHolderResolver = { processor.permitHolderPageKeySnapshot() },
         )
     },
+    terminalSnapshotProvider = batchTrackerRegistry::terminalSnapshot,
     onBatchClosed = { manga, chapter, source, store ->
         chapter.id?.let { chapterId ->
             cleanedImageLifecycle.sweepOrphanedCleanedImages(
@@ -323,6 +326,7 @@ internal fun TranslationManager.createCleanedImageLifecycle(): CleanedImageLifec
     applicationScopeProvider = { applicationScope },
     streamRegistryProvider = { streamRegistry },
     providerProvider = { provider },
+    activeStoresProvider = { activeStores },
 )
 
 internal fun TranslationManager.createChapterDataReset(): ChapterDataResetController = ChapterDataResetController(
@@ -332,7 +336,7 @@ internal fun TranslationManager.createChapterDataReset(): ChapterDataResetContro
     removeFromTranslationQueueFn = batchCoordinator::removeChapterAndResume,
     translatorProvider = { batchCoordinator },
     disposeBatchTrackerFn = batchTrackerRegistry::dispose,
-    unregisterActiveTranslationStoreFn = chapterTranslationAccess::unregisterActiveTranslationStore,
+    unregisterActiveTranslationStoreFn = { chapterId -> chapterTranslationAccess.unregisterActiveTranslationStore(chapterId, force = true) },
     streamRegistryProvider = { streamRegistry },
     providerProvider = { provider },
     retireChapterCompanionImagesFn = cleanedImageLifecycle::retireChapterCompanionImages,

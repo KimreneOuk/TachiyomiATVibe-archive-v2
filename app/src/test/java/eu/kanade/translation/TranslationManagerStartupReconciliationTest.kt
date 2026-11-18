@@ -106,6 +106,7 @@ class TranslationManagerStartupReconciliationTest {
             val chapter = secondArg<Chapter>()
             admittedChapters += chapter
             queue.value = queue.value + Translation(httpSource, manga, chapter)
+            true
         }
         return translator
     }
@@ -315,6 +316,7 @@ class TranslationManagerStartupReconciliationTest {
                     Translation(httpSource, manga, secondArg<Chapter>())
                         .also { it.status = Translation.State.QUEUE }
             }
+            true
         }
         val manager = newManager(translator)
 
@@ -330,7 +332,7 @@ class TranslationManagerStartupReconciliationTest {
     fun `explicit translate re-arms a PAUSED queue entry and starts`() = runBlocking<Unit> {
         val translator = translatorWithQueue(listOf(queuedTranslation(10L, Translation.State.PAUSED)))
         // The chapter is already a queue member: queueChapter is a no-op.
-        every { translator.queueChapter(any(), any(), any(), any()) } answers { }
+        every { translator.queueChapter(any(), any(), any(), any()) } answers { true }
         val manager = newManager(translator)
 
         mockkObject(TranslationForegroundService.Companion)
@@ -349,7 +351,7 @@ class TranslationManagerStartupReconciliationTest {
     @Test
     fun `explicit translate re-arms an ERROR queue entry and starts`() = runBlocking<Unit> {
         val translator = translatorWithQueue(listOf(queuedTranslation(10L, Translation.State.ERROR)))
-        every { translator.queueChapter(any(), any(), any(), any()) } answers { }
+        every { translator.queueChapter(any(), any(), any(), any()) } answers { true }
         val manager = newManager(translator)
 
         mockkObject(TranslationForegroundService.Companion)

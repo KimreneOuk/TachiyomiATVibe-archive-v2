@@ -4,7 +4,6 @@
     <string name="pref_category_translations">Translations</string>
     <string name="pref_translation_summary">Automatic Translations</string>
     <string name="manga_translate">Translate</string>
-    <string name="manga_colorize">Colorize</string>
     <string name="manga_colorize_unavailable">Enable &quot;Colorize pages&quot; in translation settings first</string>
     <string name="reader_colorize_chapter">Colorize chapter</string>
     <string name="reader_colorize_summary">Color this chapter\'s pages without translating — works on streamed chapters</string>
@@ -63,8 +62,6 @@
     <string name="pref_colorization_title">Colorization</string>
     <string name="pref_colorization_enabled">Colorize pages</string>
     <string name="pref_colorization_enabled_summary">Run on-device coloring after inpainting (slower pass)</string>
-    <string name="pref_auto_colorize">Auto-colorize pages (N, N+1)</string>
-    <string name="pref_auto_colorize_summary">Color visible and upcoming pages automatically without downloading the chapter</string>
     <string name="pref_colorization_model">Colorization model</string>
     <string name="pref_color_combine_title">Color look</string>
     <string name="pref_color_combine_original">Original</string>
@@ -73,8 +70,6 @@
     <string name="pref_color_combine_vibrant_summary">Current punchy prototype look</string>
     <string name="pref_colorization_model_mcv2_npu_w8a8">Manga Colorization v2 (SM8650 NPU W8A8 — 576×832, cross-series calibrated, experimental; fails without fallback)</string>
     <string name="pref_colorization_model_manga_light_hybrid">Manga Light (SAM NPU + GPU, 512×512 experimental)</string>
-    <string name="pref_ffdnet_denoising">FFDNet pre-denoise (original recipe colors, slower)</string>
-    <string name="pref_ffdnet_denoising_summary">Runs FFDNet at native resolution before resizing for exact palette reproduction; disables fast screentone bilateral filtering</string>
     <string name="pref_upscaling_title">Upscaling</string>
     <string name="pref_upscaling_enabled">QuickSRNetLarge upscaling</string>
     <string name="pref_upscaling_enabled_summary">Experimental — ×4 upscaling of a single ≤128×128 region on NPU (SM8650)</string>
@@ -340,4 +335,54 @@
     <string name="models_trust_unqualified">Device qualification: none. The CPU route ships unqualified until device-validated.</string>
     <string name="models_trust_l2">Runtime load and inference validation (L2/L3): not implemented in this build.</string>
     <string name="models_trust_leases">Deletion stays blocked while any session holds a model; nothing force-releases a live reader session.</string>
+    <!-- Reader live activity card & batch signals -->
+    <string name="reader_activity_page_focus">Page %1$d • %2$s</string>
+    <string name="reader_activity_paused_charging">Paused • Waiting for charger</string>
+    <string name="reader_activity_paused">Paused</string>
+    <string name="reader_activity_queue_info">%1$d of %2$d in queue</string>
+    <string name="reader_activity_queue_waiting">Waiting in queue</string>
+    <string name="reader_activity_failed_focus">%1$d attention items</string>
+    <string name="reader_activity_pages_ready">%1$d of %2$d pages ready</string>
+    <string name="reader_activity_more_failure_groups">+%1$d more</string>
+    <string name="reader_activity_completed">%1$d pages completed</string>
+    <string name="reader_pane_translation">Translation</string>
+    <string name="reader_translation_mode_basic">Basic</string>
+    <string name="reader_translation_mode_advanced">Advanced</string>
+    <string name="batch_translation_resume_retry_deferred">Retrying deferred chapters at %1$s</string>
+    <string name="batch_translation_resume_pause_unwinding">Pausing active translation…</string>
+    <string name="reader_activity_resume_rejected">Cannot resume translation</string>
+    <string name="manga_translate_still_downloading_title">Chapter still downloading</string>
+    <string name="manga_translate_what_exists">Translate what exists</string>
+    <string name="manga_translate_finish_download_first">Finish download first</string>
+    <!-- Batch settings sheet -->
+    <string name="batch_translation_settings_title">Batch settings</string>
+    <string name="batch_translation_settings_subtitle">Queue behavior &amp; pipeline settings</string>
+    <string name="batch_translation_settings_done">Done</string>
+    <string name="batch_translation_settings_resume">Resume</string>
+    <string name="batch_translation_settings_pause_requested">Pausing after current page…</string>
+    <string name="batch_translation_settings_paused">Queue paused</string>
+    <string name="batch_translation_settings_batch_running">Batch running</string>
+    <string name="batch_translation_settings_batch_ended">Batch completed</string>
+    <string name="batch_translation_chapters_selected">%1$d chapters selected</string>
+    <string name="batch_translation_pause_and_change_settings">Pause &amp; change settings</string>
+    <string name="batch_translation_change_settings">Change settings</string>
+
+    <!-- Reader live activity card -->
+    <string name="reader_live_activity">Live Activity</string>
+    <string name="reader_activity_attention">Needs attention</string>
+    <string name="reader_activity_ready">Ready</string>
+    <string name="reader_activity_coloring_not_saved">Coloring not saved</string>
+    <string name="reader_activity_not_saved">Not saved</string>
+    <string name="reader_activity_stage_read">Reading</string>
+    <string name="reader_activity_stage_translate">Translating</string>
+    <string name="reader_activity_stage_clean">Cleaning</string>
+    <string name="reader_activity_stage_render">Rendering</string>
+    <string name="reader_activity_stage_finish">Finishing</string>
+    <string name="reader_activity_eta_min">%1$dm</string>
+    <string name="reader_activity_eta_sec">%1$ds</string>
+    <string name="reader_activity_eta">%1$d ppm • ~%2$s</string>
+    <string name="reader_activity_idle">No active translation</string>
+    <string name="reader_activity_idle_hint">Translate or colorize chapters to monitor live progress here</string>
+    <string name="reader_activity_colorize_chapter">Colorize chapter</string>
+    <string name="reader_activity_translate_chapter">Translate chapter</string>
 </resources>

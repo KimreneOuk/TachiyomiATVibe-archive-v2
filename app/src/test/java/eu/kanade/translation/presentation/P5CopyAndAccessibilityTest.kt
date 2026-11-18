@@ -127,6 +127,21 @@ class P5CopyAndAccessibilityTest {
     }
 
     @Test
+    fun `a colorize-only persistence rejection names colorization, not translation`() {
+        val snapshot = TranslationProgressSnapshot.empty(1L, Translation.State.TRANSLATING)
+            .copy(
+                nonDurableFailure = true,
+                nonDurableFailureReason = null,
+                colorizeOnly = true,
+            )
+        val copy = notificationCopyOf("Chapter A", snapshot)
+        withClue("a colorize-only run must not read as translation work") {
+            prop(copy, "text").toString() shouldBe "Colorization not saved — retry required"
+            actionsOf(copy) shouldBe setOf("RETRY", "STOP")
+        }
+    }
+
+    @Test
     fun `a persistence rejection reason is truncated on the notification`() {
         val snapshot = TranslationProgressSnapshot.empty(1L, Translation.State.TRANSLATING)
             .copy(

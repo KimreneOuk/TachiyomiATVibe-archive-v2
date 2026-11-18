@@ -2,6 +2,7 @@ package eu.kanade.translation
 
 import android.content.Context
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.translation.coordinator.BatchQueuePauseState
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
 import eu.kanade.translation.coordinator.InMemorySharedPreferences
 import eu.kanade.translation.coordinator.TranslationPendingRequestStore
@@ -85,6 +86,8 @@ class TranslationRequestGenerationFenceTest {
             admitted.set(true)
             queueStateFlow.value =
                 queueStateFlow.value + Translation(source, manga, secondArg<Chapter>())
+                    .also { it.status = Translation.State.QUEUE }
+            true
         }
         val sourceManager = mockk<SourceManager>(relaxed = true)
         every { sourceManager.get(any()) } returns source
@@ -189,7 +192,9 @@ class TranslationRequestGenerationFenceTest {
         val requestStore = TranslationPendingRequestStore(mockContext())
         val state = MutableStateFlow<Map<Long, TranslationRequestState>>(emptyMap())
         val queued = MutableStateFlow(emptyList<Translation>())
-        val translator = mockk<BatchTranslationCoordinator>(relaxed = true)
+        val translator = mockk<BatchTranslationCoordinator>(relaxed = true) {
+            every { batchQueuePauseState } returns MutableStateFlow(BatchQueuePauseState.NOT_PAUSED)
+        }
         val coordinator = TranslationRequestCoordinator(
             pendingRequestStore = requestStore,
             initialPendingRequests = state,

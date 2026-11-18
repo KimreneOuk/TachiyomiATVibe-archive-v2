@@ -70,6 +70,7 @@ internal class ChapterBulkMutator(private val store: ChapterTranslationStore) {
                 store.retiredCleanedImages.remove(pageKey)
                 store.retiredColoredImages.remove(pageKey)
                 store.pageLeases.remove(pageKey)
+                store.markPageHydratedLocked(pageKey)
                 store.stateFlow.value = store.snapshotPages()
                 store.displaySnapshotLocked(listOf(pageKey))
             }

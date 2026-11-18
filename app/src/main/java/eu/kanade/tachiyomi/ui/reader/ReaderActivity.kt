@@ -33,9 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +63,7 @@ import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.presentation.reader.ReaderPageActionsDialog
 import eu.kanade.presentation.reader.ReadingModeSelectDialog
 import eu.kanade.presentation.reader.appbars.ReaderAppBars
+import eu.kanade.presentation.reader.components.ReaderLiveActivityAction
 import eu.kanade.presentation.reader.components.TranslationCompareHandle
 import eu.kanade.presentation.reader.components.ZoomResetAffordance
 import eu.kanade.presentation.reader.sheet.ReaderSettingsSheet
@@ -127,10 +126,13 @@ import java.io.ByteArrayOutputStream
 class ReaderActivity : BaseActivity() {
 
     companion object {
-        fun newIntent(context: Context, mangaId: Long?, chapterId: Long?): Intent {
+        fun newIntent(context: Context, mangaId: Long?, chapterId: Long?, initialPage: Int? = null): Intent {
             return Intent(context, ReaderActivity::class.java).apply {
                 putExtra("manga", mangaId)
                 putExtra("chapter", chapterId)
+                if (initialPage != null) {
+                    putExtra("page", initialPage)
+                }
             }
         }
 
@@ -208,6 +210,11 @@ class ReaderActivity : BaseActivity() {
         if (viewModel.needsInit()) {
             val manga = intent.extras?.getLong("manga", -1) ?: -1L
             val chapter = intent.extras?.getLong("chapter", -1) ?: -1L
+            val initialPage = if (intent.extras?.containsKey("page") == true) {
+                intent.extras?.getInt("page", -1)?.takeIf { it >= 0 }
+            } else {
+                null
+            }
             if (manga == -1L || chapter == -1L) {
                 finish()
                 return
@@ -215,7 +222,7 @@ class ReaderActivity : BaseActivity() {
             NotificationReceiver.dismissNotification(this, manga.hashCode(), Notifications.ID_NEW_CHAPTERS)
 
             lifecycleScope.launchNonCancellable {
-                val initResult = viewModel.init(manga, chapter)
+                val initResult = viewModel.init(manga, chapter, initialPage)
                 if (!initResult.getOrDefault(false)) {
                     val exception = initResult.exceptionOrNull() ?: IllegalStateException("Unknown err")
                     withUIContext {
@@ -292,6 +299,7 @@ class ReaderActivity : BaseActivity() {
      */
     override fun onDestroy() {
         super.onDestroy()
+        viewModel.flushLastVisited()
         viewModel.state.value.viewer?.destroy()
         config = null
         menuToggleToast?.cancel()
@@ -300,6 +308,7 @@ class ReaderActivity : BaseActivity() {
 
     override fun onPause() {
         viewModel.flushReadTimer()
+        viewModel.flushLastVisited()
         // TachiyomiAT: cancel all in-flight translation when the reader is
         // backgrounded. Previously, translation kept running indefinitely
         // after the user switched apps — consuming battery, bandwidth, and
@@ -450,6 +459,19 @@ class ReaderActivity : BaseActivity() {
     }
 
     /**
+     * Maps the live activity card's single contextual action onto the
+     * translation control seam (pause / resume / retry / dequeue).
+     */
+    private fun onLiveActivityAction(action: ReaderLiveActivityAction) {
+        when (action) {
+            ReaderLiveActivityAction.Pause -> viewModel.pauseActiveBatch()
+            is ReaderLiveActivityAction.Resume -> viewModel.resumeBatchChapter(action.chapterId)
+            is ReaderLiveActivityAction.Retry -> viewModel.retryCurrentBatch(action.chapterId)
+            is ReaderLiveActivityAction.CancelQueued -> viewModel.cancelQueuedTranslationRequest(action.chapterId)
+        }
+    }
+
+    /**
      * Initializes the reader menu. It sets up click listeners and the initial visibility.
      */
     private fun initializeMenu() {
@@ -474,7 +496,6 @@ class ReaderActivity : BaseActivity() {
 
         binding.dialogRoot.setComposeContent {
             val state by viewModel.state.collectAsState()
-            var lastSettingsPane by rememberSaveable { mutableStateOf(ReaderSettingsDestination.READER) }
             val settingsScreenModel = remember {
                 ReaderSettingsScreenModel(
                     readerState = viewModel.state,
@@ -551,12 +572,10 @@ class ReaderActivity : BaseActivity() {
                     hasTranslation = compareState.hasTranslation,
                     showingTranslated = compareState.showingTranslated,
                     autoTranslate = autoTranslate,
+                    pageStage = translationBatchProgress?.pages?.firstOrNull { it.index == state.currentPage }?.stage,
                     onSelectOriginal = { viewModel.setCurrentPageShowTranslated(false) },
                     onSelectTranslated = { viewModel.setCurrentPageShowTranslated(true) },
                     onToggleAutoTranslate = { viewModel.setAutoTranslate(!autoTranslate) },
-                    onOpenSettings = { viewModel.openReaderSettings(ReaderSettingsDestination.VISION) },
-                    onColorizeChapter = { viewModel.colorizeCurrentChapter() },
-                    onColorizePage = { viewModel.colorizeCurrentPage() },
                     onPeekChange = { viewModel.setPeekOriginal(it) },
                     idleFadeEnabled = floaterIdleFade,
                     dockEnd = floaterDockEnd,
@@ -599,16 +618,11 @@ class ReaderActivity : BaseActivity() {
                 readingMode = ReadingMode.fromPreference(
                     viewModel.getMangaReadingMode(resolveDefault = false),
                 ),
-                onClickReadingMode = viewModel::openReadingModeSelectDialog,
-                fullscreenEnabled = isFullscreen,
-                onClickToggleFullscreen = {
-                    readerPreferences.fullscreen().set(!isFullscreen)
-                },
-                onClickSettings = { viewModel.openReaderSettings(lastSettingsPane) },
                 translationState = translationState,
                 translationBatchProgress = translationBatchProgress,
                 isBatchSession = isBatchSession,
-                onClickTranslate = { viewModel.openReaderSettings(ReaderSettingsDestination.ENGINES) },
+                onClickTranslate = { viewModel.openReaderSettings(ReaderSettingsDestination.TRANSLATION) },
+                onLiveActivityAction = ::onLiveActivityAction,
             )
 
             // TachiyomiAT: appears only while the page underfoot is zoomed;
@@ -649,7 +663,6 @@ class ReaderActivity : BaseActivity() {
                         destination = dialogDestination,
                         screenModel = settingsScreenModel,
                         translationState = translationSettingsState,
-                        onPaneSelected = { lastSettingsPane = it },
                         onDismissRequest = onDismissRequest,
                         onShowMenus = { setMenuVisibility(true) },
                         onHideMenus = { setMenuVisibility(false) },

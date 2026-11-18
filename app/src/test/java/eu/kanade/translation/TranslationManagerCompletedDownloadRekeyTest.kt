@@ -71,6 +71,7 @@ class TranslationManagerCompletedDownloadRekeyTest {
             queue.value = queue.value + Translation(source, manga, queuedChapter).apply {
                 status = Translation.State.QUEUE
             }
+            true
         }
         val sourceManager = mockk<SourceManager>(relaxed = true) {
             every { get(1L) } returns source

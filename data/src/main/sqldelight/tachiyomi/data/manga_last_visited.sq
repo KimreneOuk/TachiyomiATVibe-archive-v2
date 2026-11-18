@@ -1,0 +1,69 @@
+CREATE TABLE manga_last_visited(
+    manga_id INTEGER NOT NULL PRIMARY KEY,
+    chapter_id INTEGER NOT NULL,
+    last_visited_page INTEGER NOT NULL,
+    visited_at INTEGER NOT NULL,
+    FOREIGN KEY(manga_id) REFERENCES mangas (_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX manga_last_visited_visited_at_index ON manga_last_visited(visited_at);
+
+getLastVisitedByMangaId:
+SELECT
+    manga_id,
+    chapter_id,
+    last_visited_page,
+    visited_at
+FROM manga_last_visited
+WHERE manga_id = :mangaId;
+
+getGlobalLastVisited:
+SELECT
+    manga_id,
+    chapter_id,
+    last_visited_page,
+    visited_at
+FROM manga_last_visited
+ORDER BY visited_at DESC
+LIMIT 1;
+
+getGlobalLastVisitedFavorite:
+SELECT
+    mlv.manga_id,
+    mlv.chapter_id,
+    mlv.last_visited_page,
+    mlv.visited_at
+FROM manga_last_visited AS mlv
+JOIN mangas AS m ON mlv.manga_id = m._id
+WHERE m.favorite = 1
+ORDER BY mlv.visited_at DESC
+LIMIT 1;
+
+upsert:
+INSERT INTO manga_last_visited(manga_id, chapter_id, last_visited_page, visited_at)
+VALUES (:mangaId, :chapterId, :lastVisitedPage, :visitedAt)
+ON CONFLICT(manga_id)
+DO UPDATE
+SET
+    chapter_id = :chapterId,
+    last_visited_page = :lastVisitedPage,
+    visited_at = :visitedAt;
+
+upsertIfNewer:
+INSERT INTO manga_last_visited(manga_id, chapter_id, last_visited_page, visited_at)
+VALUES (:mangaId, :chapterId, :lastVisitedPage, :visitedAt)
+ON CONFLICT(manga_id)
+DO UPDATE
+SET
+    chapter_id = :chapterId,
+    last_visited_page = :lastVisitedPage,
+    visited_at = :visitedAt
+WHERE :visitedAt > visited_at;
+
+deleteByMangaId:
+DELETE FROM manga_last_visited
+WHERE manga_id = :mangaId;
+
+deleteAll:
+DELETE FROM manga_last_visited;

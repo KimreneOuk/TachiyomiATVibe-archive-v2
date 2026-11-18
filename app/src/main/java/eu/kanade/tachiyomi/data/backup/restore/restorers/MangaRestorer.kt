@@ -4,6 +4,7 @@ import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupChapter
 import eu.kanade.tachiyomi.data.backup.models.BackupHistory
+import eu.kanade.tachiyomi.data.backup.models.BackupLastVisited
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupTracking
 import tachiyomi.data.DatabaseHandler
@@ -74,6 +75,7 @@ class MangaRestorer(
                 history = backupManga.history,
                 tracks = backupManga.tracking,
                 excludedScanlators = backupManga.excludedScanlators,
+                lastVisited = backupManga.lastVisited,
             )
         }
     }
@@ -274,12 +276,14 @@ class MangaRestorer(
         history: List<BackupHistory>,
         tracks: List<BackupTracking>,
         excludedScanlators: List<String>,
+        lastVisited: BackupLastVisited?,
     ): Manga {
         restoreCategories(manga, categories, backupCategories)
         restoreChapters(manga, chapters)
         restoreTracking(manga, tracks)
         restoreHistory(history)
         restoreExcludedScanlators(manga, excludedScanlators)
+        restoreLastVisited(manga, lastVisited)
         updateManga.awaitUpdateFetchInterval(manga, now, currentFetchWindow)
         return manga
     }
@@ -355,6 +359,25 @@ class MangaRestorer(
                     )
                 }
             }
+        }
+    }
+
+    private suspend fun restoreLastVisited(manga: Manga, backupLastVisited: BackupLastVisited?) {
+        if (backupLastVisited == null) return
+        val chapter = handler.awaitOneOrNull {
+            chaptersQueries.getChapterByUrlAndMangaId(
+                chapterUrl = backupLastVisited.url,
+                mangaId = manga.id,
+            )
+        } ?: return
+
+        handler.await(true) {
+            manga_last_visitedQueries.upsertIfNewer(
+                mangaId = manga.id,
+                chapterId = chapter._id,
+                lastVisitedPage = backupLastVisited.lastVisitedPage,
+                visitedAt = backupLastVisited.visitedAt,
+            )
         }
     }
 

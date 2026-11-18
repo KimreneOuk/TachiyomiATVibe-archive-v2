@@ -17,6 +17,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 
+/** Typed outcome of evicting/marking a translation store defunct. */
+sealed interface StoreDefunctOutcome {
+    data object Flushed : StoreDefunctOutcome
+    data class FlushedWithDeferred(val deferredCount: Int) : StoreDefunctOutcome
+    data class IncompleteRetained(val pendingCount: Int) : StoreDefunctOutcome
+}
+
 /** Serializes background image writes and coalesced lazy page snapshots. */
 internal class StoreWriteDrainCoordinator(
     private val store: ChapterTranslationStore,
@@ -37,6 +44,13 @@ internal class StoreWriteDrainCoordinator(
     // mutex, so an explicit flush and the debounced worker cannot overlap.
     internal var drainJob: Job? = null
     internal val pendingLazyMutations = LinkedHashMap<String, PendingLazyMutation>()
+    private var pendingUnregisterRequested = false
+    private var markGenerationDefunctLockedFn: (() -> Unit)? = null
+    var onEventualUnregister: (() -> Unit)? = null
+
+    fun cancelPendingUnregister() {
+        pendingUnregisterRequested = false
+    }
 
     suspend fun flush() = flushMutex.withLock {
         flushPendingLazyMutations()
@@ -51,8 +65,16 @@ internal class StoreWriteDrainCoordinator(
         }
     }
 
-    /** Waits briefly for the worker, then discards any retained work on eviction. */
-    suspend fun markDefunct(markGenerationDefunctLocked: () -> Unit) = withContext(NonCancellable) {
+    /**
+     * Bounded flush on evict. If work remains, retains it and keeps the store
+     * non-defunct so background drain can finish, unless forced.
+     * Process-death boundary: unpersisted in-memory mutations survive across
+     * unregister calls, but will be lost if the OS terminates the process.
+     */
+    suspend fun markDefunct(
+        force: Boolean = false,
+        markGenerationDefunctLocked: () -> Unit,
+    ): StoreDefunctOutcome = withContext(NonCancellable) {
         val pendingDrain = mutex.withLock { drainJob }
         pendingDrain?.let { pending ->
             if (withTimeoutOrNull(PERSIST_JOIN_TIMEOUT_MS) { pending.join() } == null) {
@@ -60,12 +82,27 @@ internal class StoreWriteDrainCoordinator(
                     "TachiyomiAT store drain did not finish within ${PERSIST_JOIN_TIMEOUT_MS} ms before eviction"
                 }
             }
-            pending.cancel()
+        }
+        withTimeoutOrNull(PERSIST_JOIN_TIMEOUT_MS) {
+            flush()
         }
         mutex.withLock {
-            if (drainJob === pendingDrain) drainJob = null
-            markGenerationDefunctLocked()
-            releaseRetainedWorkLocked()
+            val remaining = pendingLazyMutations.size
+            if (remaining == 0 || force) {
+                if (drainJob === pendingDrain) drainJob = null
+                markGenerationDefunctLocked()
+                releaseRetainedWorkLocked()
+                if (remaining > 0) {
+                    StoreDefunctOutcome.FlushedWithDeferred(remaining)
+                } else {
+                    StoreDefunctOutcome.Flushed
+                }
+            } else {
+                markGenerationDefunctLockedFn = markGenerationDefunctLocked
+                pendingUnregisterRequested = true
+                scheduleDrain()
+                StoreDefunctOutcome.IncompleteRetained(remaining)
+            }
         }
     }
 
@@ -82,7 +119,13 @@ internal class StoreWriteDrainCoordinator(
                     mutex.withLock {
                         if (drainJob === runningJob) {
                             drainJob = null
-                            if (hasPendingWorkLocked()) scheduleDrain()
+                            if (hasPendingWorkLocked()) {
+                                scheduleDrain()
+                            } else if (pendingUnregisterRequested) {
+                                pendingUnregisterRequested = false
+                                markGenerationDefunctLockedFn?.invoke()
+                                onEventualUnregister?.invoke()
+                            }
                         }
                     }
                 }
@@ -101,25 +144,31 @@ internal class StoreWriteDrainCoordinator(
 
     private suspend fun flushPendingLazyMutations(): Boolean = mutex.withLock {
         if (pendingLazyMutations.isEmpty()) return@withLock true
-        val pending = pendingLazyMutations.values.toList()
-        pendingLazyMutations.clear()
+        val keys = pendingLazyMutations.keys.toList()
         var allAccepted = true
-        pending.forEach { mutation ->
-            if (!store.isLazyGenerationCurrent(mutation.generation)) return@forEach
-            if (!store.publicationBridge.persistArtifactMutation(
+        for (pageKey in keys) {
+            val mutation = pendingLazyMutations[pageKey] ?: continue
+            if (!store.isLazyGenerationCurrent(mutation.generation)) {
+                pendingLazyMutations.remove(pageKey)
+                continue
+            }
+            val success = runCatching {
+                store.publicationBridge.persistArtifactMutation(
                     pageKey = mutation.pageKey,
                     previous = mutation.previous,
                     updated = mutation.updated,
                     expected = mutation.expected,
                 )
-            ) {
-                allAccepted = false
-                if (store.isLazyGenerationCurrent(mutation.generation)) {
-                    pendingLazyMutations[mutation.pageKey] = mutation
+            }.getOrDefault(false)
+            if (success) {
+                if (pendingLazyMutations[pageKey] === mutation) {
+                    pendingLazyMutations.remove(pageKey)
                 }
+            } else {
+                allAccepted = false
             }
         }
-        allAccepted
+        allAccepted && pendingLazyMutations.isEmpty()
     }
 }
 

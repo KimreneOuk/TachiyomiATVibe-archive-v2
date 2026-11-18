@@ -8,6 +8,7 @@ import eu.kanade.translation.coordinator.TranslationSessionCoordinator
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.persistence.ActiveChapterStoreRegistry
 import eu.kanade.translation.persistence.ChapterTranslationStore
+import eu.kanade.translation.persistence.StoreDefunctOutcome
 import eu.kanade.translation.persistence.TranslationFileProvider
 import eu.kanade.translation.processing.ChapterBatchExecutor
 import eu.kanade.translation.processing.TranslationProcessor
@@ -87,13 +88,16 @@ class TranslationManagerReaderTeardownTest {
             cleanupRelease.await(5, TimeUnit.SECONDS)
             Unit
         }
-        coEvery { readerStore.markDefunct() } coAnswers {
+        coEvery { readerStore.markDefunct(any()) } coAnswers {
             readerStoreDefunct.complete(Unit)
-            Unit
+            StoreDefunctOutcome.Flushed
         }
 
         val batchStore = mockk<ChapterTranslationStore>(relaxed = true)
-        coEvery { batchStore.markDefunct() } coAnswers { batchStoreDefunct.set(true) }
+        coEvery { batchStore.markDefunct(any()) } coAnswers {
+            batchStoreDefunct.set(true)
+            StoreDefunctOutcome.Flushed
+        }
 
         val source = mockk<HttpSource>(relaxed = true)
         val manga = mockk<Manga>(relaxed = true)
@@ -151,7 +155,10 @@ class TranslationManagerReaderTeardownTest {
     fun `reader stop preserves a paused batch store for retry`() = runBlocking<Unit> {
         val storeDefunct = AtomicBoolean(false)
         val batchStore = mockk<ChapterTranslationStore>(relaxed = true)
-        coEvery { batchStore.markDefunct() } coAnswers { storeDefunct.set(true) }
+        coEvery { batchStore.markDefunct(any()) } coAnswers {
+            storeDefunct.set(true)
+            StoreDefunctOutcome.Flushed
+        }
 
         val source = mockk<HttpSource>(relaxed = true)
         val manga = mockk<Manga>(relaxed = true)

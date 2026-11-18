@@ -17,12 +17,10 @@ import tachiyomi.domain.translation.TranslationPreferences
 import java.io.File
 
 /** Runs the static SAM encoder on the NPU and the live-conditioned generator on the GPU.
- *  Shares the colorization pipeline with MCV2: same gray prep (gate/bilateral or FFDNet) and the
+ *  Shares the colorization pipeline with MCV2: same gray prep (gate/bilateral) and the
  *  same look dispatch (author resize for ORIGINAL, ink combine for VIBRANT); only work resolution and model invocation differ. */
 internal class MangaLightHybridColorizationEngine(
     private val context: Context,
-    private val ffdnetEngine: FfdnetDenoiserEngine? = null,
-    private val preferFfdnetDenoising: () -> Boolean = { false },
     private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
 ) : PageColorizationEngine {
 
@@ -30,11 +28,8 @@ internal class MangaLightHybridColorizationEngine(
     constructor(
         context: Context,
         preferences: TranslationPreferences? = null,
-        ffdnetEngine: FfdnetDenoiserEngine? = null,
     ) : this(
         context = context,
-        ffdnetEngine = ffdnetEngine ?: FfdnetDenoiserEngine(context),
-        preferFfdnetDenoising = { preferences?.preferFfdnetDenoising()?.get() == true },
         colorCombineMode = { preferences?.colorCombineMode()?.get() ?: ColorCombineMode.DEFAULT },
     )
 
@@ -64,7 +59,7 @@ internal class MangaLightHybridColorizationEngine(
 
     @Synchronized
     override fun currentStamp(): String? = session?.let {
-        STAMP + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising()) +
+        STAMP + MangaColorizationPreprocessor.STAMP_SUFFIX +
             MangaColorizationImageProcessing.lookStampSuffix(colorCombineMode())
     }
 
@@ -72,26 +67,10 @@ internal class MangaLightHybridColorizationEngine(
     override fun colorize(source: Bitmap, seed: Long): Bitmap {
         val active = checkNotNull(session) { error ?: "Manga Light is unavailable" }
         val started = System.nanoTime()
-        val useFfdnet = preferFfdnetDenoising()
-        val prepped = if (useFfdnet) {
-            val engine = checkNotNull(ffdnetEngine) {
-                "FFDNet denoising enabled but FfdnetDenoiserEngine is null"
-            }
-            check(engine.isAvailable()) {
-                "FFDNet denoising unavailable: ${engine.initializationError() ?: "unknown"}"
-            }
-            val res = MangaColorizationPreprocessor.ffdnetGrayPlane(source, SIZE, SIZE, engine)
-            logcat(LogPriority.INFO) {
-                "[MangaLightColor] FFDNetSmooth native=${source.width}x${source.height} work=$SIZE x$SIZE"
-            }
-            res
-        } else {
-            val res = MangaColorizationPreprocessor.grayPlane(source, SIZE, SIZE)
-            logcat(LogPriority.INFO) {
-                "[MangaLightColor] ScreentoneSmooth score=" + res.score +
-                    " smoothed=" + res.smoothingApplied
-            }
-            res
+        val prepped = MangaColorizationPreprocessor.grayPlane(source, SIZE, SIZE)
+        logcat(LogPriority.INFO) {
+            "[MangaLightColor] ScreentoneSmooth score=" + prepped.score +
+                " smoothed=" + prepped.smoothingApplied
         }
         val luma = prepped.plane
         val rgb = samRgb(luma)
@@ -112,7 +91,6 @@ internal class MangaLightHybridColorizationEngine(
             work.recycle()
             logcat(LogPriority.INFO) {
                 "[ColorizeTiming] model=MANGA_LIGHT preset=$mode source=${source.width}x${source.height} " +
-                    "denoise=${if (useFfdnet) "ffdnet" else "bilateral"} " +
                     "preprocessMs=${(prepared - started) / 1_000_000} " +
                     "inferenceMs=${(inferred - prepared) / 1_000_000} " +
                     "convertMs=${(converted - inferred) / 1_000_000} " +
@@ -127,7 +105,6 @@ internal class MangaLightHybridColorizationEngine(
         session?.close()
         session = null
         initialized = false
-        ffdnetEngine?.let { runCatching { it.close() } }
     }
 
     private fun extract(artifact: Artifact): File {

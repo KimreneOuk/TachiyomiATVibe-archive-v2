@@ -33,7 +33,10 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.mutate
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -41,9 +44,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.TriState
@@ -95,7 +100,33 @@ class LibraryScreenModel(
     private val downloadManager: DownloadManager = Injekt.get(),
     private val downloadCache: DownloadCache = Injekt.get(),
     private val trackerManager: TrackerManager = Injekt.get(),
+    private val getMangaLastVisited: tachiyomi.domain.manga.interactor.GetMangaLastVisited = Injekt.get(),
+    private val getGlobalLastVisited: tachiyomi.domain.manga.interactor.GetGlobalLastVisited = Injekt.get(),
+    private val getManga: tachiyomi.domain.manga.interactor.GetManga = Injekt.get(),
+    private val getChapter: tachiyomi.domain.chapter.interactor.GetChapter = Injekt.get(),
 ) : StateScreenModel<LibraryScreenModel.State>(State()) {
+
+    data class GlobalResumeTarget(
+        val manga: Manga,
+        val chapter: Chapter,
+        val lastVisitedPage: Int,
+        val visitedAt: Long,
+    )
+
+    val globalResumeTarget: StateFlow<GlobalResumeTarget?> = getGlobalLastVisited.subscribe(favoritesOnly = true)
+        .map { lastVisited ->
+            if (lastVisited == null) return@map null
+            val manga = getManga.await(lastVisited.mangaId) ?: return@map null
+            val chapter = getChapter.await(lastVisited.chapterId) ?: return@map null
+            GlobalResumeTarget(
+                manga = manga,
+                chapter = chapter,
+                lastVisitedPage = lastVisited.lastVisitedPage.toInt(),
+                visitedAt = lastVisited.visitedAt,
+            )
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     var activeCategoryIndex: Int by libraryPreferences.lastUsedCategory().asState(screenModelScope)
 
@@ -427,6 +458,19 @@ class LibraryScreenModel(
 
     suspend fun getNextUnreadChapter(manga: Manga): Chapter? {
         return getChaptersByMangaId.await(manga.id, applyScanlatorFilter = true).getNextUnread(manga, downloadManager)
+    }
+
+    suspend fun getResumeTarget(manga: Manga): Pair<Chapter, Int?>? {
+        val lastVisited = getMangaLastVisited.await(manga.id)
+        if (lastVisited != null) {
+            val chapters = getChaptersByMangaId.await(manga.id, applyScanlatorFilter = true)
+            val targetChapter = chapters.find { it.id == lastVisited.chapterId }
+            if (targetChapter != null) {
+                return targetChapter to lastVisited.lastVisitedPage.toInt()
+            }
+        }
+        val unread = getNextUnreadChapter(manga) ?: return null
+        return unread to null
     }
 
     /**

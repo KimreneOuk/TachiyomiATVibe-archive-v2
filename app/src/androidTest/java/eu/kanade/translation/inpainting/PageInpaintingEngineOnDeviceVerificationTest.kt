@@ -52,7 +52,6 @@ class PageInpaintingEngineOnDeviceVerificationTest {
             mode = InpaintingMode.QUALITY,
             inpainter = coordinator,
             litertInpainter = litert,
-            qualityFallbackPref = { false },
         )
 
         val original = bubblePageBitmap()
@@ -87,7 +86,6 @@ class PageInpaintingEngineOnDeviceVerificationTest {
             mode = InpaintingMode.FAST,
             inpainter = coordinator,
             litertInpainter = null,
-            qualityFallbackPref = { false },
         )
 
         val original = bubblePageBitmap()
@@ -125,7 +123,6 @@ class PageInpaintingEngineOnDeviceVerificationTest {
             mode = InpaintingMode.QUALITY,
             inpainter = coordinator,
             litertInpainter = litert,
-            qualityFallbackPref = { false },
         )
 
         val original = bubblePageBitmap()

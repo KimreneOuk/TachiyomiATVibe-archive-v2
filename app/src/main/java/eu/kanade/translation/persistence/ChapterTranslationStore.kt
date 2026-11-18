@@ -44,6 +44,7 @@ class ChapterTranslationStore internal constructor(
     internal val artifactFileName: String? = null,
     internal val artifactParentResolver: (() -> UniFile)? = null,
     internal val persistenceDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    unhydratedPageKeys: Set<String> = emptySet(),
 ) {
     /** Explicit memory, lazy-durable, or opened-durable storage mode. */
     internal var engineMode: ChapterStoreEngineMode =
@@ -148,6 +149,18 @@ class ChapterTranslationStore internal constructor(
     /** Colored-image names retained the same way as [retiredCleanedImages]; memory-only, never hydrated. */
     internal val retiredColoredImages = ConcurrentHashMap<String, MutableSet<String>>()
     internal val pendingArtifactPageRegistrations = LinkedHashSet<String>()
+
+    private val unhydratedPages = ConcurrentHashMap.newKeySet<String>()
+
+    fun isColoredReachabilityComplete(): Boolean = unhydratedPages.isEmpty()
+    fun hasUnhydratedPages(): Boolean = unhydratedPages.isNotEmpty()
+    fun needsSnapshotHydration(pageKey: String): Boolean = unhydratedPages.contains(pageKey)
+    internal fun seedUnhydratedPages(keys: Collection<String>) {
+        unhydratedPages.addAll(keys)
+    }
+    internal fun markPageHydratedLocked(pageKey: String) {
+        unhydratedPages.remove(pageKey)
+    }
 
     internal val publishedDisplay = MutableStateFlow<PersistentMap<String, PublishedPageTranslation>>(persistentMapOf())
 
@@ -331,16 +344,19 @@ class ChapterTranslationStore internal constructor(
     @Volatile
     internal var defunct = false
 
-    suspend fun markDefunct() {
-        writeDrain.markDefunct(
+    suspend fun markDefunct(force: Boolean = false): StoreDefunctOutcome {
+        val outcome = writeDrain.markDefunct(
+            force = force,
             markGenerationDefunctLocked = {
                 defunct = true
                 generation++
                 synchronized(pageLeases) { pageLeases.clear() }
             },
         )
-        logcat(LogPriority.WARN) { "TachiyomiAT store marked defunct: generation=$generation" }
+        logcat(LogPriority.WARN) { "TachiyomiAT store marked defunct: generation=$generation outcome=$outcome" }
+        return outcome
     }
+
     val isDefunct: Boolean
         get() = defunct
 
@@ -350,6 +366,7 @@ class ChapterTranslationStore internal constructor(
                 retiredCleanedImages[pageKey] = ConcurrentHashMap.newKeySet<String>().also { it.addAll(names) }
             }
         }
+        unhydratedPages.addAll(unhydratedPageKeys)
         initialPages.forEach { (pageKey, page) ->
             val version = if (page.pageVersion > 0L) page.pageVersion else nextVersion()
             val owned = page.detachedCopy().apply {
@@ -520,12 +537,12 @@ class ChapterTranslationStore internal constructor(
             }
         }
 
-/**
+    /**
      * Atomic committed-display promotion: when the page just reached a fully
      * displayable state (cleaned image file published and verified upstream by
      * CleanedPublication, translation READY/PARTIAL, some
      * translated text), the committed pointer swaps to a frozen snapshot of
-     * exactly that state. A superseded bundle\'s cleaned and colored files are retained
+     * exactly that state. A superseded bundle's cleaned and colored files are retained
      * until the pipeline drains them, never deleted under a live committed pointer.
      */
     internal fun promoteDisplayIfReadyLocked(pageKey: String, updated: PageTranslation) {
@@ -596,40 +613,87 @@ class ChapterTranslationStore internal constructor(
     /**
      * Lazily loads full page snapshot (including text blocks) from durable storage
      * if the page is currently backed by a synthesized or empty placeholder.
+     * Committed-preferred, off-mutex fingerprint-verified read, fenced compare-and-install.
      */
-    suspend fun getOrLoadPageSnapshot(pageKey: String): PageTranslation? =
+    suspend fun getOrLoadPageSnapshot(pageKey: String): PageTranslation? {
+        var targetFileName: String? = null
+        var targetFp: String? = null
+        var isCommitted = false
+        var targetCommittedFileName: String? = null
+        var targetCommittedFp: String? = null
+        var targetCandidateFileName: String? = null
+        var targetCandidateFp: String? = null
+
         mutex.withLock {
-            val current = pages[pageKey]
-            if (current != null && current.blocks.isNotEmpty()) {
-                return@withLock current.toDraft()
+            if (!unhydratedPages.contains(pageKey)) {
+                return pages[pageKey]?.toDraft()
             }
             val record = artifactManifest?.pages?.get(pageKey)
-            val snapshotFileName = record?.candidate?.pageSnapshotFileName
-                ?: record?.committed?.pageSnapshotFileName
-            val engine = artifactEngine
-            if (snapshotFileName != null && engine != null) {
-                val loaded = engine.readPageSnapshot(snapshotFileName)
-                if (loaded != null) {
-                    val published = publishPage(loaded)
+            val committed = record?.committed
+            val candidate = record?.candidate
+            // committed-preferred: candidate ONLY when committed == null
+            isCommitted = committed != null
+            targetFileName = committed?.pageSnapshotFileName ?: candidate?.pageSnapshotFileName
+            targetFp = if (committed != null) committed.translationFingerprint else candidate?.pageSnapshotFingerprint
+            targetCommittedFileName = committed?.pageSnapshotFileName
+            targetCommittedFp = committed?.translationFingerprint
+            targetCandidateFileName = candidate?.pageSnapshotFileName
+            targetCandidateFp = candidate?.pageSnapshotFingerprint
+        }
+        val fileName = targetFileName
+        if (fileName == null) {
+            return mutex.withLock {
+                unhydratedPages.remove(pageKey)
+                pages[pageKey]?.toDraft()
+            }
+        }
+        val engine = artifactEngine ?: return mutex.withLock {
+            pages[pageKey]?.toDraft()
+        }
+        val rawSnapshot = runCatching {
+            withContext(persistenceDispatcher) {
+                engine.readPageSnapshot(fileName)
+            }
+        }.getOrNull()
+        val expectedFingerprint = targetFp
+        val verifiedSnapshot = rawSnapshot?.takeIf {
+            expectedFingerprint.isNullOrBlank() || StageFingerprints.pageSnapshot(it) == expectedFingerprint
+        }
+        return mutex.withLock {
+            if (verifiedSnapshot != null && !isDefunct) {
+                val currentRecord = artifactManifest?.pages?.get(pageKey)
+                val fencePassed = if (isCommitted) {
+                    currentRecord?.committed?.pageSnapshotFileName == targetCommittedFileName &&
+                        currentRecord?.committed?.translationFingerprint == targetCommittedFp
+                } else {
+                    currentRecord?.committed == null &&
+                        currentRecord?.candidate?.pageSnapshotFileName == targetCandidateFileName &&
+                        currentRecord?.candidate?.pageSnapshotFingerprint == targetCandidateFp
+                }
+                if (fencePassed) {
+                    val published = publishPage(verifiedSnapshot)
                     pages = pages.put(pageKey, published)
                     stateFlow.value = snapshotPages()
-                    if (record?.committed != null) {
+                    // Never install candidate-derived content into committedDisplay!
+                    if (isCommitted) {
                         committedDisplay = committedDisplay.put(
                             pageKey,
                             ChapterTranslationStore.CommittedPageDisplay(
                                 page = published,
-                                pageVersion = loaded.pageVersion,
-                                displayFingerprint = displayFingerprintOf(loaded),
-                                promotedAtEpochMs = loaded.updatedAt,
+                                pageVersion = verifiedSnapshot.pageVersion,
+                                displayFingerprint = displayFingerprintOf(verifiedSnapshot),
+                                promotedAtEpochMs = verifiedSnapshot.updatedAt,
                             ),
                         )
                     }
+                    unhydratedPages.remove(pageKey)
                     displaySnapshotLocked(listOf(pageKey))
-                    return@withLock loaded
+                    return@withLock verifiedSnapshot
                 }
             }
-            current?.toDraft()
+            pages[pageKey]?.toDraft()
         }
+    }
 
     /** The frozen committed display bundle for [pageKey], if one exists. */
     internal fun committedDisplayPage(pageKey: String): PageTranslationView? =
@@ -900,7 +964,8 @@ class ChapterTranslationStore internal constructor(
         internal suspend fun openArtifactSuspend(
             parent: UniFile,
             fileName: String,
-        ): ChapterTranslationStore = ChapterStoreOpener.openArtifactSuspend(parent, fileName)
+            lazyPageSnapshots: Boolean = false,
+        ): ChapterTranslationStore = ChapterStoreOpener.openArtifactSuspend(parent, fileName, lazyPageSnapshots)
 
         internal suspend fun <T> withArtifactOpenLock(
             parent: UniFile?,

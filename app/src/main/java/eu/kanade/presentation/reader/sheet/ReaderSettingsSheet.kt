@@ -1,8 +1,18 @@
 package eu.kanade.presentation.reader.sheet
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -14,7 +24,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.designsystem.DesignTokens
+import eu.kanade.presentation.components.designsystem.SegmentedPillBar
 import eu.kanade.presentation.components.designsystem.SheetHeader
 import eu.kanade.tachiyomi.ui.reader.ReaderSettingsDestination
 import eu.kanade.tachiyomi.ui.reader.TranslationSettingsState
@@ -46,7 +56,6 @@ fun ReaderSettingsSheet(
     destination: ReaderSettingsDestination,
     screenModel: ReaderSettingsScreenModel,
     translationState: TranslationSettingsState,
-    onPaneSelected: (ReaderSettingsDestination) -> Unit,
     onDismissRequest: () -> Unit,
     onShowMenus: () -> Unit,
     onHideMenus: () -> Unit,
@@ -92,22 +101,26 @@ fun ReaderSettingsSheet(
         }
     }
 
-    var selectedPane by rememberSaveable(destination) {
-        mutableIntStateOf(destination.paneIndex)
+    // The Translation tab pushes a drawer instead of swapping content in
+    // place; the lit tab stays as both title and the back control.
+    var translationOpen by rememberSaveable(destination) {
+        mutableStateOf(destination == ReaderSettingsDestination.TRANSLATION)
     }
-    val paneScrollStates = listOf(
-        rememberScrollState(),
-        rememberScrollState(),
-        rememberScrollState(),
-        rememberScrollState(),
-    )
-    LaunchedEffect(selectedPane) {
-        onPaneSelected(ReaderSettingsDestination.entries[selectedPane])
-    }
-    val dismiss = {
+    var advancedMode by rememberSaveable { mutableStateOf(false) }
+    val readerScroll = rememberScrollState()
+    val basicScroll = rememberScrollState()
+    val advancedScroll = rememberScrollState()
+
+    val closeSheet = {
         onDismissRequest()
         onShowMenus()
     }
+    // Back and scrim taps collapse the drawer first; only a closed drawer
+    // dismisses the sheet itself.
+    val dismiss = {
+        if (translationOpen) translationOpen = false else closeSheet()
+    }
+    BackHandler(enabled = translationOpen) { translationOpen = false }
 
     AdaptiveSheet(
         forceSheetMode = true,
@@ -129,87 +142,160 @@ fun ReaderSettingsSheet(
                     icon = Icons.Outlined.Settings,
                     title = stringResource(ATMR.strings.reader_settings_title),
                     subtitle = stringResource(ATMR.strings.reader_unified_subtitle),
-                    onClose = dismiss,
+                    onClose = closeSheet,
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                ReaderSettingsTabs(
+                SegmentedPillBar(
                     tabs = listOf(
                         stringResource(ATMR.strings.reader_pane_reader),
-                        stringResource(ATMR.strings.reader_subtab_language_engines),
-                        stringResource(ATMR.strings.reader_subtab_vision_color),
-                        stringResource(ATMR.strings.reader_pane_session_data),
+                        stringResource(ATMR.strings.reader_pane_translation),
                     ),
-                    selectedIndex = selectedPane,
-                    onTabSelected = {
-                        selectedPane = it
-                        onPaneSelected(ReaderSettingsDestination.entries[it])
+                    selectedIndex = if (translationOpen) 1 else 0,
+                    onTabSelected = { index ->
+                        translationOpen = index == 1 && !translationOpen
                     },
                 )
 
-                Column(
+                AnimatedContent(
+                    targetState = translationOpen,
+                    transitionSpec = { stageTransition(targetState) },
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(paneScrollStates[selectedPane])
-                        .padding(bottom = 24.dp),
-                ) {
-                    when (selectedPane) {
-                        ReaderSettingsDestination.READER.paneIndex -> ReaderSetupTab(
-                            screenModel = screenModel,
-                            onInteractingWithVisuals = { isInteractingWithVisuals = it },
+                        .fillMaxWidth(),
+                    label = "reader-sheet-stage",
+                ) { open ->
+                    if (open) {
+                        TranslationModeFlip(
+                            showAdvanced = advancedMode,
+                            onAdvancedChange = { advancedMode = it },
+                            basicScroll = basicScroll,
+                            advancedScroll = advancedScroll,
+                            basic = {
+                                TranslationActivationSection(
+                                    state = translationState,
+                                    onTranslationEnabledChange = onTranslationEnabledChange,
+                                    onAutoTranslateChange = onAutoTranslateChange,
+                                )
+                                TranslationColorizeActionsSection(
+                                    onColorizePageClick = onColorizePageClick,
+                                    onColorizeChapterClick = onColorizeChapterClick,
+                                )
+                                TranslationLanguageSection(
+                                    state = translationState,
+                                    onTranslateFromLanguageChange = onTranslateFromLanguageChange,
+                                    onTranslateToLanguageChange = onTranslateToLanguageChange,
+                                )
+                                TranslationEngineSection(
+                                    state = translationState,
+                                    onTranslationEngineCategoryChange = onTranslationEngineCategoryChange,
+                                    onTranslationStandardEngineChange = onTranslationStandardEngineChange,
+                                    onTranslationDeeplApiKeyChange = onTranslationDeeplApiKeyChange,
+                                    onTranslationAiEngineChange = onTranslationAiEngineChange,
+                                    onTranslationAiApiKeyChange = onTranslationAiApiKeyChange,
+                                    onTranslationAiBaseUrlChange = onTranslationAiBaseUrlChange,
+                                    onTranslationAiModelChange = onTranslationAiModelChange,
+                                    onFetchAiModels = onFetchAiModels,
+                                )
+                                TranslationOverlaySection(
+                                    state = translationState,
+                                    onFloaterEnabledChange = onFloaterEnabledChange,
+                                    onFloaterIdleFadeChange = onFloaterIdleFadeChange,
+                                    onShowTranslatedTextChange = onShowTranslatedTextChange,
+                                    onTranslateButtonWithControlsChange = onTranslateButtonWithControlsChange,
+                                    onResetFloaterPosition = onResetFloaterPosition,
+                                )
+                            },
+                            advanced = {
+                                TranslationOcrInpaintSection(
+                                    state = translationState,
+                                    onOcrModelChange = onOcrModelChange,
+                                    onTranslationInpaintingModeChange = onTranslationInpaintingModeChange,
+                                    onTranslationInpaintingNeuralModelChange = onTranslationInpaintingNeuralModelChange,
+                                )
+                                TranslationColorizationSection(
+                                    state = translationState,
+                                    onColorizationEnabledChange = onColorizationEnabledChange,
+                                    onColorizationModelChange = onColorizationModelChange,
+                                    onColorCombineModeChange = onColorCombineModeChange,
+                                    onUpscalingEnabledChange = onUpscalingEnabledChange,
+                                )
+                                TranslationResetSection(onResetChapterData = onResetChapterData)
+                            },
                         )
-                        ReaderSettingsDestination.ENGINES.paneIndex -> {
-                            TranslationLanguageSection(
-                                state = translationState,
-                                onTranslateFromLanguageChange = onTranslateFromLanguageChange,
-                                onTranslateToLanguageChange = onTranslateToLanguageChange,
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(readerScroll)
+                                .padding(bottom = 24.dp),
+                        ) {
+                            ReaderSetupTab(
+                                screenModel = screenModel,
+                                onInteractingWithVisuals = { isInteractingWithVisuals = it },
                             )
-                            TranslationEngineSection(
-                                state = translationState,
-                                onTranslationEngineCategoryChange = onTranslationEngineCategoryChange,
-                                onTranslationStandardEngineChange = onTranslationStandardEngineChange,
-                                onTranslationDeeplApiKeyChange = onTranslationDeeplApiKeyChange,
-                                onTranslationAiEngineChange = onTranslationAiEngineChange,
-                                onTranslationAiApiKeyChange = onTranslationAiApiKeyChange,
-                                onTranslationAiBaseUrlChange = onTranslationAiBaseUrlChange,
-                                onTranslationAiModelChange = onTranslationAiModelChange,
-                                onFetchAiModels = onFetchAiModels,
-                            )
-                        }
-                        ReaderSettingsDestination.VISION.paneIndex -> {
-                            TranslationOcrInpaintSection(
-                                state = translationState,
-                                onOcrModelChange = onOcrModelChange,
-                                onTranslationInpaintingModeChange = onTranslationInpaintingModeChange,
-                                onTranslationInpaintingNeuralModelChange = onTranslationInpaintingNeuralModelChange,
-                            )
-                            TranslationColorizationSection(
-                                state = translationState,
-                                onColorizationEnabledChange = onColorizationEnabledChange,
-                                onColorizationModelChange = onColorizationModelChange,
-                                onColorCombineModeChange = onColorCombineModeChange,
-                                onUpscalingEnabledChange = onUpscalingEnabledChange,
-                                onColorizeChapterClick = onColorizeChapterClick,
-                                onColorizePageClick = onColorizePageClick,
-                            )
-                        }
-                        else -> {
-                            TranslationActivationSection(
-                                state = translationState,
-                                onTranslationEnabledChange = onTranslationEnabledChange,
-                                onAutoTranslateChange = onAutoTranslateChange,
-                                onFloaterEnabledChange = onFloaterEnabledChange,
-                                onFloaterIdleFadeChange = onFloaterIdleFadeChange,
-                                onShowTranslatedTextChange = onShowTranslatedTextChange,
-                                onTranslateButtonWithControlsChange = onTranslateButtonWithControlsChange,
-                                onResetFloaterPosition = onResetFloaterPosition,
-                            )
-                            TranslationResetSection(onResetChapterData = onResetChapterData)
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private fun stageTransition(open: Boolean) =
+    if (open) {
+        (slideInHorizontally(tween(300)) { it } + fadeIn(tween(200))) togetherWith
+            (slideOutHorizontally(tween(300)) { -it / 4 } + fadeOut(tween(200)))
+    } else {
+        (slideInHorizontally(tween(300)) { -it / 4 } + fadeIn(tween(200))) togetherWith
+            (slideOutHorizontally(tween(300)) { it } + fadeOut(tween(200)))
+    }
+
+/**
+ * Basic ↔ Advanced flip of the unified translation drawer: a segmented pill
+ * plus a directional slide, each mode keeping its own scroll position.
+ */
+@Composable
+internal fun TranslationModeFlip(
+    showAdvanced: Boolean,
+    onAdvancedChange: (Boolean) -> Unit,
+    basicScroll: ScrollState,
+    advancedScroll: ScrollState,
+    basic: @Composable () -> Unit,
+    advanced: @Composable () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        SegmentedPillBar(
+            tabs = listOf(
+                stringResource(ATMR.strings.reader_translation_mode_basic),
+                stringResource(ATMR.strings.reader_translation_mode_advanced),
+            ),
+            selectedIndex = if (showAdvanced) 1 else 0,
+            onTabSelected = { index -> onAdvancedChange(index == 1) },
+        )
+        AnimatedContent(
+            targetState = showAdvanced,
+            transitionSpec = { stageTransition(targetState) },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            label = "translation-mode-flip",
+        ) { isAdvanced ->
+            if (isAdvanced) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(advancedScroll)
+                        .padding(bottom = 24.dp),
+                ) { advanced() }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(basicScroll)
+                        .padding(bottom = 24.dp),
+                ) { basic() }
             }
         }
     }

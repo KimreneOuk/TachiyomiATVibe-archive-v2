@@ -24,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import eu.kanade.presentation.reader.components.ReaderQuickActionsMenu
+import eu.kanade.presentation.reader.components.ReaderLiveActivityAction
+import eu.kanade.presentation.reader.components.ReaderLiveActivityCard
+import eu.kanade.presentation.reader.components.deriveReaderLiveActivityState
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
@@ -36,7 +38,7 @@ private val fadeSpec = tween<Float>(200)
 
 /**
  * Reader overlay chrome for the UX modernization prototype: a compact floating
- * header up top and a floating navigation dock (with quick actions menu and
+ * header up top and a floating navigation dock (with live activity card and
  * batch status line) at the bottom. Both hide together during immersive
  * reading via [visible], exactly like the previous app bars.
  */
@@ -65,21 +67,18 @@ fun ReaderAppBars(
     onPageIndexChange: (Int) -> Unit,
 
     readingMode: ReadingMode,
-    onClickReadingMode: () -> Unit,
-    fullscreenEnabled: Boolean,
-    onClickToggleFullscreen: () -> Unit,
-    onClickSettings: () -> Unit,
     translationState: Translation.State = Translation.State.NOT_TRANSLATED,
     translationBatchProgress: TranslationProgressSnapshot? = null,
     isBatchSession: Boolean = false,
     onClickTranslate: () -> Unit = {},
+    onLiveActivityAction: (ReaderLiveActivityAction) -> Unit = {},
 ) {
     val isWebtoon = viewer is WebtoonViewer || readingMode.type is ReadingMode.ViewerType.Webtoon
     var quickActionsExpanded by remember { mutableStateOf(false) }
 
-    // The quick menu lives and dies with the reader chrome: hiding the controls
-    // (page tap) or opening a sheet always collapses it, so it can never linger
-    // over the artwork.
+    // The live activity card lives and dies with the reader chrome: hiding
+    // the controls (page tap) or opening a sheet always collapses it, so it
+    // can never linger over the artwork.
     LaunchedEffect(visible) {
         if (!visible) quickActionsExpanded = false
     }
@@ -138,22 +137,22 @@ fun ReaderAppBars(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalAlignment = Alignment.End,
                 ) {
-                    ReaderQuickActionsMenu(
+                    val liveActivity = deriveReaderLiveActivityState(
+                        translationState,
+                        translationBatchProgress,
+                        isBatchSession,
+                    )
+                    ReaderLiveActivityCard(
                         visible = quickActionsExpanded,
-                        readingMode = readingMode,
-                        onClickReadingMode = {
+                        state = liveActivity,
+                        onAction = {
                             quickActionsExpanded = false
-                            onClickReadingMode()
+                            onLiveActivityAction(it)
                         },
-                        fullscreen = fullscreenEnabled,
-                        onClickFullscreen = onClickToggleFullscreen,
-                        onClickSettings = {
-                            quickActionsExpanded = false
-                            onClickSettings()
-                        },
+                        onAutoDismiss = { quickActionsExpanded = false },
                     )
 
-                    if (isBatchSession) {
+                    if (isBatchSession && !quickActionsExpanded) {
                         translationBatchProgress?.let { snapshot ->
                             ReaderTranslationStatusLine(snapshot = snapshot)
                         }

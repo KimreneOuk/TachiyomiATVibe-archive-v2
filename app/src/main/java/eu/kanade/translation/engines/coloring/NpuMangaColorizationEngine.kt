@@ -20,8 +20,6 @@ import java.io.FileNotFoundException
 /** SM8650 NPU MCV2 W8A8 route: HARD FAIL, no fallback; cross-series-calibrated artifact. */
 internal class NpuMangaColorizationEngine(
     private val deps: Dependencies,
-    private val ffdnetEngine: FfdnetDenoiserEngine? = null,
-    private val preferFfdnetDenoising: () -> Boolean = { false },
     private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
 ) : PageColorizationEngine {
 
@@ -29,15 +27,12 @@ internal class NpuMangaColorizationEngine(
     constructor(
         context: Context,
         preferences: TranslationPreferences? = null,
-        ffdnetEngine: FfdnetDenoiserEngine? = null,
     ) : this(
         deps = Dependencies.from(context),
-        ffdnetEngine = ffdnetEngine ?: FfdnetDenoiserEngine(context),
-        preferFfdnetDenoising = { preferences?.preferFfdnetDenoising()?.get() == true },
         colorCombineMode = { preferences?.colorCombineMode()?.get() ?: ColorCombineMode.DEFAULT },
     )
 
-    constructor(context: Context) : this(context, null, null)
+    constructor(context: Context) : this(context, null)
 
     /** One live compiled model with its bound buffers and owning environment. */
     private class Session(
@@ -85,7 +80,7 @@ internal class NpuMangaColorizationEngine(
     @Synchronized
     override fun currentStamp(): String? {
         val base = stamp ?: return null
-        return base + MangaColorizationPreprocessor.stampSuffix(preferFfdnetDenoising()) +
+        return base + MangaColorizationPreprocessor.STAMP_SUFFIX +
             MangaColorizationImageProcessing.lookStampSuffix(colorCombineMode())
     }
 
@@ -105,31 +100,10 @@ internal class NpuMangaColorizationEngine(
         }
         // Quality-only preprocessing on the aspect-preserved content rect; padding
         // is applied strictly after, and stage failures degrade to the plain downsample.
-        val useFfdnet = preferFfdnetDenoising()
-        val preprocessed = if (useFfdnet) {
-            val engine = checkNotNull(ffdnetEngine) {
-                "FFDNet denoising enabled but FfdnetDenoiserEngine is null"
-            }
-            check(engine.isAvailable()) {
-                "FFDNet denoising unavailable: ${engine.initializationError() ?: "unknown"}"
-            }
-            val res = MangaColorizationPreprocessor.ffdnetGrayPlane(
-                source,
-                letterbox.width,
-                letterbox.height,
-                engine,
-            )
-            logcat(LogPriority.INFO) {
-                "[Mcv2NpuColor] FFDNetSmooth native=${source.width}x${source.height} work=${letterbox.width}x${letterbox.height}"
-            }
-            res
-        } else {
-            val res = MangaColorizationPreprocessor.grayPlane(source, letterbox.width, letterbox.height)
-            logcat(LogPriority.INFO) {
-                "[Mcv2NpuColor] ScreentoneSmooth score=" + res.score +
-                    " smoothed=" + res.smoothingApplied
-            }
-            res
+        val preprocessed = MangaColorizationPreprocessor.grayPlane(source, letterbox.width, letterbox.height)
+        logcat(LogPriority.INFO) {
+            "[Mcv2NpuColor] ScreentoneSmooth score=" + preprocessed.score +
+                " smoothed=" + preprocessed.smoothingApplied
         }
         val preprocessedAt = System.nanoTime()
         val input = MangaColorizationPreprocessor.grayNchwFromGrayPlane(
@@ -162,7 +136,6 @@ internal class NpuMangaColorizationEngine(
             val finished = System.nanoTime()
             logcat(LogPriority.INFO) {
                 "[ColorizeTiming] model=MCV2 preset=$mode source=${source.width}x${source.height} " +
-                    "denoise=${if (useFfdnet) "ffdnet" else "bilateral"} " +
                     "preprocessMs=${(preprocessedAt - started) / 1_000_000} " +
                     "packMs=${(packedAt - preprocessedAt) / 1_000_000} " +
                     "inferenceMs=${(inferredAt - packedAt) / 1_000_000} " +
@@ -182,7 +155,6 @@ internal class NpuMangaColorizationEngine(
         session?.let { runCatching { it.runtime.close() } }
         session = null
         stamp = null
-        ffdnetEngine?.let { runCatching { it.close() } }
     }
 
     /** Test seam separating engine policy from Android/LiteRT plumbing; tests substitute fakes. */

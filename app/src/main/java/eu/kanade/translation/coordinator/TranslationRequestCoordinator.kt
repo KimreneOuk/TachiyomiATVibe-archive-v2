@@ -170,7 +170,8 @@ internal class TranslationRequestCoordinator(
         val chapterId = chapter.id ?: return false
         val retryGeneration =
             ledger.beginRekeyRetryIfCurrent(chapterId, expectedGeneration) {
-                batchCoordinator.isPaused || queueState.value.any { it.chapter.id == chapterId }
+                batchCoordinator.batchQueuePauseState.value != BatchQueuePauseState.NOT_PAUSED ||
+                    queueState.value.any { it.chapter.id == chapterId }
             } ?: return false
         submitTranslation(manga, chapter, retryGeneration, autoStart)
         if (queueState.value.any { it.chapter.id == chapterId }) return true
@@ -243,14 +244,14 @@ internal class TranslationRequestCoordinator(
         cancelReaderChapterAsync(chapterId)
         if (evictStaleQueuedEntry) batchCoordinator.evictStaleQueuedChapters(chapterId, manga.source)
         markTranslationRequestPreparing(chapterId)
-        batchCoordinator.queueChapter(
+        val queued = batchCoordinator.queueChapter(
             manga,
             chapter,
             admissionContext?.probedSourcePageCount,
             admissionContext?.sourceCountKnown ?: false,
             colorizeOnly,
         )
-        return if (batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
+        return if (queued && batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
             ledger.clear(chapterId)
             AdmissionResult.QUEUED
         } else {
@@ -268,7 +269,15 @@ internal class TranslationRequestCoordinator(
         colorizeOnly: Boolean = false,
     ): AdmissionResult {
         val chapterId = chapter.id ?: return AdmissionResult.QUEUE_FAILED
-        if (!sessionCoordinator.requestBatchSession(setOf(chapterId))) return AdmissionResult.QUEUE_FAILED
+        val admission = sessionCoordinator.requestBatchSession(BatchSessionIntent(setOf(chapterId)))
+        if (admission is SessionAdmission.Rejected) {
+            markSessionAdmissionFailed(
+                chapterIds = setOf(chapterId),
+                expectedGenerations = expectedRequestGeneration?.let { mapOf(chapterId to it) },
+                rejection = admission.reason,
+            )
+            return AdmissionResult.QUEUE_FAILED
+        }
         val result = synchronized(pendingRequestMutationLock) {
             admitChapterThroughQueue(
                 manga,
@@ -312,7 +321,12 @@ internal class TranslationRequestCoordinator(
         admissionContexts: Map<Long, BatchAdmissionContext> = emptyMap(),
     ): List<Chapter> {
         if (chapters.isEmpty()) return emptyList()
-        if (!sessionCoordinator.requestBatchSession(chapters.mapNotNull { it.id }.toSet())) return emptyList()
+        val intentChapterIds = chapters.mapNotNull { it.id }.toSet()
+        val admission = sessionCoordinator.requestBatchSession(BatchSessionIntent(intentChapterIds))
+        if (admission is SessionAdmission.Rejected) {
+            markSessionAdmissionFailed(intentChapterIds, expectedGenerations, admission.reason)
+            return emptyList()
+        }
         val admitted = mutableListOf<Chapter>()
         synchronized(pendingRequestMutationLock) {
             chapters.forEach { chapter ->
@@ -370,6 +384,39 @@ internal class TranslationRequestCoordinator(
                 "Translation could not be queued",
                 failureKind,
             )
+        }
+    }
+
+    /**
+     * Session admission rejected live request(s): publish an explicit
+     * retryable failure instead of stranding the acknowledgement in
+     * STARTING/PREPARING with no scheduled work.
+     */
+    private fun markSessionAdmissionFailed(
+        chapterIds: Set<Long>,
+        expectedGenerations: Map<Long, Long>?,
+        rejection: SessionRejection,
+    ) {
+        val reason = when (rejection) {
+            SessionRejection.READER_ACTIVE -> "Reader translation session is active"
+            SessionRejection.PAUSING_IN_PROGRESS -> "A translation session switch is in progress"
+            SessionRejection.BATCH_ACTIVE -> "Another batch session is active"
+        }
+        synchronized(pendingRequestMutationLock) {
+            chapterIds.forEach { chapterId ->
+                val current = ledger.current(chapterId)
+                if (current == null || current.isTerminal) return@forEach
+                if (expectedGenerations != null) {
+                    val expected = expectedGenerations[chapterId] ?: return@forEach
+                    if (current.generation != expected) return@forEach
+                }
+                ledger.set(
+                    chapterId,
+                    TranslationRequestPhase.ADMISSION_FAILED,
+                    reason,
+                    TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
+                )
+            }
         }
     }
 
@@ -441,8 +488,8 @@ internal class TranslationRequestCoordinator(
             if (currentGeneration != expectedGeneration) return
             cancelReaderChapterAsync(chapterId)
             markTranslationRequestPreparing(chapterId)
-            batchCoordinator.queueChapter(translation.manga, translation.chapter)
-            if (batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
+            val queued = batchCoordinator.queueChapter(translation.manga, translation.chapter)
+            if (queued && batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
                 restoreAdmittedChapterIds.add(chapterId)
                 ledger.clear(chapterId)
             } else {
@@ -469,21 +516,24 @@ internal class TranslationRequestCoordinator(
         }
     }
 
-    /** Records a translation start failure after download; the download remains `DOWNLOADED`. */
-    fun markTranslationHandoffFailed(
+    /**
+     * Fenced handoff failure: writes only while the request is still the
+     * one this download was attached to, so a stale completion callback can
+     * never fail a newer request.
+     */
+    fun markAttachedDownloadHandoffFailed(
         chapterId: Long,
-        reason: String? = null,
-    ) {
-        if (ledger.state.value.containsKey(chapterId) ||
-            ledger.durableChapterIds().contains(chapterId)
-        ) {
-            ledger.set(
-                chapterId,
-                TranslationRequestPhase.ADMISSION_FAILED,
-                reason ?: "Translation could not start after the chapter download",
-                TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
-            )
-        }
+        reason: String?,
+        failureKind: TranslationRequestFailureKind,
+    ): Boolean = synchronized(pendingRequestMutationLock) {
+        val attached = ledger.downloadAttachGeneration(chapterId) ?: return@synchronized false
+        ledger.set(
+            chapterId,
+            TranslationRequestPhase.ADMISSION_FAILED,
+            reason ?: "Translation could not start after the chapter download",
+            failureKind,
+        )
+        true
     }
 
     // Download lifecycle notifications are no-ops when a chapter has no pending request.
@@ -535,6 +585,36 @@ internal class TranslationRequestCoordinator(
         ledger.clear(chapterId)
         return existed
     }
+
+    /** Fenced cancel: clears the request only while it still carries [expectedGeneration]. */
+    fun cancelTranslationRequestIfCurrent(chapterId: Long, expectedGeneration: Long): Boolean =
+        synchronized(pendingRequestMutationLock) {
+            val current = ledger.current(chapterId)
+            if (current?.generation != expectedGeneration) return@synchronized false
+            ledger.clear(chapterId)
+            true
+        }
+
+    /** Atomically returns a generation that may carry this start: fresh ack,
+     *  re-arm of the displayed terminal request, or adoption of the displayed
+     *  live generation; null-displayed never adopts, mismatch is stale → null. */
+    fun beginTranslationRequestIfCurrent(chapterId: Long, expectedGeneration: Long?): Long? =
+        synchronized(pendingRequestMutationLock) {
+            val current = ledger.current(chapterId)
+            when {
+                current == null && expectedGeneration == null -> {
+                    ledger.acknowledge(listOf(chapterId))
+                    ledger.generation(chapterId)
+                }
+                current == null || expectedGeneration == null -> null
+                current.generation != expectedGeneration -> null
+                current.isTerminal -> {
+                    ledger.set(chapterId, TranslationRequestPhase.STARTING)
+                    ledger.generation(chapterId)
+                }
+                else -> current.generation
+            }
+        }
 
     /**
      * Drops a stale terminal request at manual/auto reader entry so a failed,
@@ -617,9 +697,10 @@ internal class TranslationRequestCoordinator(
                 "TachiyomiAT download re-key reconciliation not clean for chapter $chapterId; " +
                     "admission refused without a PREPARING request"
             }
-            markTranslationHandoffFailed(
+            markAttachedDownloadHandoffFailed(
                 chapterId,
                 "Download re-key reconciliation deferred or rejected; retry translation after the reader fully closes",
+                TranslationRequestFailureKind.QUEUE_ADMISSION_FAILED,
             )
             return
         }

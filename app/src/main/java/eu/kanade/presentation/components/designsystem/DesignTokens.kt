@@ -56,4 +56,7 @@ object DesignTokens {
     val ShapePill = RoundedCornerShape(50)
     val ShapeCard = RoundedCornerShape(16.dp)
     val ShapeBadge = RoundedCornerShape(10.dp)
+
+    /** Shared status amber (paused/warnings), matching the chapter-list glyph vocabulary. */
+    val StatusWarning: Color = Color(0xFFFFA000)
 }

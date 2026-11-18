@@ -1,5 +1,7 @@
 package eu.kanade.translation.coordinator
 
+import eu.kanade.translation.model.Translation
+
 /**
  * Queue-admission result returned before replacing or adding chapter work.
  *
@@ -11,14 +13,11 @@ sealed interface ChapterQueuePreflight {
     /** No conflict: queue immediately; stale same-source QUEUE entries are evicted by translateChapter. */
     data object NoConflict : ChapterQueuePreflight
 
-    /**
-     * Another chapter of the same source is actively translating. The UI should
-     * confirm cancellation of [chapterId] before calling
-     * [TranslationManager.cancelRunningChapterForReplace] and
-     * [TranslationManager.translateChapter].
-     */
+    /** Captures the live queue entry and its run generation for the cancellation fence. */
     data class RunningConflict(
         val chapterId: Long,
         val chapterName: String,
+        val run: Translation,
+        val runGeneration: Long,
     ) : ChapterQueuePreflight
 }
