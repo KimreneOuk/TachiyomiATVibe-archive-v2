@@ -9,6 +9,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
 
@@ -42,6 +43,8 @@ internal class ReaderTranslationSettingsWriter(
     internal fun setTranslationColorizationModel(model: ColorizationModel) = preferenceWriter.setTranslationColorizationModel(model)
 
     internal fun setTranslationColorCombineMode(mode: ColorCombineMode) = preferenceWriter.setTranslationColorCombineMode(mode)
+
+    internal fun setOriginalDenoisingMode(mode: OriginalDenoisingMode) = preferenceWriter.setOriginalDenoisingMode(mode)
 
     internal fun setTranslationUpscalingEnabled(enabled: Boolean) = preferenceWriter.setTranslationUpscalingEnabled(enabled)
 

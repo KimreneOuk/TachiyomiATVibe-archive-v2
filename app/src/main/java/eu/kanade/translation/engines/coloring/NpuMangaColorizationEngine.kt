@@ -13,7 +13,11 @@ import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.ColorCombineMode
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.TranslationPreferences
+import eu.kanade.translation.engines.coloring.conditioning.Wd14TagConditioner
+import eu.kanade.translation.engines.coloring.denoising.MangaDenoiser
+import eu.kanade.translation.engines.coloring.denoising.MangaDenoiserFactory
 import java.io.File
 import java.io.FileNotFoundException
 
@@ -21,6 +25,9 @@ import java.io.FileNotFoundException
 internal class NpuMangaColorizationEngine(
     private val deps: Dependencies,
     private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
+    private val originalDenoisingMode: () -> OriginalDenoisingMode = { OriginalDenoisingMode.DEFAULT },
+    private val denoiserProvider: (OriginalDenoisingMode) -> MangaDenoiser = { MangaDenoiserFactory.create(it, null) },
+    private val wd14Conditioner: Wd14TagConditioner = Wd14TagConditioner(),
 ) : PageColorizationEngine {
 
     /** Production wiring: the Android context drives artifact, pre-check, and LiteRT. */
@@ -30,6 +37,9 @@ internal class NpuMangaColorizationEngine(
     ) : this(
         deps = Dependencies.from(context),
         colorCombineMode = { preferences?.colorCombineMode()?.get() ?: ColorCombineMode.DEFAULT },
+        originalDenoisingMode = { preferences?.originalDenoisingMode()?.get() ?: OriginalDenoisingMode.DEFAULT },
+        denoiserProvider = { MangaDenoiserFactory.create(it, context) },
+        wd14Conditioner = Wd14TagConditioner(context),
     )
 
     constructor(context: Context) : this(context, null)
@@ -80,14 +90,22 @@ internal class NpuMangaColorizationEngine(
     @Synchronized
     override fun currentStamp(): String? {
         val base = stamp ?: return null
-        return base + MangaColorizationPreprocessor.STAMP_SUFFIX +
-            MangaColorizationImageProcessing.lookStampSuffix(colorCombineMode())
+        val mode = colorCombineMode()
+        val preprocessSuffix = if (mode == ColorCombineMode.ORIGINAL) {
+            when (originalDenoisingMode()) {
+                OriginalDenoisingMode.NONE -> "+DIRECT_RAW"
+                OriginalDenoisingMode.FFDNET -> "+FFDNET_SMOOTH"
+                OriginalDenoisingMode.MFDNET -> "+MFDNET_DECOMP"
+            }
+        } else {
+            MangaColorizationPreprocessor.STAMP_SUFFIX
+        }
+        return base + preprocessSuffix + MangaColorizationImageProcessing.lookStampSuffix(mode)
     }
 
     @Synchronized
     override fun colorize(source: Bitmap, seed: Long): Bitmap {
         val started = System.nanoTime()
-        // seed is unused: the generator is deterministic.
         val active = session ?: throw IllegalStateException(
             initFailure?.let { "MCV2 NPU colorization unavailable (no fallback): $it" }
                 ?: "MCV2 NPU colorization unavailable (no fallback)",
@@ -98,21 +116,56 @@ internal class NpuMangaColorizationEngine(
                 "${MINIMUM_CONTENT_DIMENSION}px content (got ${letterbox.width}x${letterbox.height}); " +
                 "this route has no fallback by design"
         }
-        // Quality-only preprocessing on the aspect-preserved content rect; padding
-        // is applied strictly after, and stage failures degrade to the plain downsample.
-        val preprocessed = MangaColorizationPreprocessor.grayPlane(source, letterbox.width, letterbox.height)
-        logcat(LogPriority.INFO) {
-            "[Mcv2NpuColor] ScreentoneSmooth score=" + preprocessed.score +
-                " smoothed=" + preprocessed.smoothingApplied
+        val mode = colorCombineMode()
+        val plane: FloatArray
+        val preprocessedAt: Long
+        val timing: MangaColorizationPreprocessor.StageTiming
+
+        if (mode == ColorCombineMode.ORIGINAL) {
+            val dMode = originalDenoisingMode()
+            val denoiser = denoiserProvider(dMode)
+            val denoisedBytes = denoiser.denoise(source)
+            val resampled = AreaResampler.resample(
+                denoisedBytes,
+                source.width,
+                source.height,
+                letterbox.width,
+                letterbox.height,
+            )
+            plane = FloatArray(resampled.size)
+            for (i in resampled.indices) plane[i] = (resampled[i].toInt() and 0xFF) / 255f
+            preprocessedAt = System.nanoTime()
+            val durMs = (preprocessedAt - started) / 1_000_000
+            timing = MangaColorizationPreprocessor.StageTiming(resampleMs = durMs)
+            logcat(LogPriority.INFO) {
+                "[Mcv2NpuColor] Faithful ORIGINAL preprocess ($dMode): ${durMs}ms"
+            }
+        } else {
+            val preprocessed = MangaColorizationPreprocessor.grayPlane(source, letterbox.width, letterbox.height)
+            plane = preprocessed.plane
+            preprocessedAt = System.nanoTime()
+            timing = preprocessed.timing
+            logcat(LogPriority.INFO) {
+                "[Mcv2NpuColor] ScreentoneSmooth score=" + preprocessed.score +
+                    " smoothed=" + preprocessed.smoothingApplied
+            }
         }
-        val preprocessedAt = System.nanoTime()
+
         val input = MangaColorizationPreprocessor.grayNchwFromGrayPlane(
-            preprocessed.plane,
+            plane,
             letterbox,
             INPUT_WIDTH,
             INPUT_HEIGHT,
         )
+        // WD14 conditioning is enabled for MCV2
+        wd14Conditioner.populateConditioning(input, letterbox, INPUT_WIDTH, INPUT_HEIGHT)
+
         val packedAt = System.nanoTime()
+        val packNs = packedAt - preprocessedAt
+        val finalTiming = timing.copy(
+            packMs = packNs / 1_000_000,
+            packUs = packNs / 1_000,
+        )
         val output = active.runtime.run(input)
         val inferredAt = System.nanoTime()
         val expectedOutputCount = OUTPUT_FLOAT_COUNT
@@ -128,7 +181,6 @@ internal class NpuMangaColorizationEngine(
             letterbox.height,
         )
         val convertedAt = System.nanoTime()
-        val mode = colorCombineMode()
         return try {
             MangaColorizationImageProcessing.applyLook(source, coloredWork, mode)
         } finally {
@@ -137,6 +189,8 @@ internal class NpuMangaColorizationEngine(
             logcat(LogPriority.INFO) {
                 "[ColorizeTiming] model=MCV2 preset=$mode source=${source.width}x${source.height} " +
                     "preprocessMs=${(preprocessedAt - started) / 1_000_000} " +
+                    "substages=[pixelsMs=${finalTiming.pixelsMs},grayLMs=${finalTiming.grayLMs},gateMs=${finalTiming.gateMs}," +
+                    "resampleMs=${finalTiming.resampleMs},smoothMs=${finalTiming.smoothMs},packMs=${finalTiming.packMs}] " +
                     "packMs=${(packedAt - preprocessedAt) / 1_000_000} " +
                     "inferenceMs=${(inferredAt - packedAt) / 1_000_000} " +
                     "convertMs=${(convertedAt - inferredAt) / 1_000_000} " +

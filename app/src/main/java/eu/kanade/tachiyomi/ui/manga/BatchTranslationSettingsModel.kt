@@ -23,6 +23,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
 import tachiyomi.domain.translation.TranslationPreferences
@@ -56,6 +57,7 @@ internal interface BatchTranslationSettingsActions {
     fun setTranslationColorizationEnabled(enabled: Boolean)
     fun setTranslationColorizationModel(model: ColorizationModel)
     fun setTranslationColorCombineMode(mode: ColorCombineMode)
+    fun setOriginalDenoisingMode(mode: OriginalDenoisingMode)
     fun setTranslationUpscalingEnabled(enabled: Boolean)
     fun setTranslationEngineCategory(category: TranslationEngineCategory)
     fun setTranslationStandardEngine(engine: StandardEngine)
@@ -87,8 +89,9 @@ internal class BatchTranslationSettingsModel(
         preferences.translationColorizationModel().changes(),
         preferences.translationUpscalingEnabled().changes(),
         preferences.colorCombineMode().changes(),
-    ) { model, upscalingEnabled, combineMode ->
-        ColorizationSettings(model, upscalingEnabled, combineMode)
+        preferences.originalDenoisingMode().changes(),
+    ) { model, upscalingEnabled, combineMode, denoisingMode ->
+        ColorizationSettings(model, upscalingEnabled, combineMode, denoisingMode)
     }
 
     private val imageFlow = combine(
@@ -157,6 +160,7 @@ internal class BatchTranslationSettingsModel(
             colorizationModel = inputs.image.colorization.model,
             upscalingEnabled = inputs.image.colorization.upscalingEnabled,
             colorCombineMode = inputs.image.colorization.combineMode,
+            originalDenoisingMode = inputs.image.colorization.denoisingMode,
             engineCategory = engine.category,
             standardEngine = engine.standardEngine,
             deeplApiKey = engine.deeplApiKey,
@@ -181,6 +185,7 @@ internal class BatchTranslationSettingsModel(
     override fun setTranslationColorizationEnabled(enabled: Boolean) = writer.setTranslationColorizationEnabled(enabled)
     override fun setTranslationColorizationModel(model: ColorizationModel) = writer.setTranslationColorizationModel(model)
     override fun setTranslationColorCombineMode(mode: ColorCombineMode) = writer.setTranslationColorCombineMode(mode)
+    override fun setOriginalDenoisingMode(mode: OriginalDenoisingMode) = writer.setOriginalDenoisingMode(mode)
     override fun setTranslationUpscalingEnabled(enabled: Boolean) = writer.setTranslationUpscalingEnabled(enabled)
     override fun setTranslationEngineCategory(category: TranslationEngineCategory) = writer.setTranslationEngineCategory(category)
     override fun setTranslationStandardEngine(engine: StandardEngine) = writer.setTranslationStandardEngine(engine)
@@ -233,6 +238,7 @@ internal class BatchTranslationSettingsModel(
             colorizationEnabled = preferences.translationColorizationEnabled().get(),
             colorizationModel = preferences.translationColorizationModel().get(),
             colorCombineMode = preferences.colorCombineMode().get(),
+            originalDenoisingMode = preferences.originalDenoisingMode().get(),
             upscalingEnabled = preferences.translationUpscalingEnabled().get(),
             engineCategory = preferences.translationEngineCategory().get(),
             standardEngine = preferences.translationStandardEngine().get(),
@@ -258,6 +264,7 @@ internal class BatchTranslationSettingsModel(
         val model: ColorizationModel,
         val upscalingEnabled: Boolean,
         val combineMode: ColorCombineMode,
+        val denoisingMode: OriginalDenoisingMode,
     )
 
     private data class ImageSettings(

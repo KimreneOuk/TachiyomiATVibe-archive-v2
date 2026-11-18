@@ -11,7 +11,7 @@ internal val QNN_REQUIRED_LIBRARIES = listOf(
 )
 
 /** Typed pre-check before native calls: absent libs otherwise fail opaquely (debug CheckJNI aborts). */
-internal fun qnnDispatchPrecheck(nativeLibraryDir: File): String? {
+fun qnnDispatchPrecheck(nativeLibraryDir: File): String? {
     val missing = QNN_REQUIRED_LIBRARIES.filterNot { File(nativeLibraryDir, it).isFile }
     if (missing.isNotEmpty()) {
         return "Qualcomm NPU dispatch libraries missing from ${nativeLibraryDir.absolutePath}: " +

@@ -12,6 +12,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
 
@@ -34,6 +35,7 @@ data class TranslationSettingsState(
     val colorizationEnabled: Boolean = false,
     val colorizationModel: ColorizationModel = ColorizationModel.DEFAULT,
     val colorCombineMode: ColorCombineMode = ColorCombineMode.DEFAULT,
+    val originalDenoisingMode: OriginalDenoisingMode = OriginalDenoisingMode.DEFAULT,
     val upscalingEnabled: Boolean = false,
     val storyColorReference: StoryColorReferenceState = StoryColorReferenceState(),
     val engineCategory: TranslationEngineCategory = TranslationEngineCategory.STANDARD,

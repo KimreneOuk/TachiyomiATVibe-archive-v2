@@ -6,6 +6,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
 import tachiyomi.domain.translation.TranslationPreferences
@@ -66,6 +67,10 @@ internal class TranslationSettingsPreferenceWriter(
 
     fun setTranslationColorCombineMode(mode: ColorCombineMode) {
         preferences.colorCombineMode().set(mode)
+    }
+
+    fun setOriginalDenoisingMode(mode: OriginalDenoisingMode) {
+        preferences.originalDenoisingMode().set(mode)
     }
 
     fun setTranslationUpscalingEnabled(enabled: Boolean) {

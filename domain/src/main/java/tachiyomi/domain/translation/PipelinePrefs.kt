@@ -36,6 +36,10 @@ internal class PipelinePrefs(
     fun colorCombineMode(): Preference<ColorCombineMode> =
         preferenceStore.getEnum("color_combine_mode", ColorCombineMode.DEFAULT)
 
+    /** Denoising pre-processor applied when ORIGINAL color combine mode is active. */
+    fun originalDenoisingMode(): Preference<OriginalDenoisingMode> =
+        preferenceStore.getEnum("original_denoising_mode", OriginalDenoisingMode.DEFAULT)
+
     /**
      * Master gate for on-device QuickSRNetLarge page upscaling. Default OFF.
      * While UpscalingModelCatalog.operational is false, enabling yields an

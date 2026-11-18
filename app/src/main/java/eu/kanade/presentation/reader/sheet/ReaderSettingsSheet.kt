@@ -60,6 +60,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
 import tachiyomi.i18n.at.ATMR
@@ -89,6 +90,7 @@ fun ReaderSettingsSheet(
     onColorizationEnabledChange: (Boolean) -> Unit,
     onColorizationModelChange: (ColorizationModel) -> Unit,
     onColorCombineModeChange: (ColorCombineMode) -> Unit,
+    onOriginalDenoisingModeChange: (OriginalDenoisingMode) -> Unit = {},
     onUpscalingEnabledChange: (Boolean) -> Unit,
     onColorizeChapterClick: () -> Unit,
     onColorizePageClick: () -> Unit,
@@ -251,6 +253,7 @@ fun ReaderSettingsSheet(
                                     onColorizationEnabledChange = onColorizationEnabledChange,
                                     onColorizationModelChange = onColorizationModelChange,
                                     onColorCombineModeChange = onColorCombineModeChange,
+                                    onOriginalDenoisingModeChange = onOriginalDenoisingModeChange,
                                     onUpscalingEnabledChange = onUpscalingEnabledChange,
                                     onStoryColorReferenceToggle = onStoryColorReferenceToggle,
                                     onChooseFromDevice = { getContent.launch("image/*") },

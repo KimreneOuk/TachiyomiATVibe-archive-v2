@@ -114,5 +114,102 @@ class MangaColorizationPreprocessorTest {
         assertEquals(0f, packed[16 + 12])
     }
 
+    @Test
+    fun `stage timing telemetry is populated and reports non-negative durations`() {
+        val result = MangaColorizationPreprocessor.planeFromGray(syntheticPage(), 96, 64, 48, 32)
+        val timing = result.timing
+        assert(timing.gateUs >= 0)
+        assert(timing.resampleUs >= 0)
+        assert(timing.smoothUs >= 0)
+        assert(timing.totalUs >= 0)
+    }
+
+    @Test
+    fun `microbenchmark representative manga page profiling`() {
+        val width = 1200
+        val height = 1800
+        val workWidth = 384
+        val workHeight = 576
+        val targetWidth = 832
+        val targetHeight = 576
+        val letterbox = MangaColorizationLetterbox(workWidth, workHeight, (targetWidth - workWidth) / 2, 0)
+
+        // Generate synthetic screentone page (alternating midtone dots)
+        val argb = IntArray(width * height) { i ->
+            val x = i % width
+            val y = i / width
+            val luma = if ((x / 6 + y / 6) % 2 == 0) 70 else 185
+            (0xFF shl 24) or (luma shl 16) or (luma shl 8) or luma
+        }
+
+        // Warm up JIT
+        val warmGray = MangaColorizationPreprocessor.grayLFromArgb(argb)
+        val warmWork = AreaResampler.resample(warmGray, width, height, workWidth, workHeight)
+        SelectiveBilateral.apply(warmWork, workWidth, workHeight)
+
+        // Benchmark runs
+        val iterations = 3
+        var totalPixelsNs = 0L
+        var totalGrayLNs = 0L
+        var totalGateNs = 0L
+        var totalResampleNs = 0L
+        var totalSmoothNs = 0L
+        var totalPackNs = 0L
+        var measuredScore = 0f
+
+        val dummyPixels = IntArray(width * height)
+        for (iter in 0 until iterations) {
+            val t0 = System.nanoTime()
+            System.arraycopy(argb, 0, dummyPixels, 0, dummyPixels.size)
+            val t1 = System.nanoTime()
+            val gray = MangaColorizationPreprocessor.grayLFromArgb(dummyPixels)
+            val t2 = System.nanoTime()
+            measuredScore = ScreentoneGate.score(gray, width, height)
+            val t3 = System.nanoTime()
+            val work = AreaResampler.resample(gray, width, height, workWidth, workHeight)
+            val t4 = System.nanoTime()
+            val smoothed = SelectiveBilateral.apply(work, workWidth, workHeight)
+            val t5 = System.nanoTime()
+            val plane = FloatArray(smoothed.size) { (smoothed[it].toInt() and 0xFF) / 255f }
+            MangaColorizationPreprocessor.grayNchwFromGrayPlane(plane, letterbox, targetWidth, targetHeight)
+            val t6 = System.nanoTime()
+
+            totalPixelsNs += (t1 - t0)
+            totalGrayLNs += (t2 - t1)
+            totalGateNs += (t3 - t2)
+            totalResampleNs += (t4 - t3)
+            totalSmoothNs += (t5 - t4)
+            totalPackNs += (t6 - t5)
+        }
+
+        val avgPixelsMs = (totalPixelsNs / iterations) / 1_000_000.0
+        val avgGrayLMs = (totalGrayLNs / iterations) / 1_000_000.0
+        val avgGateMs = (totalGateNs / iterations) / 1_000_000.0
+        val avgResampleMs = (totalResampleNs / iterations) / 1_000_000.0
+        val avgSmoothMs = (totalSmoothNs / iterations) / 1_000_000.0
+        val avgPackMs = (totalPackNs / iterations) / 1_000_000.0
+        val avgTotalMs = avgPixelsMs + avgGrayLMs + avgGateMs + avgResampleMs + avgSmoothMs + avgPackMs
+
+        // Measure end-to-end planeFromGray with deduplicated seam
+        var totalEndToEndNs = 0L
+        for (iter in 0 until iterations) {
+            val t0 = System.nanoTime()
+            val res = MangaColorizationPreprocessor.planeFromGray(warmGray, width, height, workWidth, workHeight)
+            totalEndToEndNs += (System.nanoTime() - t0)
+        }
+        val avgEndToEndMs = (totalEndToEndNs / iterations) / 1_000_000.0
+
+        println("=== MangaColorizationPreprocessor Profiling Breakdown (Page: ${width}x${height} -> Work: ${workWidth}x${workHeight}, GateScore: $measuredScore) ===")
+        println("Pixels extraction (Bitmap.getPixels sim) : ${String.format("%.2f", avgPixelsMs)} ms (${String.format("%.1f", avgPixelsMs / avgTotalMs * 100)}%)")
+        println("ARGB -> GrayL conversion                 : ${String.format("%.2f", avgGrayLMs)} ms (${String.format("%.1f", avgGrayLMs / avgTotalMs * 100)}%)")
+        println("ScreentoneGate (score + thumb resample)  : ${String.format("%.2f", avgGateMs)} ms (${String.format("%.1f", avgGateMs / avgTotalMs * 100)}%)")
+        println("AreaResampler (full resample)            : ${String.format("%.2f", avgResampleMs)} ms (${String.format("%.1f", avgResampleMs / avgTotalMs * 100)}%)")
+        println("SelectiveBilateral (bilateral + ink)     : ${String.format("%.2f", avgSmoothMs)} ms (${String.format("%.1f", avgSmoothMs / avgTotalMs * 100)}%)")
+        println("NCHW Packing (5-ch pad)                  : ${String.format("%.2f", avgPackMs)} ms (${String.format("%.1f", avgPackMs / avgTotalMs * 100)}%)")
+        println("Total Preprocessing Duration (separate)  : ${String.format("%.2f", avgTotalMs)} ms")
+        println("End-to-end planeFromGray (deduplicated)  : ${String.format("%.2f", avgEndToEndMs)} ms")
+        println("===============================================================================================")
+    }
+
     private fun syntheticPage(): ByteArray = ScreentoneGateTest().syntheticPage()
 }

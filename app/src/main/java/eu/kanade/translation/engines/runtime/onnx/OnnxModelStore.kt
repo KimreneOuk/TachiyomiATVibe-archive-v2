@@ -274,6 +274,25 @@ class OnnxModelStore(private val context: Context) {
         )
     }
 
+    fun ffdnetDenoisingAvailable(): Boolean {
+        val dir = File(modelsDir, "coloring")
+        return File(dir, "ffdnet_fp16.onnx").exists()
+    }
+
+    fun ffdnetDenoisingAssetsAvailable(): Boolean {
+        return ffdnetDenoisingAvailable() ||
+            try {
+                context.assets.list("models/coloring")?.contains("ffdnet_fp16.onnx") == true
+            } catch (_: Exception) {
+                false
+            }
+    }
+
+    fun ensureFfdnetDenoising(): File {
+        val dir = File(modelsDir, "coloring").also { if (!it.exists()) it.mkdirs() }
+        return copyIfNeeded(dir, "ffdnet_fp16.onnx", "models/coloring/ffdnet_fp16.onnx")
+    }
+
     fun liteRtVisionAssetsAvailable(): Boolean {
         val dir = File(modelsDir, "litert-vision")
         val onDisk = File(dir, "detector_v4_s_fp32.tflite").exists()

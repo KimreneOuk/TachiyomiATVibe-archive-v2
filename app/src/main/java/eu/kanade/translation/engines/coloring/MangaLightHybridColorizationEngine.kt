@@ -13,7 +13,10 @@ import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.ColorCombineMode
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.TranslationPreferences
+import eu.kanade.translation.engines.coloring.denoising.MangaDenoiser
+import eu.kanade.translation.engines.coloring.denoising.MangaDenoiserFactory
 import java.io.File
 
 /** Runs the static SAM encoder on the NPU and the live-conditioned generator on the GPU.
@@ -22,6 +25,8 @@ import java.io.File
 internal class MangaLightHybridColorizationEngine(
     private val context: Context,
     private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
+    private val originalDenoisingMode: () -> OriginalDenoisingMode = { OriginalDenoisingMode.DEFAULT },
+    private val denoiserProvider: (OriginalDenoisingMode) -> MangaDenoiser = { MangaDenoiserFactory.create(it, context) },
 ) : PageColorizationEngine {
 
     /** Production wiring: mirrors NpuMangaColorizationEngine's dependency shape. */
@@ -31,6 +36,8 @@ internal class MangaLightHybridColorizationEngine(
     ) : this(
         context = context,
         colorCombineMode = { preferences?.colorCombineMode()?.get() ?: ColorCombineMode.DEFAULT },
+        originalDenoisingMode = { preferences?.originalDenoisingMode()?.get() ?: OriginalDenoisingMode.DEFAULT },
+        denoiserProvider = { MangaDenoiserFactory.create(it, context) },
     )
 
     private var session: Session? = null
@@ -59,20 +66,51 @@ internal class MangaLightHybridColorizationEngine(
 
     @Synchronized
     override fun currentStamp(): String? = session?.let {
-        STAMP + MangaColorizationPreprocessor.STAMP_SUFFIX +
-            MangaColorizationImageProcessing.lookStampSuffix(colorCombineMode())
+        val mode = colorCombineMode()
+        val preprocessSuffix = if (mode == ColorCombineMode.ORIGINAL) {
+            when (originalDenoisingMode()) {
+                OriginalDenoisingMode.NONE -> "+DIRECT_RAW"
+                OriginalDenoisingMode.FFDNET -> "+FFDNET_SMOOTH"
+                OriginalDenoisingMode.MFDNET -> "+MFDNET_DECOMP"
+            }
+        } else {
+            MangaColorizationPreprocessor.STAMP_SUFFIX
+        }
+        STAMP + preprocessSuffix + MangaColorizationImageProcessing.lookStampSuffix(mode)
     }
 
     @Synchronized
     override fun colorize(source: Bitmap, seed: Long): Bitmap {
         val active = checkNotNull(session) { error ?: "Manga Light is unavailable" }
         val started = System.nanoTime()
-        val prepped = MangaColorizationPreprocessor.grayPlane(source, SIZE, SIZE)
-        logcat(LogPriority.INFO) {
-            "[MangaLightColor] ScreentoneSmooth score=" + prepped.score +
-                " smoothed=" + prepped.smoothingApplied
+        val mode = colorCombineMode()
+        val luma: FloatArray
+        val preprocessedAt: Long
+        if (mode == ColorCombineMode.ORIGINAL) {
+            val dMode = originalDenoisingMode()
+            val denoiser = denoiserProvider(dMode)
+            val denoisedBytes = denoiser.denoise(source)
+            val resampled = AreaResampler.resample(
+                denoisedBytes,
+                source.width,
+                source.height,
+                SIZE,
+                SIZE,
+            )
+            luma = FloatArray(resampled.size) { (resampled[it].toInt() and 0xFF) / 255f }
+            preprocessedAt = System.nanoTime()
+            logcat(LogPriority.INFO) {
+                "[MangaLightColor] Faithful ORIGINAL preprocess ($dMode): ${(preprocessedAt - started) / 1_000_000}ms"
+            }
+        } else {
+            val prepped = MangaColorizationPreprocessor.grayPlane(source, SIZE, SIZE)
+            preprocessedAt = System.nanoTime()
+            logcat(LogPriority.INFO) {
+                "[MangaLightColor] ScreentoneSmooth score=" + prepped.score +
+                    " smoothed=" + prepped.smoothingApplied
+            }
+            luma = prepped.plane
         }
-        val luma = prepped.plane
         val rgb = samRgb(luma)
         val prepared = System.nanoTime()
         val output = active.run(luma, rgb)
@@ -84,14 +122,14 @@ internal class MangaLightHybridColorizationEngine(
             SIZE,
         )
         val converted = System.nanoTime()
-        val mode = colorCombineMode()
         return try {
             MangaColorizationImageProcessing.applyLook(source, work, mode)
         } finally {
             work.recycle()
             logcat(LogPriority.INFO) {
                 "[ColorizeTiming] model=MANGA_LIGHT preset=$mode source=${source.width}x${source.height} " +
-                    "preprocessMs=${(prepared - started) / 1_000_000} " +
+                    "preprocessMs=${(preprocessedAt - started) / 1_000_000} " +
+                    "samAndPrepMs=${(prepared - preprocessedAt) / 1_000_000} " +
                     "inferenceMs=${(inferred - prepared) / 1_000_000} " +
                     "convertMs=${(converted - inferred) / 1_000_000} " +
                     "lookMs=${(System.nanoTime() - converted) / 1_000_000} " +

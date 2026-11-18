@@ -93,6 +93,9 @@ class TranslationPreferences(
     fun colorCombineMode(): Preference<ColorCombineMode> =
         pipelinePrefs.colorCombineMode()
 
+    fun originalDenoisingMode(): Preference<OriginalDenoisingMode> =
+        pipelinePrefs.originalDenoisingMode()
+
     fun translationUpscalingEnabled() = pipelinePrefs.translationUpscalingEnabled()
 
     fun translationRecentLanguagesFrom() = readerUiPrefs.translationRecentLanguagesFrom()

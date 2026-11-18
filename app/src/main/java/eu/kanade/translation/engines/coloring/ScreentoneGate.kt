@@ -10,7 +10,7 @@ import kotlin.math.round
 internal object ScreentoneGate {
 
     const val THRESHOLD = 2.5f
-    private const val THUMBNAIL_WIDTH = 384
+    const val THUMBNAIL_WIDTH = 384
     private val GAUSSIAN_7_SIGMA_3 = DoubleArray(7) { i ->
         val d = i - 3
         exp(-(d.toDouble() * d) / 18.0)
@@ -20,15 +20,26 @@ internal object ScreentoneGate {
         for (i in kernel.indices) kernel[i] /= sum
     }
 
+    /** Calculates expected thumbnail height for an input [width]x[height] page. */
+    fun thumbnailHeight(width: Int, height: Int): Int =
+        round(height.toDouble() * THUMBNAIL_WIDTH / width).toInt().coerceAtLeast(1)
+
     /** High-pass score = midtone area x mean hp squared x 1000 on the [THUMBNAIL_WIDTH]-wide thumbnail. */
     fun score(gray: ByteArray, width: Int, height: Int): Float {
         require(width > 0 && height > 0) { "invalid plane dimensions" }
         require(gray.size == width * height) { "plane buffer does not match dimensions" }
-        val thumbHeight = round(height.toDouble() * THUMBNAIL_WIDTH / width).toInt().coerceAtLeast(1)
+        val thumbHeight = thumbnailHeight(width, height)
         val thumb = AreaResampler.resample(gray, width, height, THUMBNAIL_WIDTH, thumbHeight)
+        return scoreFromThumbnail(thumb, THUMBNAIL_WIDTH, thumbHeight)
+    }
+
+    /** Direct score evaluation on an already-resampled [THUMBNAIL_WIDTH]-wide thumbnail. */
+    fun scoreFromThumbnail(thumb: ByteArray, width: Int, height: Int): Float {
+        require(width > 0 && height > 0) { "invalid thumbnail dimensions" }
+        require(thumb.size == width * height) { "thumbnail buffer does not match dimensions" }
         val thumb01 = FloatArray(thumb.size)
         for (i in thumb.indices) thumb01[i] = (thumb[i].toInt() and 0xFF) / 255f
-        val blurred = gaussian7Sigma3(thumb01, THUMBNAIL_WIDTH, thumbHeight)
+        val blurred = gaussian7Sigma3(thumb01, width, height)
         var midtone = 0L
         var squared = 0.0
         for (p in thumb01.indices) {
@@ -48,11 +59,28 @@ internal object ScreentoneGate {
     private fun gaussian7Sigma3(plane: FloatArray, width: Int, height: Int): FloatArray {
         val kernel = GAUSSIAN_7_SIGMA_3
         val horizontal = FloatArray(plane.size)
+        val leftBorder = minOf(3, width)
+        val rightBorder = maxOf(leftBorder, width - 3)
         for (y in 0 until height) {
             val rowOffset = y * width
-            for (x in 0 until width) {
+            for (x in 0 until leftBorder) {
                 var acc = 0.0
-                for (i in kernel.indices) {
+                for (i in 0 until 7) {
+                    acc += kernel[i] * plane[rowOffset + ImageBorderOps.reflect101(x + i - 3, width)]
+                }
+                horizontal[rowOffset + x] = acc.toFloat()
+            }
+            for (x in leftBorder until rightBorder) {
+                var acc = 0.0
+                val base = rowOffset + x - 3
+                for (i in 0 until 7) {
+                    acc += kernel[i] * plane[base + i]
+                }
+                horizontal[rowOffset + x] = acc.toFloat()
+            }
+            for (x in rightBorder until width) {
+                var acc = 0.0
+                for (i in 0 until 7) {
                     acc += kernel[i] * plane[rowOffset + ImageBorderOps.reflect101(x + i - 3, width)]
                 }
                 horizontal[rowOffset + x] = acc.toFloat()
@@ -67,7 +95,7 @@ internal object ScreentoneGate {
             val rowOffset = y * width
             for (x in 0 until width) {
                 var acc = 0.0
-                for (i in kernel.indices) {
+                for (i in 0 until 7) {
                     acc += kernel[i] * horizontal[reflectedRows[i] + x]
                 }
                 result[rowOffset + x] = acc.toFloat()

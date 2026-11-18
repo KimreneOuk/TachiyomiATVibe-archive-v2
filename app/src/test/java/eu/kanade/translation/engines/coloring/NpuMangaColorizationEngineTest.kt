@@ -9,6 +9,8 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.mockk
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import tachiyomi.domain.translation.ColorCombineMode
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import java.io.File
 
 /** Hard-fail contract: failures surface typed and never fall back; JVM-tested through the engine seam. */
@@ -106,6 +108,19 @@ class NpuMangaColorizationEngineTest {
         val engine = NpuMangaColorizationEngine(FakeDeps(artifactResult = { artifact() }).toDependencies())
         engine.isAvailable() shouldBe true
         engine.currentStamp() shouldContain MangaColorizationPreprocessor.STAMP_SUFFIX
+    }
+
+    @Test
+    fun `stamp suffix reflects OriginalDenoisingMode when in ORIGINAL preset`() {
+        fun makeEngine(dMode: OriginalDenoisingMode) = NpuMangaColorizationEngine(
+            deps = FakeDeps(artifactResult = { artifact() }).toDependencies(),
+            colorCombineMode = { ColorCombineMode.ORIGINAL },
+            originalDenoisingMode = { dMode },
+        ).also { it.isAvailable() shouldBe true }
+
+        makeEngine(OriginalDenoisingMode.NONE).currentStamp() shouldContain "+DIRECT_RAW"
+        makeEngine(OriginalDenoisingMode.FFDNET).currentStamp() shouldContain "+FFDNET_SMOOTH"
+        makeEngine(OriginalDenoisingMode.MFDNET).currentStamp() shouldContain "+MFDNET_DECOMP"
     }
 
     @Test

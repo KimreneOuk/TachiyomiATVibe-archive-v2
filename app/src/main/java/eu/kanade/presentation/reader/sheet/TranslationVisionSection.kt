@@ -47,6 +47,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.i18n.at.ATMR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -201,6 +202,7 @@ internal fun TranslationColorizationSection(
     onColorizationEnabledChange: (Boolean) -> Unit,
     onColorizationModelChange: (ColorizationModel) -> Unit,
     onColorCombineModeChange: (ColorCombineMode) -> Unit,
+    onOriginalDenoisingModeChange: (OriginalDenoisingMode) -> Unit = {},
     onUpscalingEnabledChange: (Boolean) -> Unit,
     onStoryColorReferenceToggle: (Boolean) -> Unit = {},
     onChooseFromDevice: () -> Unit = {},
@@ -216,7 +218,12 @@ internal fun TranslationColorizationSection(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ColorizationEnabledControl(state, onColorizationEnabledChange)
-        ColorizationModelAndCombineControls(state, onColorizationModelChange, onColorCombineModeChange)
+        ColorizationModelAndCombineControls(
+            state = state,
+            onColorizationModelChange = onColorizationModelChange,
+            onColorCombineModeChange = onColorCombineModeChange,
+            onOriginalDenoisingModeChange = onOriginalDenoisingModeChange,
+        )
     }
 
     UpscalingSection(state, onUpscalingEnabledChange)
@@ -405,6 +412,7 @@ internal fun TranslationColorizationOptionsSection(
     state: TranslationSettingsState,
     onColorizationModelChange: (ColorizationModel) -> Unit,
     onColorCombineModeChange: (ColorCombineMode) -> Unit,
+    onOriginalDenoisingModeChange: (OriginalDenoisingMode) -> Unit = {},
     onUpscalingEnabledChange: (Boolean) -> Unit,
 ) {
     SectionHeading(title = stringResource(ATMR.strings.pref_colorization_title))
@@ -414,7 +422,12 @@ internal fun TranslationColorizationOptionsSection(
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ColorizationModelAndCombineControls(state, onColorizationModelChange, onColorCombineModeChange)
+        ColorizationModelAndCombineControls(
+            state = state,
+            onColorizationModelChange = onColorizationModelChange,
+            onColorCombineModeChange = onColorCombineModeChange,
+            onOriginalDenoisingModeChange = onOriginalDenoisingModeChange,
+        )
     }
     UpscalingSection(state, onUpscalingEnabledChange)
 }
@@ -438,6 +451,7 @@ private fun ColorizationModelAndCombineControls(
     state: TranslationSettingsState,
     onColorizationModelChange: (ColorizationModel) -> Unit,
     onColorCombineModeChange: (ColorCombineMode) -> Unit,
+    onOriginalDenoisingModeChange: (OriginalDenoisingMode) -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = state.colorizationEnabled,
@@ -469,6 +483,32 @@ private fun ColorizationModelAndCombineControls(
                     subtitle = stringResource(ATMR.strings.pref_color_combine_vibrant_summary),
                     modifier = Modifier.weight(1f),
                 )
+            }
+            if (state.colorCombineMode == ColorCombineMode.ORIGINAL) {
+                SectionHeading(title = stringResource(ATMR.strings.pref_original_denoising_title))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SelectionTile(
+                        selected = state.originalDenoisingMode == OriginalDenoisingMode.FFDNET,
+                        onClick = { onOriginalDenoisingModeChange(OriginalDenoisingMode.FFDNET) },
+                        title = stringResource(ATMR.strings.pref_original_denoising_ffdnet),
+                        subtitle = stringResource(ATMR.strings.pref_original_denoising_ffdnet_summary),
+                        modifier = Modifier.weight(1f),
+                    )
+                    SelectionTile(
+                        selected = state.originalDenoisingMode == OriginalDenoisingMode.MFDNET,
+                        onClick = { onOriginalDenoisingModeChange(OriginalDenoisingMode.MFDNET) },
+                        title = stringResource(ATMR.strings.pref_original_denoising_mfdnet),
+                        subtitle = stringResource(ATMR.strings.pref_original_denoising_mfdnet_summary),
+                        modifier = Modifier.weight(1f),
+                    )
+                    SelectionTile(
+                        selected = state.originalDenoisingMode == OriginalDenoisingMode.NONE,
+                        onClick = { onOriginalDenoisingModeChange(OriginalDenoisingMode.NONE) },
+                        title = stringResource(ATMR.strings.pref_original_denoising_none),
+                        subtitle = stringResource(ATMR.strings.pref_original_denoising_none_summary),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

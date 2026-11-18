@@ -99,6 +99,13 @@
     <string name="pref_color_combine_original_summary">Faithful to each model\'s own color render</string>
     <string name="pref_color_combine_vibrant">Vibrant</string>
     <string name="pref_color_combine_vibrant_summary">Current punchy prototype look</string>
+    <string name="pref_original_denoising_title">Original Denoising</string>
+    <string name="pref_original_denoising_ffdnet">FFDNet</string>
+    <string name="pref_original_denoising_ffdnet_summary">Author recommended (sigma=25)</string>
+    <string name="pref_original_denoising_mfdnet">MFDNet</string>
+    <string name="pref_original_denoising_mfdnet_summary">Multi-scale frequency decomposition</string>
+    <string name="pref_original_denoising_none">None</string>
+    <string name="pref_original_denoising_none_summary">Direct raw downsample</string>
     <string name="pref_colorization_model_mcv2_npu_w8a8">Manga Colorization v2 (SM8650 NPU W8A8 — 576×832, cross-series calibrated, experimental; fails without fallback)</string>
     <string name="pref_colorization_model_mcv2_gpu_fp16">Manga Colorization v2 (GPU, FP16 weights, 576×896, experimental)</string>
     <string name="pref_colorization_model_mcv2_gpu_fp16_832">Manga Colorization v2 (GPU, FP16 weights, 576×832, experimental)</string>

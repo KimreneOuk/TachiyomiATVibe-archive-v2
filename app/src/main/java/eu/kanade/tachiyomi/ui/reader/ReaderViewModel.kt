@@ -93,6 +93,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.ColorizationModel
 import tachiyomi.domain.translation.NeuralInpaintModel
 import tachiyomi.domain.translation.OcrModel
+import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.StandardEngine
 import tachiyomi.domain.translation.TranslationEngineCategory
 import tachiyomi.domain.translation.TranslationPreferences
@@ -186,11 +187,13 @@ class ReaderViewModel @JvmOverloads constructor(
                         translationPreferences.translationColorizationModel().changes(),
                         translationPreferences.translationUpscalingEnabled().changes(),
                         translationPreferences.colorCombineMode().changes(),
-                    ) { model, upscalingEnabled, combineMode ->
+                        translationPreferences.originalDenoisingMode().changes(),
+                    ) { model, upscalingEnabled, combineMode, denoisingMode ->
                         TranslationColorizationSettings(
                             model = model,
                             upscalingEnabled = upscalingEnabled,
                             combineMode = combineMode,
+                            denoisingMode = denoisingMode,
                         )
                     },
                 ) { inpaintingMode, inpaintingNeuralModel, colorizationEnabled, colorization ->
@@ -324,6 +327,7 @@ class ReaderViewModel @JvmOverloads constructor(
             colorizationModel = requestOptions.language.image.colorization.model,
             upscalingEnabled = requestOptions.language.image.colorization.upscalingEnabled,
             colorCombineMode = requestOptions.language.image.colorization.combineMode,
+            originalDenoisingMode = requestOptions.language.image.colorization.denoisingMode,
             storyColorReference = storyRef,
             engineCategory = engineSettings.category,
             standardEngine = engineSettings.standardEngine,
@@ -1060,6 +1064,9 @@ class ReaderViewModel @JvmOverloads constructor(
     fun setTranslationColorCombineMode(mode: ColorCombineMode) =
         translationController.setTranslationColorCombineMode(mode)
 
+    fun setOriginalDenoisingMode(mode: OriginalDenoisingMode) =
+        translationController.setOriginalDenoisingMode(mode)
+
     fun setTranslationUpscalingEnabled(enabled: Boolean) =
         translationController.setTranslationUpscalingEnabled(enabled)
 
@@ -1221,6 +1228,7 @@ private data class TranslationColorizationSettings(
     val model: ColorizationModel,
     val upscalingEnabled: Boolean,
     val combineMode: ColorCombineMode,
+    val denoisingMode: OriginalDenoisingMode,
 )
 
 private data class TranslationImageSettings(

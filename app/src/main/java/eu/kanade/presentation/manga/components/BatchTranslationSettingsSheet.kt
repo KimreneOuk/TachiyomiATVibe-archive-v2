@@ -125,6 +125,7 @@ internal fun BatchTranslationSettingsSheet(
                                 state = state,
                                 onColorizationModelChange = actions::setTranslationColorizationModel,
                                 onColorCombineModeChange = actions::setTranslationColorCombineMode,
+                                onOriginalDenoisingModeChange = actions::setOriginalDenoisingMode,
                                 onUpscalingEnabledChange = actions::setTranslationUpscalingEnabled,
                             )
                         },
