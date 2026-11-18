@@ -131,6 +131,13 @@ class BatchTranslationCoordinatorTerminalExitsTest {
     }
 
     private fun stubEnumeration() {
+        // A downloaded chapter directory routes the pipeline through local
+        // enumeration; without it, null chapterPath on a colorize-only run
+        // takes the online-streaming path and its Injekt fallback fires.
+        every { downloadProvider.findChapterDir(any(), any(), any(), any()) } returns
+            mockk<UniFile>(relaxed = true) {
+                every { isFile } returns false
+            }
         mockkStatic(CHAPTER_PAGES_KT)
         every { getChapterPages(any(), any()) } returns singlePageStreams()
     }
@@ -221,7 +228,7 @@ class BatchTranslationCoordinatorTerminalExitsTest {
         // an active job so the coordinator call is reached, then make it explode.
         val activeJob = CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { awaitCancellation() }
         coEvery {
-            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any())
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } throws RuntimeException("provider exploded")
 
         try {
@@ -321,7 +328,7 @@ class BatchTranslationCoordinatorTerminalExitsTest {
         val postPauseExecutions = AtomicInteger(0)
         val successfulRequeues = AtomicInteger(0)
         coEvery {
-            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             if (paused.get()) postPauseExecutions.incrementAndGet()
             awaitCancellation()
@@ -375,7 +382,7 @@ class BatchTranslationCoordinatorTerminalExitsTest {
         every { sourceManager.get(any()) } returns source
         val executions = AtomicInteger(0)
         coEvery {
-            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             executions.incrementAndGet()
             awaitCancellation()
@@ -415,7 +422,7 @@ class BatchTranslationCoordinatorTerminalExitsTest {
         every { sourceManager.get(any()) } returns source
         val executions = AtomicInteger(0)
         coEvery {
-            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             executions.incrementAndGet()
             awaitCancellation()
@@ -462,7 +469,7 @@ class BatchTranslationCoordinatorTerminalExitsTest {
         }
         val executions = AtomicInteger(0)
         coEvery {
-            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            pageOperation.execute(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             executions.incrementAndGet()
             awaitCancellation()

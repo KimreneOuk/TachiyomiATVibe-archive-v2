@@ -684,6 +684,7 @@ class ReaderActivity : BaseActivity() {
                         onUpscalingEnabledChange = { viewModel.setTranslationUpscalingEnabled(it) },
                         onColorizeChapterClick = { viewModel.colorizeCurrentChapter() },
                         onColorizePageClick = { viewModel.colorizeCurrentPage() },
+                        onRecolorChapterClick = { viewModel.recolorCurrentChapter() },
                         onTranslationEngineCategoryChange = { viewModel.setTranslationEngineCategory(it) },
                         onTranslationStandardEngineChange = { viewModel.setTranslationStandardEngine(it) },
                         onTranslationDeeplApiKeyChange = { viewModel.setTranslationDeeplApiKey(it) },
@@ -693,6 +694,24 @@ class ReaderActivity : BaseActivity() {
                         onTranslationAiModelChange = { viewModel.setTranslationAiModel(it) },
                         onFetchAiModels = { viewModel.fetchAiModels() },
                         onResetChapterData = { viewModel.deleteCurrentChapterTranslation() },
+                        onStoryColorReferenceToggle = { viewModel.setStoryColorReferenceEnabled(it) },
+                        onStoryColorReferenceFromUri = { uri ->
+                            viewModel.setStoryColorReferenceFromUri(this, uri) { success, error ->
+                                if (!success && error != null) toast(error)
+                            }
+                        },
+                        onStoryColorReferenceFromChapterPage = { page ->
+                            viewModel.setStoryColorReferenceFromChapterPage(page) { success, error ->
+                                if (!success && error != null) toast(error)
+                            }
+                        },
+                        onStoryColorReferenceFromCover = {
+                            viewModel.setStoryColorReferenceFromCover { success, error ->
+                                if (!success && error != null) toast(error)
+                            }
+                        },
+                        onRemoveStoryColorReference = { viewModel.removeStoryColorReference() },
+                        chapterPages = viewModel.getCurrentChapterPages(),
                     )
                 }
                 is ReaderViewModel.Dialog.ReadingModeSelect -> {

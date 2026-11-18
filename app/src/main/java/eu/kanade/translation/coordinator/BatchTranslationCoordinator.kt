@@ -84,8 +84,11 @@ internal class BatchTranslationCoordinator(
     private val terminalSnapshotProvider: (Long) -> TranslationProgressSnapshot? = { null },
 ) : Closeable {
 
-    private val colorizeStreams: OnlineColorizePageStreamResolver
-        get() = onlineColorizeStreams ?: OnlineColorizePageStreamResolver(Injekt.get())
+    // Cached DI fallback: tests register no repository-class instances, and
+    // this must resolve once (or never) rather than on every access.
+    private val colorizeStreams: OnlineColorizePageStreamResolver by lazy {
+        onlineColorizeStreams ?: OnlineColorizePageStreamResolver(Injekt.get())
+    }
 
     companion object {
         // Bound the delete-path join: the worker may be mid-uncancellable native ONNX (OrtSession.run);
@@ -687,7 +690,7 @@ internal class BatchTranslationCoordinator(
         return true
     }
 
-    suspend fun requeueExisting(chapterId: Long, force: Boolean = false): Boolean = resumeMutex.withLock {
+    suspend fun requeueExisting(chapterId: Long, force: Boolean = false, forceRecolor: Boolean = false): Boolean = resumeMutex.withLock {
         if (_batchQueuePauseState.value == BatchQueuePauseState.REQUESTED) return@withLock false
         val translation = queueState.value.firstOrNull { it.chapter.id == chapterId }
         if (translation == null) {
@@ -714,6 +717,7 @@ internal class BatchTranslationCoordinator(
                     return@synchronized current.status == Translation.State.QUEUE
                 }
                 current.status = Translation.State.QUEUE
+                current.forceRecolor = forceRecolor
                 markQueueUnpaused()
                 _queueState.update { it.toList() }
                 persistQueue()
@@ -923,6 +927,7 @@ internal class BatchTranslationCoordinator(
         probedSourcePageCount: Int? = null,
         sourceCountKnown: Boolean = false,
         colorizeOnly: Boolean = false,
+        forceRecolor: Boolean = false,
     ): Boolean {
         val chapterId = chapter.id ?: return false
         val source = sourceManager.get(manga.source) as? HttpSource ?: return false
@@ -936,6 +941,7 @@ internal class BatchTranslationCoordinator(
                 // vice versa) must not resume the previous run's mode.
                 val modeChanged = existing.colorizeOnly != colorizeOnly
                 existing.colorizeOnly = colorizeOnly
+                existing.forceRecolor = forceRecolor
                 rearmQueuedChapter(chapterId)
                 if (modeChanged && existing.status == Translation.State.QUEUE) persistQueue()
             }
@@ -983,6 +989,7 @@ internal class BatchTranslationCoordinator(
             translation.sourceCountKnown = true
         }
         translation.colorizeOnly = colorizeOnly
+        translation.forceRecolor = forceRecolor
         return addToQueue(translation)
     }
 

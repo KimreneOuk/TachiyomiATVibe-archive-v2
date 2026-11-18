@@ -229,6 +229,7 @@ internal class TranslationRequestCoordinator(
         admissionContext: BatchAdmissionContext?,
         evictStaleQueuedEntry: Boolean,
         colorizeOnly: Boolean = false,
+        forceRecolor: Boolean = false,
     ): AdmissionResult {
         val chapterId = chapter.id ?: return AdmissionResult.QUEUE_FAILED
         if (expectedGeneration != null) {
@@ -250,6 +251,7 @@ internal class TranslationRequestCoordinator(
             admissionContext?.probedSourcePageCount,
             admissionContext?.sourceCountKnown ?: false,
             colorizeOnly,
+            forceRecolor,
         )
         return if (queued && batchCoordinator.queuedTranslationOrNull(chapterId) != null) {
             ledger.clear(chapterId)
@@ -267,6 +269,7 @@ internal class TranslationRequestCoordinator(
         admissionContext: BatchAdmissionContext? = null,
         autoStart: Boolean = true,
         colorizeOnly: Boolean = false,
+        forceRecolor: Boolean = false,
     ): AdmissionResult {
         val chapterId = chapter.id ?: return AdmissionResult.QUEUE_FAILED
         val admission = sessionCoordinator.requestBatchSession(BatchSessionIntent(setOf(chapterId)))
@@ -286,6 +289,7 @@ internal class TranslationRequestCoordinator(
                 admissionContext,
                 evictStaleQueuedEntry = true,
                 colorizeOnly,
+                forceRecolor,
             )
         }
         if (result != AdmissionResult.QUEUED) {
@@ -308,8 +312,9 @@ internal class TranslationRequestCoordinator(
         admissionContext: BatchAdmissionContext? = null,
         autoStart: Boolean = true,
         colorizeOnly: Boolean = false,
+        forceRecolor: Boolean = false,
     ): AdmissionResult {
-        val result = translateChapter(manga, chapter, expectedRequestGeneration, admissionContext, autoStart, colorizeOnly)
+        val result = translateChapter(manga, chapter, expectedRequestGeneration, admissionContext, autoStart, colorizeOnly, forceRecolor)
         if (autoStart && result == AdmissionResult.QUEUED) startBatchTranslation()
         return result
     }

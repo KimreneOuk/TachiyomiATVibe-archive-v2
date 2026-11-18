@@ -21,6 +21,7 @@ import eu.kanade.presentation.components.SEARCH_DEBOUNCE_MILLIS
 import eu.kanade.presentation.library.components.LibraryToolbarTitle
 import eu.kanade.presentation.manga.DownloadAction
 import eu.kanade.tachiyomi.data.cache.CoverCache
+import eu.kanade.translation.TranslationManager
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.track.TrackerManager
@@ -104,6 +105,7 @@ class LibraryScreenModel(
     private val getGlobalLastVisited: tachiyomi.domain.manga.interactor.GetGlobalLastVisited = Injekt.get(),
     private val getManga: tachiyomi.domain.manga.interactor.GetManga = Injekt.get(),
     private val getChapter: tachiyomi.domain.chapter.interactor.GetChapter = Injekt.get(),
+    private val translationManager: TranslationManager = Injekt.get(),
 ) : StateScreenModel<LibraryScreenModel.State>(State()) {
 
     data class GlobalResumeTarget(
@@ -560,6 +562,9 @@ class LibraryScreenModel(
                     )
                 }
                 updateManga.awaitAll(toDelete)
+                // The story identity is gone: drop its persisted color
+                // reference so removal doesn't orphan reference files.
+                mangaToDelete.forEach { translationManager.deleteStoryColorReference(it.id) }
             }
 
             if (deleteChapters) {

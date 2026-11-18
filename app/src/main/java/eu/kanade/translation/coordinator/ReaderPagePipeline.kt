@@ -1,6 +1,9 @@
 package eu.kanade.translation.coordinator
 
 import eu.kanade.translation.model.PageRejectionKind
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import eu.kanade.translation.model.PageStage
 import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.model.SinglePageOutcome
@@ -46,6 +49,9 @@ internal class ReaderPagePipeline(
             val stageReporter = { stage: TranslationStageSignal ->
                 stageBoard.publish(fullStageKey, stage, stageAttempt)
             }
+            val colorReferenceSnapshot = runCatching {
+                Injekt.get<StoryColorReferenceRepository>().getSnapshot(request.session.manga.id)
+            }.getOrNull()
             val result = processor.processSinglePage(
                 pageKey = request.pageKey,
                 streamFn = stream,
@@ -60,6 +66,7 @@ internal class ReaderPagePipeline(
                 chapterName = request.session.chapter.name,
                 priority = if (request.isManual) DevicePermitPriority.FOREGROUND else DevicePermitPriority.BACKGROUND,
                 stageReporter = stageReporter,
+                colorReferenceSnapshot = colorReferenceSnapshot,
             )
             val candidate = when (result) {
                 is TranslationProcessor.ProcessResult.Success -> result.page

@@ -9,16 +9,30 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import eu.kanade.presentation.components.SearchableConfigSelectorBox
 import eu.kanade.presentation.components.designsystem.ActionCard
 import eu.kanade.presentation.components.designsystem.DesignTokens
@@ -188,6 +202,11 @@ internal fun TranslationColorizationSection(
     onColorizationModelChange: (ColorizationModel) -> Unit,
     onColorCombineModeChange: (ColorCombineMode) -> Unit,
     onUpscalingEnabledChange: (Boolean) -> Unit,
+    onStoryColorReferenceToggle: (Boolean) -> Unit = {},
+    onChooseFromDevice: () -> Unit = {},
+    onChooseChapterPage: () -> Unit = {},
+    onUseStoryCover: () -> Unit = {},
+    onRemoveStoryColorReference: () -> Unit = {},
 ) {
     SectionHeading(title = stringResource(ATMR.strings.pref_colorization_title))
     Column(
@@ -201,6 +220,169 @@ internal fun TranslationColorizationSection(
     }
 
     UpscalingSection(state, onUpscalingEnabledChange)
+
+    StoryColorReferenceSection(
+        state = state,
+        onToggle = onStoryColorReferenceToggle,
+        onChooseFromDevice = onChooseFromDevice,
+        onChooseChapterPage = onChooseChapterPage,
+        onUseStoryCover = onUseStoryCover,
+        onRemove = onRemoveStoryColorReference,
+    )
+}
+
+@Composable
+internal fun StoryColorReferenceSection(
+    state: TranslationSettingsState,
+    onToggle: (Boolean) -> Unit,
+    onChooseFromDevice: () -> Unit,
+    onChooseChapterPage: () -> Unit,
+    onUseStoryCover: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var showSourceDialog by remember { mutableStateOf(false) }
+
+    SectionHeading(title = stringResource(ATMR.strings.story_reference_section_title))
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 20.dp)
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val hasRef = state.storyColorReference.hasReference
+        SwitchCard(
+            icon = Icons.Outlined.Palette,
+            title = stringResource(ATMR.strings.story_reference_toggle_title),
+            subtitle = if (hasRef) {
+                if (state.storyColorReference.isEnabled) {
+                    stringResource(ATMR.strings.story_reference_toggle_on)
+                } else {
+                    stringResource(ATMR.strings.story_reference_toggle_off)
+                }
+            } else {
+                stringResource(ATMR.strings.story_reference_toggle_hint)
+            },
+            checked = state.storyColorReference.isEnabled,
+            onCheckedChange = { if (hasRef) onToggle(it) else showSourceDialog = true },
+        )
+
+        if (!hasRef) {
+            ActionCard(
+                icon = Icons.Outlined.AutoAwesome,
+                title = stringResource(ATMR.strings.story_reference_empty_title),
+                subtitle = stringResource(ATMR.strings.story_reference_empty_subtitle),
+                actionLabel = stringResource(ATMR.strings.story_reference_empty_action),
+                onClick = { showSourceDialog = true },
+            )
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(DesignTokens.ShapeCard)
+                    .background(DesignTokens.CardFill)
+                    .border(1.dp, DesignTokens.CardBorder, DesignTokens.ShapeCard)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val thumb = state.storyColorReference.thumbnailFile
+                if (thumb != null && thumb.exists()) {
+                    AsyncImage(
+                        model = thumb,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(width = 44.dp, height = 58.dp)
+                            .clip(DesignTokens.ShapeBadge),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(ATMR.strings.story_reference_selected_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = DesignTokens.TextPrimary,
+                    )
+                    Text(
+                        text = stringResource(ATMR.strings.story_reference_selected_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DesignTokens.TextMuted,
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TextButton(
+                            onClick = { showSourceDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(stringResource(ATMR.strings.story_reference_replace))
+                        }
+                        TextButton(
+                            onClick = onRemove,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(stringResource(ATMR.strings.story_reference_remove), color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = stringResource(ATMR.strings.story_reference_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = DesignTokens.TextMuted,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+
+    if (showSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showSourceDialog = false },
+            title = { Text(stringResource(ATMR.strings.story_reference_dialog_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(ATMR.strings.story_reference_dialog_subtitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    SelectionTile(
+                        title = stringResource(ATMR.strings.story_reference_source_device),
+                        subtitle = stringResource(ATMR.strings.story_reference_source_device_subtitle),
+                        selected = false,
+                        onClick = {
+                            showSourceDialog = false
+                            onChooseFromDevice()
+                        },
+                    )
+                    SelectionTile(
+                        title = stringResource(ATMR.strings.story_reference_source_page),
+                        subtitle = stringResource(ATMR.strings.story_reference_source_page_subtitle),
+                        selected = false,
+                        onClick = {
+                            showSourceDialog = false
+                            onChooseChapterPage()
+                        },
+                    )
+                    SelectionTile(
+                        title = stringResource(ATMR.strings.story_reference_source_cover),
+                        subtitle = stringResource(ATMR.strings.story_reference_source_cover_subtitle),
+                        selected = false,
+                        onClick = {
+                            showSourceDialog = false
+                            onUseStoryCover()
+                        },
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showSourceDialog = false }) {
+                    Text(stringResource(tachiyomi.i18n.MR.strings.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -317,8 +499,10 @@ private fun UpscalingSection(
 /** Quick colorize actions of the translation drawer's Basic mode. */
 @Composable
 internal fun TranslationColorizeActionsSection(
+    state: TranslationSettingsState,
     onColorizePageClick: () -> Unit,
     onColorizeChapterClick: () -> Unit,
+    onRecolorChapterClick: () -> Unit = {},
 ) {
     SectionHeading(title = stringResource(ATMR.strings.pref_colorization_title))
 
@@ -340,5 +524,15 @@ internal fun TranslationColorizeActionsSection(
             subtitle = stringResource(ATMR.strings.reader_colorize_summary),
             onClick = onColorizeChapterClick,
         )
+        // Explicit recolor only makes sense once a story reference exists and
+        // is enabled — it re-runs the chapter through the current reference.
+        if (state.storyColorReference.hasReference && state.storyColorReference.isEnabled) {
+            ActionCard(
+                icon = Icons.Outlined.Refresh,
+                title = stringResource(ATMR.strings.reader_recolor_chapter),
+                subtitle = stringResource(ATMR.strings.reader_recolor_summary),
+                onClick = onRecolorChapterClick,
+            )
+        }
     }
 }

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader
 
 import android.app.Application
 import androidx.lifecycle.viewModelScope
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.database.models.toDomainChapter
 import eu.kanade.tachiyomi.data.download.DownloadManager
@@ -706,7 +707,14 @@ internal class ReaderTranslationController(
 
     internal fun colorizeCurrentChapter() = actions.colorizeCurrentChapter()
 
+    internal fun recolorCurrentChapter() = actions.colorizeCurrentChapter(forceRecolor = true)
+
     internal fun colorizeCurrentPage() = actions.colorizeCurrentPage()
+    internal fun setStoryColorReferenceFromCover(onResult: (Boolean, StringResource?) -> Unit) =
+        actions.setStoryColorReferenceFromCover(onResult)
+    internal fun setStoryColorReferenceFromChapterPage(page: ReaderPage, onResult: (Boolean, StringResource?) -> Unit) =
+        actions.setStoryColorReferenceFromChapterPage(page, onResult)
+    internal fun getChapterPages(): List<ReaderPage>? = actions.getChapterPages()
     internal fun confirmBatchReaderSwitch(request: ReaderViewModel.Dialog.BatchReaderSwitch) = actions.confirmBatchReaderSwitch(request)
     internal fun cancelSinglePageTranslation(page: ReaderPage) = actions.cancelSinglePageTranslation(page)
     internal fun stopAllTranslation() = actions.stopAllTranslation()

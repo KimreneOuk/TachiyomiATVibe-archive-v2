@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.translation.PageColorizeOutcome
+import eu.kanade.translation.colorreference.ColorReferenceAdjuster
+import eu.kanade.translation.colorreference.ColorReferenceSnapshot
 import eu.kanade.translation.engines.coloring.PageColorizationEngine
 import eu.kanade.translation.engines.inpainting.InpaintingHardwareOverride
 import eu.kanade.translation.engines.translator.NativeStallWatchdog
@@ -191,7 +193,21 @@ internal class TranslationProcessor(
         store: ChapterTranslationStore,
         companionDir: UniFile?,
         origin: PageWriteOrigin,
+        colorReferenceSnapshot: ColorReferenceSnapshot? = null,
     ): PageColorizeOutcome {
+        if (colorReferenceSnapshot != null && colorReferenceSnapshot.isEnabled && !colorReferenceSnapshot.isReferenceAvailable()) {
+            // Fail visibly in the store so every route (batch textless,
+            // reader manual, full pipeline) shows the page as failed instead
+            // of silently publishing an ungraded result.
+            val err = "Story color reference is enabled but reference could not be loaded"
+            store.updatePageFromCurrentSnapshot(pageKey, "$origin:colorize-ref-unavailable") { current ->
+                (current ?: PageTranslation(sourceFileName = pageKey)).apply {
+                    coloringStatus = StageStatus.FAILED
+                    coloringError = err
+                }
+            }
+            return PageColorizeOutcome.FAILED
+        }
         // First call builds the colorization runtime; absence is feature-absence.
         val engine = activeColorizationEngine() ?: return PageColorizeOutcome.UNAVAILABLE
         val lease = when (val acquired = store.tryAcquirePageStageLease(pageKey, PageStage.Render, origin)) {
@@ -241,6 +257,7 @@ internal class TranslationProcessor(
                         companionDir = if (upscaler != null) null else companionDir,
                         base = decoded.bitmap,
                         fromOriginal = true,
+                        colorReferenceSnapshot = colorReferenceSnapshot,
                     )
                     if (upscaler != null && coloringStatus == StageStatus.READY) {
                         try {
@@ -560,8 +577,16 @@ internal class TranslationProcessor(
         companionDir: UniFile? = null,
         base: Bitmap? = page.cleanedBitmap,
         fromOriginal: Boolean = false,
+        colorReferenceSnapshot: ColorReferenceSnapshot? = null,
     ): Bitmap? = withContext(Dispatchers.Default) {
         val input = base ?: return@withContext null
+        // Enabled-but-unavailable reference fails the page's coloring stage
+        // visibly (colorize never throws — page-level failure only).
+        if (colorReferenceSnapshot != null && colorReferenceSnapshot.isEnabled && !colorReferenceSnapshot.isReferenceAvailable()) {
+            page.coloringStatus = StageStatus.FAILED
+            page.coloringError = "Story color reference is enabled but reference could not be loaded"
+            return@withContext null
+        }
         // First call builds the engine runtime; absence is feature-absence, not
         // a page failure. A reported initializationError marks a hard-fail route
         // and must surface as FAILED instead of a silent skip.
@@ -579,7 +604,7 @@ internal class TranslationProcessor(
             return@withContext null
         }
         page.coloringStatus = StageStatus.RUNNING
-        val colored = try {
+        val rawColored = try {
             // Stable per-page seed: identical re-runs reproduce the identical
             // coloring instead of flickering between variations.
             val seed = stableSeed(pageKey)
@@ -598,10 +623,36 @@ internal class TranslationProcessor(
             return@withContext null
         }
 
+        // Grading is cosmetic post-processing: on failure keep the raw model
+        // output and stamp it as ungraded rather than failing the page.
+        // colorize() returns non-null; failures throw and are handled above.
+        var colored: Bitmap = rawColored
+        var referenceApplied = false
+        if (colorReferenceSnapshot != null && colorReferenceSnapshot.isEnabled) {
+            try {
+                colored = ColorReferenceAdjuster.apply(rawColored, colorReferenceSnapshot)
+                referenceApplied = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                logcat(LogPriority.WARN, t) { "TranslationProcessor: reference grading failed for page $pageKey" }
+            }
+        }
+
         page.coloredBitmap = colored
         page.coloringStatus = StageStatus.READY
         page.coloringError = null
-        page.coloringStamp = coloringEngine.currentStamp()
+        val baseStamp = coloringEngine.currentStamp()
+        page.coloringStamp = if (
+            referenceApplied &&
+            colorReferenceSnapshot != null &&
+            colorReferenceSnapshot.isReferenceAvailable() &&
+            colorReferenceSnapshot.contentHash != null
+        ) {
+            "$baseStamp:ref-v${colorReferenceSnapshot.algorithmVersion}-${colorReferenceSnapshot.contentHash}"
+        } else {
+            baseStamp
+        }
         page.coloredFromOriginal = fromOriginal
         val publicationStarted = System.nanoTime()
         try {
@@ -757,7 +808,15 @@ internal class TranslationProcessor(
         chapterName: String = "",
         priority: DevicePermitPriority = DevicePermitPriority.BACKGROUND,
         stageReporter: ((TranslationStageSignal) -> Unit)? = null,
+        colorReferenceSnapshot: ColorReferenceSnapshot? = null,
     ): ProcessResult {
+        if (colorReferenceSnapshot != null && colorReferenceSnapshot.isEnabled && !colorReferenceSnapshot.isReferenceAvailable()) {
+            return ProcessResult.Failure(
+                pageKey = pageKey,
+                failedStage = "COLOR",
+                errorMessage = "Story color reference is enabled but reference could not be loaded",
+            )
+        }
         var sourceBitmap: Bitmap? = null
         var page: PageTranslation? = null
         var activeStage = "DECODE"
@@ -817,6 +876,7 @@ internal class TranslationProcessor(
                             companionDir = if (upscaler != null) null else companionDir,
                             base = decoded.bitmap,
                             fromOriginal = true,
+                            colorReferenceSnapshot = colorReferenceSnapshot,
                         )
                         if (upscaler != null && page!!.coloringStatus == StageStatus.READY) {
                             activeStage = "UPSCALE"
@@ -865,7 +925,13 @@ internal class TranslationProcessor(
                     if (page!!.cleanedBitmap != null) {
                         activeStage = "COLOR"
                         stageReporter?.invoke(TranslationStageSignal.COLORING)
-                        colorize(pageKey, page!!, coloringEngine, if (upscaler != null) null else companionDir)
+                        colorize(
+                            pageKey = pageKey,
+                            page = page!!,
+                            coloringEngine = coloringEngine,
+                            companionDir = if (upscaler != null) null else companionDir,
+                            colorReferenceSnapshot = colorReferenceSnapshot,
+                        )
                     } else {
                         page!!.coloringStatus = StageStatus.SKIPPED
                     }

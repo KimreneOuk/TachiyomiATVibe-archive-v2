@@ -16,6 +16,37 @@
     <string name="reader_colorize_queued">Colorization queued for this chapter</string>
     <string name="reader_colorize_queue_failed">Couldn\'t queue colorization for this chapter</string>
     <string name="reader_colorize_chapter_failed">Couldn\'t colorize this chapter</string>
+    <string name="reader_recolor_chapter">Recolor chapter</string>
+    <string name="reader_recolor_summary">Recolor this chapter\'s pages using the current story reference</string>
+    <string name="story_reference_section_title">Story reference</string>
+    <string name="story_reference_toggle_title">Use reference colors</string>
+    <string name="story_reference_toggle_on">On for this story</string>
+    <string name="story_reference_toggle_off">Off for this story</string>
+    <string name="story_reference_toggle_hint">Choose a reference to enable</string>
+    <string name="story_reference_empty_title">No reference selected</string>
+    <string name="story_reference_empty_subtitle">Choose a colored cover or image for this story.</string>
+    <string name="story_reference_empty_action">Choose image</string>
+    <string name="story_reference_selected_title">Reference selected</string>
+    <string name="story_reference_selected_subtitle">Shared across this story\'s chapters</string>
+    <string name="story_reference_replace">Replace image</string>
+    <string name="story_reference_remove">Remove</string>
+    <string name="story_reference_note">Changes apply when pages are next colorized. Existing colored pages stay as they are.</string>
+    <string name="story_reference_dialog_title">Choose reference</string>
+    <string name="story_reference_dialog_subtitle">One image for this story\'s chapters:</string>
+    <string name="story_reference_source_device">Upload an image</string>
+    <string name="story_reference_source_device_subtitle">Choose from your device</string>
+    <string name="story_reference_source_page">Choose a chapter page</string>
+    <string name="story_reference_source_page_subtitle">Select a page in this chapter</string>
+    <string name="story_reference_page_picker_empty">No pages available in this chapter.</string>
+    <string name="story_reference_page_item">Page %1$d</string>
+    <string name="story_reference_source_cover">Use story cover</string>
+    <string name="story_reference_source_cover_subtitle">Choose the story\'s thumbnail</string>
+    <string name="story_reference_error_no_manga">No manga loaded</string>
+    <string name="story_reference_error_source_unavailable">Source not available</string>
+    <string name="story_reference_error_open_image">Couldn\'t open the selected image</string>
+    <string name="story_reference_error_load_cover">Couldn\'t load the story cover</string>
+    <string name="story_reference_error_load_page">Couldn\'t load the chapter page image</string>
+    <string name="story_reference_error_set_failed">Couldn\'t set the story reference</string>
     <string name="translation_reset_chapter">Reset Chapter</string>
     <string name="translation_reset_chapter_summary">Deletes all OCR data, cleaned images and translations for this chapter. Manual edits are removed.</string>
     <string name="manga_translation_progress">Translation progress</string>
@@ -69,6 +100,8 @@
     <string name="pref_color_combine_vibrant">Vibrant</string>
     <string name="pref_color_combine_vibrant_summary">Current punchy prototype look</string>
     <string name="pref_colorization_model_mcv2_npu_w8a8">Manga Colorization v2 (SM8650 NPU W8A8 — 576×832, cross-series calibrated, experimental; fails without fallback)</string>
+    <string name="pref_colorization_model_mcv2_gpu_fp16">Manga Colorization v2 (GPU, FP16 weights, 576×896, experimental)</string>
+    <string name="pref_colorization_model_mcv2_gpu_fp16_832">Manga Colorization v2 (GPU, FP16 weights, 576×832, experimental)</string>
     <string name="pref_colorization_model_manga_light_hybrid">Manga Light (SAM NPU + GPU, 512×512 experimental)</string>
     <string name="pref_upscaling_title">Upscaling</string>
     <string name="pref_upscaling_enabled">QuickSRNetLarge upscaling</string>
@@ -385,4 +418,5 @@
     <string name="reader_activity_idle_hint">Translate or colorize chapters to monitor live progress here</string>
     <string name="reader_activity_colorize_chapter">Colorize chapter</string>
     <string name="reader_activity_translate_chapter">Translate chapter</string>
+
 </resources>

@@ -6,6 +6,7 @@ import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.lang.compareToCaseInsensitiveNaturalOrder
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
 import eu.kanade.translation.model.BatchExecutionMode
 import eu.kanade.translation.model.Translation
 import eu.kanade.translation.persistence.ChapterTranslationStore
@@ -20,6 +21,8 @@ import logcat.LogPriority
 import mihon.core.archive.archiveReader
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.io.InputStream
@@ -37,6 +40,11 @@ internal class BatchChapterPipeline(
     private val activeChapters: MutableSet<String>,
     private val beginTranslationRun: (Translation) -> Boolean,
 ) {
+    // Lazy + nullable: test constructions of the coordinator runtime register
+    // no repository, and eager resolution would break every one of them.
+    private val storyColorReferenceRepository: StoryColorReferenceRepository? by lazy {
+        runCatching { Injekt.get<StoryColorReferenceRepository>() }.getOrNull()
+    }
 
     suspend fun execute(
         translation: Translation,
@@ -219,6 +227,14 @@ internal class BatchChapterPipeline(
                                 prepareStream = onlineColorizePlan?.let { plan ->
                                     { pageKey -> plan.prepareStream(pageKey) }
                                 },
+                                // One-shot consume: forceRecolor applies to the
+                                // run that was explicitly requested. Clearing it
+                                // at run start means an interrupted-run resume
+                                // proceeds with normal reuse semantics.
+                                forceRecolor = translation.forceRecolor.also { flag ->
+                                    if (flag) translation.forceRecolor = false
+                                },
+                                colorReferenceSnapshotProvider = { storyColorReferenceRepository?.getSnapshot(translation.manga.id) },
                             )
                             if (result.error != null) {
                                 logcat(LogPriority.ERROR) {

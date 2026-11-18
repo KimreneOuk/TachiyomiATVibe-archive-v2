@@ -1,6 +1,7 @@
 package eu.kanade.translation.processing
 
 import com.hippo.unifile.UniFile
+import eu.kanade.translation.PageColorizeOutcome
 import eu.kanade.translation.coordinator.BatchTranslationCoordinator
 import eu.kanade.translation.engines.coloring.PageColorizationEngine
 import eu.kanade.translation.engines.translator.TextTranslator
@@ -11,6 +12,7 @@ import eu.kanade.translation.model.detachedCopy
 import eu.kanade.translation.model.isColorizeOnlyComplete
 import eu.kanade.translation.model.isTextlessTerminal
 import eu.kanade.translation.model.toDraft
+import eu.kanade.translation.colorreference.ColorReferenceSnapshot
 import eu.kanade.translation.persistence.ChapterTranslationStore
 import eu.kanade.translation.persistence.PageWriteOrigin
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +68,8 @@ internal class ChapterBatchExecutor(
         onProgress: ((Progress) -> Unit)? = null,
         colorizeOnly: Boolean = false,
         prepareStream: (suspend (String) -> Unit)? = null,
+        forceRecolor: Boolean = false,
+        colorReferenceSnapshotProvider: (() -> ColorReferenceSnapshot?)? = null,
     ): Progress = if (colorizeOnly) {
         executeColorizeOnly(
             chapterKey = chapterKey,
@@ -75,6 +79,8 @@ internal class ChapterBatchExecutor(
             companionDir = companionDir,
             onProgress = onProgress,
             prepareStream = prepareStream,
+            forceRecolor = forceRecolor,
+            colorReferenceSnapshotProvider = colorReferenceSnapshotProvider,
         )
     } else {
         executeBatch(
@@ -86,6 +92,7 @@ internal class ChapterBatchExecutor(
             inpaintingEnabled = inpaintingEnabled,
             chunkSize = chunkSize,
             onProgress = onProgress,
+            colorReferenceSnapshotProvider = colorReferenceSnapshotProvider,
         )
     }
 
@@ -114,6 +121,8 @@ internal class ChapterBatchExecutor(
         companionDir: UniFile?,
         onProgress: ((Progress) -> Unit)?,
         prepareStream: (suspend (String) -> Unit)? = null,
+        forceRecolor: Boolean = false,
+        colorReferenceSnapshotProvider: (() -> ColorReferenceSnapshot?)? = null,
     ): Progress {
         val totalCount = orderedPageKeys.size
         val currentState = store.state.value
@@ -151,6 +160,15 @@ internal class ChapterBatchExecutor(
             return failProgress
         }
 
+        val initialSnapshot = colorReferenceSnapshotProvider?.invoke()
+        if (initialSnapshot != null && initialSnapshot.isEnabled && !initialSnapshot.isReferenceAvailable()) {
+            val err = "Story color reference is enabled but reference could not be loaded"
+            logcat(LogPriority.ERROR) { "BatchColorizeOnly: $err for chapter $chapterKey" }
+            val failProgress = Progress(chapterKey, completedCount, totalCount, "FAILED", isFinished = true, error = err)
+            publish(failProgress, onProgress)
+            return failProgress
+        }
+
         // The 30s heartbeat runs beside the page loop, so a hung fetch, a hung
         // model run, or a dead process is visible as heartbeats that stop
         // advancing — with the page key and stage it stopped on.
@@ -176,6 +194,8 @@ internal class ChapterBatchExecutor(
                     prepareStream = prepareStream,
                     coloringEngine = coloringEngine,
                     telemetry = telemetry,
+                    forceRecolor = forceRecolor,
+                    colorReferenceSnapshotProvider = colorReferenceSnapshotProvider,
                 )
             } finally {
                 ticker.cancel()
@@ -198,6 +218,8 @@ internal class ChapterBatchExecutor(
         prepareStream: (suspend (String) -> Unit)?,
         coloringEngine: PageColorizationEngine,
         telemetry: ColorizeRunTelemetry,
+        forceRecolor: Boolean = false,
+        colorReferenceSnapshotProvider: (() -> ColorReferenceSnapshot?)? = null,
     ): Progress {
         var completedCount = initialCompleted
         var failedCount = 0
@@ -259,6 +281,7 @@ internal class ChapterBatchExecutor(
             // must match the bytes just decoded; otherwise recolor.
             val prior = store.state.value[pageKey]
             if (
+                !forceRecolor &&
                 prior?.isColorizeOnlyComplete == true &&
                 prior.sourceFingerprint != null &&
                 prior.sourceFingerprint == decoded.sourceFingerprint
@@ -292,6 +315,7 @@ internal class ChapterBatchExecutor(
                     originalImageFallback = true
                     updatedAt = System.currentTimeMillis()
                     val upscaler = processor.activeUpscalingEngine()
+                    val pageSnapshot = colorReferenceSnapshotProvider?.invoke()
                     processor.colorize(
                         pageKey = pageKey,
                         page = this,
@@ -299,6 +323,7 @@ internal class ChapterBatchExecutor(
                         companionDir = if (upscaler != null) null else companionDir,
                         base = decoded.bitmap,
                         fromOriginal = true,
+                        colorReferenceSnapshot = pageSnapshot,
                     )
                     if (upscaler != null && coloringStatus == StageStatus.READY) {
                         try {
@@ -372,6 +397,7 @@ internal class ChapterBatchExecutor(
         inpaintingEnabled: Boolean,
         chunkSize: Int,
         onProgress: ((Progress) -> Unit)?,
+        colorReferenceSnapshotProvider: (() -> ColorReferenceSnapshot?)? = null,
     ): Progress {
         val totalCount = orderedPageKeys.size
         val currentState = store.state.value
@@ -452,13 +478,26 @@ internal class ChapterBatchExecutor(
                     if (processor.activeColorizationEngine() != null &&
                         priorColoredFingerprint != page.sourceFingerprint
                     ) {
-                        processor.colorizeOriginalPage(
+                        val textlessSnapshot = colorReferenceSnapshotProvider?.invoke()
+                        val outcome = processor.colorizeOriginalPage(
                             pageKey = pageKey,
                             streamFn = { streamProvider(pageKey) },
                             store = store,
                             companionDir = companionDir,
                             origin = PageWriteOrigin.BATCH,
+                            colorReferenceSnapshot = textlessSnapshot,
                         )
+                        // One failure contract: a FAILED colorize (e.g. the
+                        // enabled-but-unavailable reference gate) is a visible
+                        // page failure — the store already carries the error,
+                        // so it must not be counted as completed here.
+                        if (outcome == PageColorizeOutcome.FAILED) {
+                            logcat(LogPriority.WARN) {
+                                "BatchTextless: colorize failed for page $pageKey in chapter $chapterKey"
+                            }
+                            publish(Progress(chapterKey, completedCount, totalCount, "OCR_BARRIER"), onProgress)
+                            continue
+                        }
                     }
                     completedCount++
                     publish(Progress(chapterKey, completedCount, totalCount, "OCR_BARRIER"), onProgress)
@@ -521,11 +560,13 @@ internal class ChapterBatchExecutor(
                     val coloringEngine = processor.activeColorizationEngine()
                     val upscaler = processor.activeUpscalingEngine()
                     if (coloringEngine != null && translatedPage.cleanedBitmap != null) {
+                        val inpaintSnapshot = colorReferenceSnapshotProvider?.invoke()
                         processor.colorize(
                             pageKey = pageKey,
                             page = translatedPage,
                             coloringEngine = coloringEngine,
                             companionDir = if (upscaler != null) null else companionDir,
+                            colorReferenceSnapshot = inpaintSnapshot,
                         )
                     } else if (coloringEngine != null) {
                         translatedPage.coloringStatus = StageStatus.SKIPPED

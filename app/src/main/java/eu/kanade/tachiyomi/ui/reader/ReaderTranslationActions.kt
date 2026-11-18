@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader
 
 import android.app.Application
 import androidx.lifecycle.viewModelScope
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.data.database.models.toDomainChapter
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -10,6 +11,8 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.util.lang.toTimestampString
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.translation.PageColorizeOutcome
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
+import eu.kanade.translation.colorreference.StoryCoverResolver
 import eu.kanade.translation.coordinator.BatchQueueResumeResult
 import eu.kanade.translation.coordinator.ReaderPageWork
 import eu.kanade.translation.coordinator.ReaderSessionToken
@@ -677,7 +680,7 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
         }
     }
 
-    internal fun colorizeCurrentChapter() {
+    internal fun colorizeCurrentChapter(forceRecolor: Boolean = false) {
         val manga = manga ?: return
         val currentChapter = getCurrentChapter() ?: return
         val domainChapter = currentChapter.chapter.toDomainChapter() ?: return
@@ -704,13 +707,71 @@ internal class ReaderTranslationActions(private val controller: ReaderTranslatio
                 ready = ready,
                 translationJobActive = translationJobActive,
             ) {
-                translationManager.colorizeChapterWithSessionSwitch(manga, domainChapter)
+                translationManager.colorizeChapterWithSessionSwitch(manga, domainChapter, forceRecolor = forceRecolor)
             }
             withUIContext {
                 Injekt.get<Application>().toast(colorizeOutcomeMessage(outcome))
             }
         }
     }
+
+    internal fun setStoryColorReferenceFromCover(onResult: (Boolean, StringResource?) -> Unit) {
+        val manga = manga ?: run {
+            onResult(false, ATMR.strings.story_reference_error_no_manga)
+            return
+        }
+        viewModelScope.launchIO {
+            try {
+                val stream = StoryCoverResolver.resolveCoverStream(manga)
+                if (stream == null) {
+                    withUIContext { onResult(false, ATMR.strings.story_reference_error_load_cover) }
+                    return@launchIO
+                }
+                val repo = Injekt.get<StoryColorReferenceRepository>()
+                val result = repo.setReferenceImage(manga.id, stream, enabled = true)
+                result.fold(
+                    onSuccess = { withUIContext { onResult(true, null) } },
+                    onFailure = { withUIContext { onResult(false, ATMR.strings.story_reference_error_set_failed) } },
+                )
+            } catch (t: Throwable) {
+                logcat(LogPriority.WARN, t) { "ReaderTranslationActions: failed to set reference from cover" }
+                withUIContext { onResult(false, ATMR.strings.story_reference_error_set_failed) }
+            }
+        }
+    }
+
+    internal fun setStoryColorReferenceFromChapterPage(page: ReaderPage, onResult: (Boolean, StringResource?) -> Unit) {
+        val manga = manga ?: run {
+            onResult(false, ATMR.strings.story_reference_error_no_manga)
+            return
+        }
+        val source = sourceManager.get(manga.source) as? HttpSource
+        if (source == null) {
+            onResult(false, ATMR.strings.story_reference_error_source_unavailable)
+            return
+        }
+        viewModelScope.launchIO {
+            try {
+                val streamFn = resolveColorizePageStreamFn(page, source)
+                if (streamFn == null) {
+                    withUIContext { onResult(false, ATMR.strings.story_reference_error_load_page) }
+                    return@launchIO
+                }
+                val stream = streamFn()
+                val repo = Injekt.get<StoryColorReferenceRepository>()
+                val result = repo.setReferenceImage(manga.id, stream, enabled = true)
+                result.fold(
+                    onSuccess = { withUIContext { onResult(true, null) } },
+                    onFailure = { withUIContext { onResult(false, ATMR.strings.story_reference_error_set_failed) } },
+                )
+            } catch (t: Throwable) {
+                logcat(LogPriority.WARN, t) { "ReaderTranslationActions: failed to set reference from chapter page" }
+                withUIContext { onResult(false, ATMR.strings.story_reference_error_set_failed) }
+            }
+        }
+    }
+
+    internal fun getChapterPages(): List<ReaderPage>? = getCurrentChapter()?.pages
 
     private fun colorizeOutcomeMessage(outcome: ReaderColorizeOutcome) = when (outcome) {
         ReaderColorizeOutcome.UNAVAILABLE -> ATMR.strings.manga_colorize_unavailable

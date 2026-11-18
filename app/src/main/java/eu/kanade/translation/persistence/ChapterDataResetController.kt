@@ -10,6 +10,9 @@ import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 /**
  * Owns chapter and page deletion/reset operations. Deletion first cancels and joins page and
@@ -44,7 +47,16 @@ internal class ChapterDataResetController(
     ) -> ChapterTranslationStore?,
     /** Injectable so tests can drive the deletion plan over an in-memory io tree. */
     private val chapterIoFactory: (UniFile) -> ChapterDocumentIo = ::UniFileChapterDocumentIo,
+    private val clearStoryColorReferenceFn: ((Long) -> Unit)? = null,
 ) {
+
+    /** Cleans up persistent story color reference files when a story is removed. */
+    fun clearStoryColorReference(mangaId: Long) {
+        clearStoryColorReferenceFn?.invoke(mangaId) ?: runCatching {
+            Injekt.get<StoryColorReferenceRepository>()
+                .clearAllForManga(mangaId)
+        }
+    }
 
     suspend fun deleteTranslation(chapter: Chapter, manga: Manga, source: Source): ChapterResetReceipt {
         val chapterId = chapter.id ?: return ChapterResetReceipt.COMPLETE

@@ -29,6 +29,9 @@ data class Translation(
      */
     var colorizeOnly: Boolean = false
 
+    /** Explicit recolor request bypassing the colorize-only completion reuse gate. */
+    var forceRecolor: Boolean = false
+
     /**
      * The queue paused this run because the require-charging preference is on
      * and the device is unplugged. Surfaces the true pause reason instead of

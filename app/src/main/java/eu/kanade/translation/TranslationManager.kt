@@ -6,6 +6,9 @@ import androidx.annotation.VisibleForTesting
 import eu.kanade.tachiyomi.data.translation.TranslationForegroundService
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import eu.kanade.translation.coordinator.BatchAdmissionContext
 import eu.kanade.translation.coordinator.BatchQueuePauseState
 import eu.kanade.translation.coordinator.BatchQueueResumeResult
@@ -433,6 +436,7 @@ class TranslationManager private constructor(
         chapter: Chapter,
         expectedRequestGeneration: Long? = null,
         autoStart: Boolean = true,
+        forceRecolor: Boolean = false,
     ): Boolean {
         if (!translationPreferences.translationColorizationEnabled().get()) {
             translationPreferences.translationColorizationEnabled().set(true)
@@ -445,6 +449,7 @@ class TranslationManager private constructor(
             admissionContext = null,
             autoStart = autoStart,
             colorizeOnly = true,
+            forceRecolor = forceRecolor,
         )
         return result == eu.kanade.translation.coordinator.TranslationRequestCoordinator.AdmissionResult.QUEUED
     }
@@ -455,6 +460,7 @@ class TranslationManager private constructor(
         chapter: Chapter,
         expectedRequestGeneration: Long? = null,
         autoStart: Boolean = true,
+        forceRecolor: Boolean = false,
     ): Boolean {
         if (!translationPreferences.translationColorizationEnabled().get()) {
             translationPreferences.translationColorizationEnabled().set(true)
@@ -464,7 +470,7 @@ class TranslationManager private constructor(
         return when (readerCoordinator.switchToBatchSession(setOf(chapterId))) {
             is SessionAdmission.Admitted,
             is SessionAdmission.Switched,
-            -> colorizeChapter(manga, chapter, expectedRequestGeneration, autoStart).also { admitted ->
+            -> colorizeChapter(manga, chapter, expectedRequestGeneration, autoStart, forceRecolor).also { admitted ->
                 if (!admitted) requestCoordinator.finishBatchSessionIfQueueIdle()
             }
 
@@ -495,6 +501,12 @@ class TranslationManager private constructor(
         }
         if (!isColorizationReady()) return PageColorizeOutcome.UNAVAILABLE
         val chapterId = chapter.id ?: return PageColorizeOutcome.FAILED
+
+        val storyRefRepo = runCatching { Injekt.get<StoryColorReferenceRepository>() }.getOrNull()
+        val snapshot = storyRefRepo?.getSnapshot(manga.id)
+        if (snapshot != null && snapshot.isEnabled && !snapshot.isReferenceAvailable()) {
+            return PageColorizeOutcome.FAILED
+        }
         val store = openOrCreateActiveChapterTranslationStoreSuspend(
             chapterId = chapterId,
             chapterName = chapter.name,
@@ -512,6 +524,7 @@ class TranslationManager private constructor(
                 store = store,
                 companionDir = processor.companionDirectory(manga, chapter, source),
                 origin = origin,
+                colorReferenceSnapshot = snapshot,
             )
         }
     }
@@ -686,6 +699,9 @@ class TranslationManager private constructor(
         coloredBitmapHandoff?.clear()
         return chapterDataReset.deleteTranslation(chapter, manga, source)
     }
+
+    fun deleteStoryColorReference(mangaId: Long) =
+        chapterDataReset.clearStoryColorReference(mangaId)
 
     /**
      * Removes and returns the handed-off colored bitmap for [imageName]

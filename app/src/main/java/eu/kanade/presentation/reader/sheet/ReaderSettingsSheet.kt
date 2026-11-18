@@ -1,6 +1,9 @@
 package eu.kanade.presentation.reader.sheet
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -9,6 +12,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -16,11 +20,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,9 +45,11 @@ import androidx.compose.ui.window.DialogWindowProvider
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.designsystem.DesignTokens
 import eu.kanade.presentation.components.designsystem.SegmentedPillBar
+import eu.kanade.presentation.components.designsystem.SelectionTile
 import eu.kanade.presentation.components.designsystem.SheetHeader
 import eu.kanade.tachiyomi.ui.reader.ReaderSettingsDestination
 import eu.kanade.tachiyomi.ui.reader.TranslationSettingsState
+import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import tachiyomi.domain.translation.AiEngine
 import tachiyomi.domain.translation.ColorCombineMode
@@ -77,6 +88,7 @@ fun ReaderSettingsSheet(
     onUpscalingEnabledChange: (Boolean) -> Unit,
     onColorizeChapterClick: () -> Unit,
     onColorizePageClick: () -> Unit,
+    onRecolorChapterClick: () -> Unit = {},
     onTranslationEngineCategoryChange: (TranslationEngineCategory) -> Unit,
     onTranslationStandardEngineChange: (StandardEngine) -> Unit,
     onTranslationDeeplApiKeyChange: (String) -> Unit,
@@ -86,8 +98,20 @@ fun ReaderSettingsSheet(
     onTranslationAiModelChange: (String) -> Unit,
     onFetchAiModels: () -> Unit,
     onResetChapterData: () -> Unit,
+    onStoryColorReferenceToggle: (Boolean) -> Unit = {},
+    onStoryColorReferenceFromUri: (Uri) -> Unit = {},
+    onStoryColorReferenceFromChapterPage: (ReaderPage) -> Unit = {},
+    onStoryColorReferenceFromCover: () -> Unit = {},
+    onRemoveStoryColorReference: () -> Unit = {},
+    chapterPages: List<ReaderPage> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
+    val getContent = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            onStoryColorReferenceFromUri(uri)
+        }
+    }
+    var showChapterPageDialog by remember { mutableStateOf(false) }
     var isInteractingWithVisuals by remember { mutableStateOf(false) }
 
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
@@ -179,8 +203,10 @@ fun ReaderSettingsSheet(
                                     onAutoTranslateChange = onAutoTranslateChange,
                                 )
                                 TranslationColorizeActionsSection(
+                                    state = translationState,
                                     onColorizePageClick = onColorizePageClick,
                                     onColorizeChapterClick = onColorizeChapterClick,
+                                    onRecolorChapterClick = onRecolorChapterClick,
                                 )
                                 TranslationLanguageSection(
                                     state = translationState,
@@ -220,6 +246,11 @@ fun ReaderSettingsSheet(
                                     onColorizationModelChange = onColorizationModelChange,
                                     onColorCombineModeChange = onColorCombineModeChange,
                                     onUpscalingEnabledChange = onUpscalingEnabledChange,
+                                    onStoryColorReferenceToggle = onStoryColorReferenceToggle,
+                                    onChooseFromDevice = { getContent.launch("image/*") },
+                                    onChooseChapterPage = { showChapterPageDialog = true },
+                                    onUseStoryCover = onStoryColorReferenceFromCover,
+                                    onRemoveStoryColorReference = onRemoveStoryColorReference,
                                 )
                                 TranslationResetSection(onResetChapterData = onResetChapterData)
                             },
@@ -240,6 +271,41 @@ fun ReaderSettingsSheet(
                 }
             }
         }
+    }
+
+    if (showChapterPageDialog) {
+        AlertDialog(
+            onDismissRequest = { showChapterPageDialog = false },
+            title = { Text(stringResource(ATMR.strings.story_reference_source_page)) },
+            text = {
+                if (chapterPages.isEmpty()) {
+                    Text(stringResource(ATMR.strings.story_reference_page_picker_empty))
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(chapterPages) { page ->
+                            SelectionTile(
+                                title = stringResource(ATMR.strings.story_reference_page_item, page.index + 1),
+                                subtitle = null,
+                                selected = false,
+                                onClick = {
+                                    showChapterPageDialog = false
+                                    onStoryColorReferenceFromChapterPage(page)
+                                },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showChapterPageDialog = false }) {
+                    Text(stringResource(tachiyomi.i18n.MR.strings.action_cancel))
+                }
+            },
+        )
     }
 }
 

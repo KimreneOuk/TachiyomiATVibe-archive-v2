@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader
 
 import androidx.compose.runtime.Immutable
 import eu.kanade.presentation.more.settings.widget.AiModelListState
+import eu.kanade.translation.colorreference.StoryColorReferenceState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
@@ -34,6 +35,7 @@ data class TranslationSettingsState(
     val colorizationModel: ColorizationModel = ColorizationModel.DEFAULT,
     val colorCombineMode: ColorCombineMode = ColorCombineMode.DEFAULT,
     val upscalingEnabled: Boolean = false,
+    val storyColorReference: StoryColorReferenceState = StoryColorReferenceState(),
     val engineCategory: TranslationEngineCategory = TranslationEngineCategory.STANDARD,
     val standardEngine: StandardEngine = StandardEngine.GOOGLE,
     val deeplApiKey: String = "",

@@ -8,6 +8,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.chapter.model.toDbChapter
 import eu.kanade.domain.manga.interactor.SetMangaViewerFlags
@@ -28,6 +29,10 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
+import eu.kanade.translation.colorreference.StoryColorReferenceState
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.util.chapter.filterDownloaded
@@ -71,6 +76,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.lang.withUIContext
+import tachiyomi.core.common.util.system.logcat
+import logcat.LogPriority
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.chapter.service.getChapterSort
@@ -264,13 +272,35 @@ class ReaderViewModel @JvmOverloads constructor(
             )
         }
 
+    private val storyColorReferenceRepository: StoryColorReferenceRepository by lazy { Injekt.get() }
+
+    private val storyColorReferenceFlow: kotlinx.coroutines.flow.Flow<StoryColorReferenceState> = state
+        .map { it.manga?.id }
+        .distinctUntilChanged()
+        .flatMapLatest { mangaId ->
+            if (mangaId != null) {
+                storyColorReferenceRepository.observe(mangaId)
+            } else {
+                flowOf(StoryColorReferenceState())
+            }
+        }
+
     val translationSettingsState: kotlinx.coroutines.flow.StateFlow<TranslationSettingsState> = combine(
         translationRequestOptionsFlow,
         translationEngineStateFlow,
         ocrModelFlow,
         aiEnginePreferencesFlow,
         readerDisplayFlagsFlow,
-    ) { requestOptions, engineSettings, ocrInfo, aiSubPrefs, readerFlags ->
+        storyColorReferenceFlow,
+    ) { flows: Array<Any?> ->
+        val requestOptions = flows[0] as TranslationRequestOptions
+        val engineSettings = flows[1] as TranslationEngineSettings
+        @Suppress("UNCHECKED_CAST")
+        val ocrInfo = flows[2] as Pair<OcrModel, kotlinx.collections.immutable.ImmutableMap<OcrModel, String>>
+        val aiSubPrefs = flows[3] as AiSubPrefs
+        val readerFlags = flows[4] as ReaderDisplayFlags
+        val storyRef = flows[5] as StoryColorReferenceState
+
         TranslationSettingsState(
             enabled = requestOptions.core.enabled,
             autoTranslate = requestOptions.core.autoTranslate,
@@ -294,6 +324,7 @@ class ReaderViewModel @JvmOverloads constructor(
             colorizationModel = requestOptions.language.image.colorization.model,
             upscalingEnabled = requestOptions.language.image.colorization.upscalingEnabled,
             colorCombineMode = requestOptions.language.image.colorization.combineMode,
+            storyColorReference = storyRef,
             engineCategory = engineSettings.category,
             standardEngine = engineSettings.standardEngine,
             deeplApiKey = engineSettings.deeplApiKey,
@@ -1034,7 +1065,56 @@ class ReaderViewModel @JvmOverloads constructor(
 
     fun colorizeCurrentChapter() = translationController.colorizeCurrentChapter()
 
+    fun recolorCurrentChapter() = translationController.recolorCurrentChapter()
+
     fun colorizeCurrentPage() = translationController.colorizeCurrentPage()
+
+    fun setStoryColorReferenceEnabled(enabled: Boolean) {
+        val mangaId = state.value.manga?.id ?: return
+        viewModelScope.launchIO {
+            storyColorReferenceRepository.setEnabled(mangaId, enabled)
+        }
+    }
+
+    fun setStoryColorReferenceFromUri(context: android.content.Context, uri: Uri, onResult: (Boolean, StringResource?) -> Unit) {
+        val mangaId = state.value.manga?.id ?: run {
+            onResult(false, ATMR.strings.story_reference_error_no_manga)
+            return
+        }
+        viewModelScope.launchIO {
+            try {
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream == null) {
+                    withUIContext { onResult(false, ATMR.strings.story_reference_error_open_image) }
+                    return@launchIO
+                }
+                val result = storyColorReferenceRepository.setReferenceImage(mangaId, stream, enabled = true)
+                result.fold(
+                    onSuccess = { withUIContext { onResult(true, null) } },
+                    onFailure = { withUIContext { onResult(false, ATMR.strings.story_reference_error_set_failed) } },
+                )
+            } catch (t: Throwable) {
+                logcat(LogPriority.WARN, t) { "ReaderViewModel: failed to set story color reference from uri" }
+                withUIContext { onResult(false, ATMR.strings.story_reference_error_set_failed) }
+            }
+        }
+    }
+
+    fun setStoryColorReferenceFromCover(onResult: (Boolean, StringResource?) -> Unit) =
+        translationController.setStoryColorReferenceFromCover(onResult)
+
+    fun setStoryColorReferenceFromChapterPage(page: ReaderPage, onResult: (Boolean, StringResource?) -> Unit) =
+        translationController.setStoryColorReferenceFromChapterPage(page, onResult)
+
+    fun removeStoryColorReference() {
+        val mangaId = state.value.manga?.id ?: return
+        viewModelScope.launchIO {
+            storyColorReferenceRepository.removeReference(mangaId)
+        }
+    }
+
+    fun getCurrentChapterPages(): List<ReaderPage> =
+        translationController.getChapterPages() ?: emptyList()
 
     fun setTranslationInpaintingMode(mode: String) =
         translationController.setTranslationInpaintingMode(mode)

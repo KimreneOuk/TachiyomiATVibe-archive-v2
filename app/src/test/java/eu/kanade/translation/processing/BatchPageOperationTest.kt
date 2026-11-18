@@ -1,6 +1,7 @@
 package eu.kanade.translation.processing
 
 import android.graphics.Bitmap
+import eu.kanade.translation.colorreference.ColorReferenceSnapshot
 import eu.kanade.translation.engines.translator.TextTranslator
 import eu.kanade.translation.engines.vision.ocr.PageRecognitionEngine
 import eu.kanade.translation.model.PageTranslation
@@ -468,5 +469,116 @@ class BatchPageOperationTest {
         result.currentStage shouldBe "FAILED"
         result.isFinished shouldBe true
         result.error shouldBe "Failed to fetch page image for p1.jpg during colorize pass: source offline"
+    }
+
+    @Test
+    fun `colorize-only reuse keeps completed pages when forceRecolor is false`() = runTest {
+        val prior = PageTranslation(
+            sourceFileName = "p1.jpg",
+            blocks = mutableListOf(),
+            ocrStatus = StageStatus.SKIPPED,
+            translationStatus = StageStatus.SKIPPED,
+            inpaintStatus = StageStatus.SKIPPED,
+            originalImageFallback = true,
+            coloredFromOriginal = true,
+            coloredImageName = "p1.color.jpg",
+            coloringStatus = StageStatus.READY,
+            sourceFingerprint = "sha-1",
+        )
+        val store: ChapterTranslationStore = mockk(relaxed = true) {
+            every { state } returns MutableStateFlow(mapOf("p1.jpg" to prior))
+        }
+        val decoded = DecodedPage(
+            bitmap = mockk(relaxed = true),
+            sampleSize = 1,
+            originalWidth = 800,
+            originalHeight = 1200,
+            decodeDecision = mockk(relaxed = true),
+            sourceBytesSize = 1000L,
+            sourceFingerprint = "sha-1",
+        )
+        coEvery { processor.decodeImage("p1.jpg", any(), any()) } returns decoded
+        every { processor.activeColorizationEngine() } returns mockk(relaxed = true)
+
+        val progress = coordinator.execute(
+            chapterKey = "ch1",
+            orderedPageKeys = listOf("p1.jpg"),
+            streamProvider = { ByteArrayInputStream(ByteArray(0)) },
+            store = store,
+            colorizeOnly = true,
+            forceRecolor = false,
+        )
+
+        progress.isFinished shouldBe true
+        // Identity-verified colorize-only result: reused, engine not rerun.
+        coVerify(exactly = 0) { processor.colorize(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `forceRecolor bypasses the colorize-only reuse gate`() = runTest {
+        val prior = PageTranslation(
+            sourceFileName = "p1.jpg",
+            blocks = mutableListOf(),
+            ocrStatus = StageStatus.SKIPPED,
+            translationStatus = StageStatus.SKIPPED,
+            inpaintStatus = StageStatus.SKIPPED,
+            originalImageFallback = true,
+            coloredFromOriginal = true,
+            coloredImageName = "p1.color.jpg",
+            coloringStatus = StageStatus.READY,
+            sourceFingerprint = "sha-1",
+        )
+        val store: ChapterTranslationStore = mockk(relaxed = true) {
+            every { state } returns MutableStateFlow(mapOf("p1.jpg" to prior))
+        }
+        val decoded = DecodedPage(
+            bitmap = mockk(relaxed = true),
+            sampleSize = 1,
+            originalWidth = 800,
+            originalHeight = 1200,
+            decodeDecision = mockk(relaxed = true),
+            sourceBytesSize = 1000L,
+            sourceFingerprint = "sha-1",
+        )
+        coEvery { processor.decodeImage("p1.jpg", any(), any()) } returns decoded
+        every { processor.activeColorizationEngine() } returns mockk(relaxed = true)
+
+        val progress = coordinator.execute(
+            chapterKey = "ch1",
+            orderedPageKeys = listOf("p1.jpg"),
+            streamProvider = { ByteArrayInputStream(ByteArray(0)) },
+            store = store,
+            colorizeOnly = true,
+            forceRecolor = true,
+        )
+
+        progress.isFinished shouldBe true
+        // Explicit recolor request: the completed page is recolored anyway.
+        coVerify(exactly = 1) { processor.colorize(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `enabled-but-unavailable reference fails the colorize-only run at the gate`() = runTest {
+        val store: ChapterTranslationStore = mockk(relaxed = true) {
+            every { state } returns MutableStateFlow(emptyMap())
+        }
+        every { processor.activeColorizationEngine() } returns mockk(relaxed = true)
+
+        val progress = coordinator.execute(
+            chapterKey = "ch1",
+            orderedPageKeys = listOf("p1.jpg"),
+            streamProvider = { ByteArrayInputStream(ByteArray(0)) },
+            store = store,
+            colorizeOnly = true,
+            // Sentinel shape produced by the repository for an undecodable
+            // meta file: enabled, no usable profile.
+            colorReferenceSnapshotProvider = {
+                ColorReferenceSnapshot(mangaId = 1L, isEnabled = true)
+            },
+        )
+
+        progress.currentStage shouldBe "FAILED"
+        progress.isFinished shouldBe true
+        progress.error shouldBe "Story color reference is enabled but reference could not be loaded"
     }
 }

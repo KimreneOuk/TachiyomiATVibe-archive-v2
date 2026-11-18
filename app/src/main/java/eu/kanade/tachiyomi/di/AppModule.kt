@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.network.JavaScriptEngine
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.AndroidSourceManager
 import eu.kanade.translation.TranslationManager
+import eu.kanade.translation.colorreference.StoryColorReferenceRepository
 import eu.kanade.translation.persistence.TranslationFileProvider
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
 import kotlinx.serialization.json.Json
@@ -130,6 +131,7 @@ class AppModule(val app: Application) : InjektModule {
 
         // TachiyomiAT
         addSingletonFactory { TranslationFileProvider(app) }
+        addSingletonFactory { StoryColorReferenceRepository(app) }
         addSingletonFactory { eu.kanade.translation.processing.execution.TranslationStreamRegistry() }
         addSingletonFactory { TranslationManager(app) }
 
