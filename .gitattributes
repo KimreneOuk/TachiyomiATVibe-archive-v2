@@ -37,3 +37,5 @@
 *.tflite binary
 *.npy binary
 *.npz binary
+
+*.so binary
