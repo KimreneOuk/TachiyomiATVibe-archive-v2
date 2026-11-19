@@ -16,6 +16,7 @@ import tachiyomi.domain.translation.ColorCombineMode
 import tachiyomi.domain.translation.OriginalDenoisingMode
 import tachiyomi.domain.translation.TranslationPreferences
 import eu.kanade.translation.engines.coloring.conditioning.Wd14TagConditioner
+import eu.kanade.translation.engines.coloring.denoising.CachingDenoiserProvider
 import eu.kanade.translation.engines.coloring.denoising.DenoiserResolutionPolicy
 import eu.kanade.translation.engines.coloring.denoising.MangaDenoiser
 import eu.kanade.translation.engines.coloring.denoising.MangaDenoiserFactory
@@ -55,6 +56,7 @@ internal class NpuMangaColorizationEngine(
     private var initialized = false
     private var initFailure: String? = null
     private var stamp: String? = null
+    private val denoiserCache = CachingDenoiserProvider(denoiserProvider)
 
     @Synchronized
     override fun isAvailable(): Boolean {
@@ -124,7 +126,7 @@ internal class NpuMangaColorizationEngine(
 
         if (mode == ColorCombineMode.ORIGINAL) {
             val dMode = originalDenoisingMode()
-            val denoiser = denoiserProvider(dMode)
+            val denoiser = denoiserCache.obtain(dMode)
             val denoiseSource = DenoiserResolutionPolicy.cap(source)
             val denoiseWidth = denoiseSource.width
             val denoiseHeight = denoiseSource.height
@@ -210,6 +212,7 @@ internal class NpuMangaColorizationEngine(
 
     @Synchronized
     override fun close() {
+        denoiserCache.close()
         closeRuntime()
         initialized = false
     }

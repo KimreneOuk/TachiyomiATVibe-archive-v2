@@ -193,8 +193,16 @@ internal class FfdnetDenoiserEngine(
             private val ONNX_THREADS = minOf(4, maxOf(1, Runtime.getRuntime().availableProcessors()))
 
             fun open(modelFile: File): OrtFfdnetSession {
-                val options = OnnxRuntimeProvider.createSessionOptions(useAccelerator = false) {
+                // Arena, memory patterns, and spinning off: page-sized CNN
+                // activations return to the OS after each run instead of
+                // piling up in a retained per-session arena.
+                val options = OnnxRuntimeProvider.createSessionOptions(
+                    useAccelerator = false,
+                    disableIntraOpSpinning = true,
+                ) {
                     it.setIntraOpNumThreads(ONNX_THREADS)
+                    runCatching { it.setCPUArenaAllocator(false) }
+                    runCatching { it.setMemoryPatternOptimization(false) }
                 }
                 val built = try {
                     OnnxRuntimeProvider.environment.createSession(modelFile.absolutePath, options)
