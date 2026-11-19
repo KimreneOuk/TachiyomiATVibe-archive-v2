@@ -22,7 +22,7 @@ import java.io.File
 
 /** Runs the static SAM encoder on the NPU and the live-conditioned generator on the GPU.
  *  Shares the colorization pipeline with MCV2: same gray prep (gate/bilateral) and the
- *  same look dispatch (author resize for ORIGINAL, ink combine for VIBRANT); only work resolution and model invocation differ. */
+ *  same ink-aware look; only work resolution and model invocation differ. */
 internal class MangaLightHybridColorizationEngine(
     private val context: Context,
     private val colorCombineMode: () -> ColorCombineMode = { ColorCombineMode.DEFAULT },
@@ -77,7 +77,7 @@ internal class MangaLightHybridColorizationEngine(
         } else {
             MangaColorizationPreprocessor.STAMP_SUFFIX
         }
-        STAMP + preprocessSuffix + MangaColorizationImageProcessing.lookStampSuffix(mode)
+        STAMP + preprocessSuffix
     }
 
     @Synchronized
@@ -133,7 +133,7 @@ internal class MangaLightHybridColorizationEngine(
         )
         val converted = System.nanoTime()
         return try {
-            MangaColorizationImageProcessing.applyLook(source, work, mode)
+            MangaColorizationImageProcessing.applyLook(source, work)
         } finally {
             work.recycle()
             logcat(LogPriority.INFO) {

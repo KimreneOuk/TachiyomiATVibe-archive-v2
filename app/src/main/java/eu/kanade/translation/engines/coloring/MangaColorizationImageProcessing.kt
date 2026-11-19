@@ -3,13 +3,7 @@ package eu.kanade.translation.engines.coloring
 import android.graphics.Bitmap
 import eu.kanade.translation.util.isFatal
 import logcat.LogPriority
-import org.opencv.android.OpenCVLoader
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.opencv.core.Size
-import org.opencv.imgproc.Imgproc
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.translation.ColorCombineMode
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -129,56 +123,12 @@ internal object MangaColorizationImageProcessing {
     }
 
     /**
-     * Applies the selected look. ORIGINAL is the model authors' recipe: the RGB
-     * prediction is resampled straight to source size, with no ink combine.
-     * VIBRANT runs the ink-aware combine at the prototype shading strength.
+     * Applies the shared look: the ink-aware combine keeps the source's ink and
+     * shading sharp while the model contributes chroma; the presets differ in
+     * preprocessing and model conditioning, not in the merge.
      */
-    fun applyLook(source: Bitmap, coloredWork: Bitmap, mode: ColorCombineMode): Bitmap = when (mode) {
-        ColorCombineMode.ORIGINAL -> resizeModelRgbToSource(coloredWork, source)
-        ColorCombineMode.VIBRANT -> combineColoredWithSource(source, coloredWork, INK_SHADING_STRENGTH)
-    }
-
-    private val openCvAvailable by lazy { OpenCVLoader.initLocal() }
-
-    /** Source-sized copy; [coloredWork] stays owned by the caller. */
-    private fun resizeModelRgbToSource(coloredWork: Bitmap, source: Bitmap): Bitmap {
-        if (coloredWork.width == source.width && coloredWork.height == source.height) {
-            return coloredWork.copy(Bitmap.Config.ARGB_8888, false)
-        }
-        check(openCvAvailable) { "OpenCV is required for Lanczos colorization resizing" }
-        val input = Mat()
-        try {
-            val resized = Mat()
-            try {
-                Utils.bitmapToMat(coloredWork, input)
-                Imgproc.resize(
-                    input,
-                    resized,
-                    Size(source.width.toDouble(), source.height.toDouble()),
-                    0.0,
-                    0.0,
-                    Imgproc.INTER_LANCZOS4,
-                )
-                val result = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
-                try {
-                    Utils.matToBitmap(resized, result)
-                    return result
-                } catch (failure: Throwable) {
-                    result.recycle()
-                    throw failure
-                }
-            } finally {
-                resized.release()
-            }
-        } finally {
-            input.release()
-        }
-    }
-
-    fun lookStampSuffix(mode: ColorCombineMode): String = when (mode) {
-        ColorCombineMode.ORIGINAL -> "+LANCZOS4"
-        ColorCombineMode.VIBRANT -> ""
-    }
+    fun applyLook(source: Bitmap, coloredWork: Bitmap): Bitmap =
+        combineColoredWithSource(source, coloredWork, INK_SHADING_STRENGTH)
 
     /** Ink-aware combine on API 33+ (AGSL) or the CPU twin otherwise/on GPU failure — never a backend fallback. */
     private fun combineColoredWithSource(source: Bitmap, coloredWork: Bitmap, shadingStrength: Float): Bitmap {
@@ -266,5 +216,5 @@ internal object MangaColorizationImageProcessing {
     private const val MAX_MERGE_PIXELS = 1_500_000L
 }
 
-/** Ink-aware combine shading strength from the user's Variant C prototype (the VIBRANT look). */
+/** Ink-aware combine shading strength from the user's Variant C prototype (both presets). */
 internal const val INK_SHADING_STRENGTH = 0.35f

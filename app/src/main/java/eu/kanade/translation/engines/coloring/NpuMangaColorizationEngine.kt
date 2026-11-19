@@ -101,7 +101,7 @@ internal class NpuMangaColorizationEngine(
         } else {
             MangaColorizationPreprocessor.STAMP_SUFFIX
         }
-        return base + preprocessSuffix + MangaColorizationImageProcessing.lookStampSuffix(mode)
+        return base + preprocessSuffix
     }
 
     @Synchronized
@@ -191,7 +191,7 @@ internal class NpuMangaColorizationEngine(
         )
         val convertedAt = System.nanoTime()
         return try {
-            MangaColorizationImageProcessing.applyLook(source, coloredWork, mode)
+            MangaColorizationImageProcessing.applyLook(source, coloredWork)
         } finally {
             coloredWork.recycle()
             val finished = System.nanoTime()

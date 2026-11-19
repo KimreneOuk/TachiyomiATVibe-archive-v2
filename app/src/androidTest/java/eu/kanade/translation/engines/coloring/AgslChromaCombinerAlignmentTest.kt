@@ -10,7 +10,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import tachiyomi.domain.translation.ColorCombineMode
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -65,7 +64,7 @@ class AgslChromaCombinerAlignmentTest {
         val source = buildSource(case.sw, case.sh)
         val work = buildWork(case.ww, case.wh)
         try {
-            val published = MangaColorizationImageProcessing.applyLook(source, work, ColorCombineMode.VIBRANT)
+            val published = MangaColorizationImageProcessing.applyLook(source, work)
             try {
                 assertEquals("${case.label} published width", case.sw, published.width)
                 assertEquals("${case.label} published height", case.sh, published.height)
