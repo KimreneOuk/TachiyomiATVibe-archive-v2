@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Foreground-service server ownership: status notification and a bounded
+         PARTIAL wakelock so inference survives screen-off mid-batch. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- extractNativeLibs: QNN HTP backend must find libQnnHtpV75Skel.so as a real
+         file on disk (dsp_skel_dir discovery), which APK-embedded libs do not provide. -->
+    <application android:label="SAM Viz Probe" android:icon="@android:drawable/ic_menu_compass" android:extractNativeLibs="true">
+        <activity
+            android:name=".SamVizActivity"
+            android:exported="true" />
+        <service
+            android:name=".SamVizService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

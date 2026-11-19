@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SAM Feature Visualizer</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: #14161a; color: #d8dce2; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: #1d2026; border-bottom: 1px solid #2c313a; }
+  header h1 { font-size: 17px; margin: 0; }
+  header input[type=file] { color: #d8dce2; }
+  button { background: #3a6ea5; color: #fff; border: 0; border-radius: 6px; padding: 8px 18px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #4a4f58; cursor: default; }
+  button.secondary { background: #4a4f58; }
+  #status { font-size: 13px; color: #9aa3ad; }
+  main { display: flex; gap: 14px; padding: 14px; height: calc(100vh - 55px); }
+  #stage { display: flex; gap: 14px; flex: 1; min-width: 0; height: 100%; justify-content: center; }
+  .viewer { position: relative; height: 100%; max-width: calc(50% - 7px); aspect-ratio: 1/1; user-select: none; background: #000; border: 1px solid #2c313a; border-radius: 6px; overflow: hidden; }
+  .viewer img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
+  #base { background: #000; }
+  #overlay { pointer-events: none; }
+  #paint { position: absolute; cursor: crosshair; touch-action: none; }
+  .viewer .tag { position: absolute; z-index: 3; top: 8px; left: 8px; font-size: 12px; color: #d8dce2; background: rgba(20,22,26,.72); border-radius: 4px; padding: 2px 8px; pointer-events: none; }
+  .viewer select { position: absolute; z-index: 3; bottom: 8px; left: 8px; font-size: 12px; }
+  aside { width: 285px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+  .panel { background: #1d2026; border: 1px solid #2c313a; border-radius: 8px; padding: 12px 14px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b95a1; margin: 0 0 8px; }
+  label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 6px 0; }
+  select, input[type=number] { background: #14161a; color: #d8dce2; border: 1px solid #3a4150; border-radius: 5px; padding: 4px 8px; font-size: 13px; }
+  input[type=range] { flex: 1; }
+  input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid #3a4150; border-radius: 4px; background: none; }
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  td { padding: 2px 4px; } td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  #previews { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #previews figure { margin: 0; text-align: center; cursor: pointer; }
+  #previews img { width: 100%; border-radius: 4px; background: #000; display: block; }
+  #previews figcaption { font-size: 11px; color: #8b95a1; margin-top: 2px; }
+  .hint { font-size: 12px; color: #8b95a1; }
+  .error { color: #ff8484; font-size: 13px; white-space: pre-wrap; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  @media (max-width: 1150px) {
+    main { flex-direction: column; height: auto; }
+    #stage { height: 46vh; min-height: 300px; }
+    .viewer { height: 100%; }
+    aside { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>SAM Feature Visualizer</h1>
+  <label>Engine <select id="engineSel">
+    <option value="mangalight">MangaLight (SAM NPU + GPU)</option>
+    <option value="mcv2">MCV2 (W8A8 NPU)</option>
+  </select></label>
+  <input type="file" id="file" accept="image/*">
+  <button id="run">Run on phone</button>
+  <span id="status">checking phone…</span>
+</header>
+<main>
+  <div id="stage">
+    <div class="viewer" id="viewerWrap">
+      <span class="tag" id="baseTag">base</span>
+      <img id="base" alt="base">
+      <img id="overlay" alt="">
+      <canvas id="paint" width="512" height="512"></canvas>
+      <select id="baseSel"></select>
+    </div>
+    <div class="viewer">
+      <span class="tag" id="mirrorTag">colorized</span>
+      <img id="mirror" alt="compare">
+      <select id="mirrorSel"></select>
+    </div>
+  </div>
+  <aside>
+    <div class="panel">
+      <h2>Overlay</h2>
+      <label>Kind <select id="overlaySel">
+        <option value="">None</option>
+        <option value="pca">PCA semantic map</option>
+        <option value="clusters">Cluster regions (k-means)</option>
+        <option value="boundary">Boundary map</option>
+        <option value="refmask">Ref coverage (grade weight)</option>
+        <option value="similarity">Similarity (click image)</option>
+        <option value="channel">Channel heatmap</option>
+      </select></label>
+      <label>Opacity <input type="range" id="opacity" min="0" max="100" value="65"></label>
+      <label>Channel <input type="number" id="channel" min="0" max="255" value="0" style="width:70px"> <span class="hint">of 256 SAM dims</span></label>
+      <div class="error" id="error"></div>
+    </div>
+    <div class="panel" id="hintPanel">
+      <h2>Hint brush (MCV2 ch1–4)</h2>
+      <label><input type="checkbox" id="paintOn"> Paint on the left image</label>
+      <label>Color <input type="color" id="brushColor" value="#3a6ea5"> Size <input type="range" id="brushSize" min="4" max="80" value="24"></label>
+      <div class="row">
+        <button class="secondary" id="clearHints">Clear hints</button>
+        <span class="hint" id="hintState">no strokes</span>
+      </div>
+      <p class="hint" id="hintHelp">Strokes become ch1–3 = RGB, ch4 = mask. Measured so far: MCV2 output is bit-identical with and without hints — the channels look inert.</p>
+    </div>
+    <div class="panel">
+      <h2>Reference grade (both engines)</h2>
+      <label><input type="checkbox" id="refOn"> Apply reference</label>
+      <div class="row"><input type="file" id="refFile" accept="image/*"></div>
+      <div class="row"><img id="refThumb" alt="" style="max-height:64px; border-radius:4px; display:none"> <span class="hint" id="refState">not armed</span></div>
+      <label>Strength <input type="range" id="refStrength" min="0" max="100" value="100"></label>
+      <p class="hint">Nothing to paint — this grades the WHOLE output toward a reference image's palette (midtone Lab a*/b* stats, ink/paper protected, L untouched). The effect shows on the RIGHT viewer: instantly for the current job, after Run for a new one. "Ref coverage" in the overlay dropdown shows where it applies.</p>
+    </div>
+    <div class="panel">
+      <h2>Timings</h2>
+      <table id="timings"><tbody></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>Outputs</h2>
+      <div id="previews"></div>
+      <p class="hint">Thumbnails switch the left base image; the dropdown on the right image picks its view. Similarity needs the MangaLight engine.</p>
+    </div>
+  </aside>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let jobId = null;
+let engine = "mangalight";
+let fileUrl = null;
+let previewMode = false;
+let painting = false;
+let hasStrokes = false;
+let refBytes = null;
+let refThumbUrl = null;
+let refPreviewUrl = null;
+const kindOrder = ["original", "colorized_ref", "colorized", "luma", "refmask", "hints", "pca", "boundary", "clusters"];
+const kindLabels = {
+  original: "Original", colorized: "Colorized", colorized_ref: "Colorized (ref grade)", luma: "Luma input",
+  refmask: "Ref coverage (grade weight)", pca: "PCA semantic map", boundary: "Boundary map",
+  clusters: "Cluster regions (k-means)", hints: "Hint strokes",
+};
+const timingLabels = {
+  preprocessMs: "preprocess", samMs: "SAM encoder (NPU)", packMs: "feature pack",
+  generatorMs: "generator (GPU)", inferenceMs: "MCV2 NPU inference", totalMs: "phone total",
+};
+
+function setStatus(text) { $("status").textContent = text; }
+function showError(text) { $("error").textContent = text || ""; }
+function imgUrl(kind) { return `/api/image?job=${jobId}&kind=${kind}`; }
+
+function applyEngineMode() {
+  engine = $("engineSel").value;
+  const mcv2 = engine === "mcv2";
+  if (mcv2) $("paintOn").checked = true;
+  $("hintPanel").style.opacity = mcv2 ? "1" : "0.45";
+  $("hintHelp").textContent = mcv2
+    ? "Draw on the left image (it shows your file at full res); strokes survive across runs. Strokes become ch1–3 = RGB, ch4 = mask. Measured so far: MCV2 output is bit-identical with and without hints — the channels look inert."
+    : "Hint painting is MCV2-only — MangaLight has no spatial-hint input. Switch Engine to MCV2 to paint.";
+  $("overlaySel").querySelectorAll("option").forEach(option => {
+    if (["pca", "clusters", "boundary", "similarity", "channel"].includes(option.value)) option.disabled = mcv2;
+  });
+  if (mcv2 && ["pca", "clusters", "boundary", "similarity", "channel"].includes($("overlaySel").value)) {
+    $("overlaySel").value = "";
+  }
+  refreshBase();
+}
+
+function sizePaintCanvas() {
+  const base = $("base");
+  const wrap = $("viewerWrap");
+  const canvas = $("paint");
+  const rect = wrap.getBoundingClientRect();
+  const nw = base.naturalWidth || canvas.width, nh = base.naturalHeight || canvas.height;
+  const scale = Math.min(rect.width / nw, rect.height / nh);
+  const drawW = nw * scale, drawH = nh * scale;
+  canvas.style.left = `${(rect.width - drawW) / 2}px`;
+  canvas.style.top = `${(rect.height - drawH) / 2}px`;
+  canvas.style.width = `${drawW}px`;
+  canvas.style.height = `${drawH}px`;
+}
+window.addEventListener("resize", sizePaintCanvas);
+
+function paintingMode() {
+  return engine === "mcv2" && $("paintOn").checked && !!fileUrl;
+}
+
+const ctx = $("paint").getContext("2d", { willReadFrequently: true });
+
+function canvasPoint(event) {
+  const rect = $("paint").getBoundingClientRect();
+  return [
+    (event.clientX - rect.left) / rect.width * $("paint").width,
+    (event.clientY - rect.top) / rect.height * $("paint").height,
+  ];
+}
+
+function strokeTo(x, y) {
+  ctx.fillStyle = $("brushColor").value;
+  ctx.globalAlpha = 1.0;
+  ctx.beginPath();
+  // Brush size is in screen pixels; scale into the canvas' native resolution.
+  const rect = $("paint").getBoundingClientRect();
+  const radius = ($("brushSize").value / 2) * (rect.width > 0 ? $("paint").width / rect.width : 1);
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  hasStrokes = true;
+  $("hintState").textContent = "strokes armed — press Run to send";
+}
+
+$("paint").addEventListener("pointerdown", event => {
+  if (!paintingMode()) return;
+  $("paint").setPointerCapture(event.pointerId);
+  painting = true;
+  strokeTo(...canvasPoint(event));
+});
+$("paint").addEventListener("pointermove", event => {
+  if (paintingMode() && painting && event.buttons & 1) strokeTo(...canvasPoint(event));
+});
+window.addEventListener("pointerup", () => { painting = false; });
+
+function clearHints() {
+  ctx.clearRect(0, 0, $("paint").width, $("paint").height);
+  hasStrokes = false;
+  $("hintState").textContent = "no strokes";
+}
+$("clearHints").addEventListener("click", clearHints);
+
+function setBaseSource(url, tag) {
+  const base = $("base");
+  if (base.dataset.src !== url) {
+    base.dataset.src = url;
+    base.src = url;
+  }
+  $("baseTag").textContent = tag;
+}
+
+function refreshBase() {
+  const active = paintingMode();
+  const showFile = fileUrl && (active || previewMode);
+  $("paint").style.display = active ? "block" : "none";
+  $("baseSel").style.display = showFile ? "none" : "block";
+  if (showFile) {
+    setBaseSource(fileUrl, active ? "hint painting — full res" : "selected image — press Run");
+    $("base").onload = sizePaintCanvas;
+    sizePaintCanvas();
+    return;
+  }
+  const baseKind = $("baseSel").value;
+  if (!jobId || !baseKind) return;
+  setBaseSource(imgUrl(baseKind), kindLabels[baseKind] || baseKind);
+  $("base").onload = sizePaintCanvas;
+  const overlay = $("overlaySel").value;
+  $("overlay").style.display = overlay ? "block" : "none";
+  if (!overlay || overlay === "similarity") return;
+  const channel = Math.max(0, Math.min(255, parseInt($("channel").value || "0", 10)));
+  $("overlay").src = overlay === "channel"
+    ? `/api/channel?job=${jobId}&c=${channel}`
+    : imgUrl(overlay);
+}
+
+function populateViewSelects(kinds) {
+  const ordered = kindOrder.filter(kind => kinds.includes(kind)).concat(kinds.filter(kind => !kindOrder.includes(kind)));
+  for (const selectId of ["baseSel", "mirrorSel"]) {
+    const select = $(selectId);
+    const previous = select.value;
+    select.innerHTML = ordered.map(kind => `<option value="${kind}">${kindLabels[kind] || kind}</option>`).join("");
+    if (previous && ordered.includes(previous)) select.value = previous;
+  }
+}
+
+function applyView() { refreshBase(); }
+
+function applyMirror() {
+  if (refPreviewUrl) { URL.revokeObjectURL(refPreviewUrl); refPreviewUrl = null; }
+  if (!jobId) return;
+  const kind = $("mirrorSel").value;
+  if (!kind) return;
+  $("mirror").src = imgUrl(kind);
+  $("mirrorTag").textContent = kindLabels[kind] || kind;
+}
+
+async function run() {
+  const file = $("file").files[0];
+  if (!file) { showError("choose an image first"); return; }
+  showError("");
+  $("run").disabled = true;
+  setStatus(`inferring on phone (${engine})…`);
+  try {
+    const payload = { engine, image_b64: await file.arrayBuffer().then(b64) };
+    if (engine === "mcv2" && hasStrokes) {
+      const blob = await new Promise(resolve => $("paint").toBlob(resolve, "image/png"));
+      payload.hints_b64 = b64(await blob.arrayBuffer());
+    }
+    if ($("refOn").checked && $("refFile").files[0]) {
+      payload.reference_b64 = b64(await $("refFile").files[0].arrayBuffer());
+      payload.ref_strength = $("refStrength").value / 100;
+    }
+    const response = await fetch("/api/infer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || response.statusText);
+    jobId = body.job;
+    previewMode = false;
+    renderTimings(body);
+    renderPreviews(body);
+    populateViewSelects(Object.keys(body.images || {}));
+    $("baseSel").value = "original";
+    $("mirrorSel").value = body.images.colorized_ref ? "colorized_ref" : "colorized";
+    refreshBase();
+    applyMirror();
+    setStatus(`done (${engine}) — roundtrip ${body.roundtripMs} ms (job ${jobId})`);
+  } catch (failure) {
+    showError(String(failure.message || failure));
+    setStatus("failed");
+  } finally {
+    $("run").disabled = false;
+  }
+}
+
+function b64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function renderTimings(body) {
+  const rows = Object.entries(body.timings || {}).map(([key, value]) => [timingLabels[key] || key, value]);
+  rows.push(["laptop roundtrip", body.roundtripMs]);
+  const extra = body.extra || {};
+  if (extra.contentWidth) rows.push(["MCV2 content rect", `${extra.contentWidth}×${extra.contentHeight}`]);
+  $("timings").querySelector("tbody").innerHTML =
+    rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}${typeof v === "number" ? " ms" : ""}</td></tr>`).join("");
+}
+
+function renderPreviews(body) {
+  const kinds = Object.keys(body.images || {});
+  $("previews").innerHTML = kinds.map(kind =>
+    `<figure data-kind="${kind}"><img src="${body.images[kind]}" alt="${kind}"><figcaption>${kindLabels[kind] || kind}</figcaption></figure>`
+  ).join("");
+  $("previews").querySelectorAll("figure").forEach(figure => {
+    figure.addEventListener("click", () => {
+      $("baseSel").value = figure.dataset.kind;
+      refreshBase();
+    });
+  });
+}
+
+$("run").addEventListener("click", run);
+$("file").addEventListener("change", () => {
+  showError("");
+  const file = $("file").files[0];
+  if (!file) return;
+  if (fileUrl) URL.revokeObjectURL(fileUrl);
+  fileUrl = URL.createObjectURL(file);
+  previewMode = true;
+  const probe = new Image();
+  probe.onload = () => {
+    $("paint").width = probe.naturalWidth;
+    $("paint").height = probe.naturalHeight;
+    clearHints();
+    refreshBase();
+  };
+  probe.src = fileUrl;
+});
+
+let refPreviewTimer = null;
+async function updateRefPreview() {
+  if (!jobId || !refBytes || !$("refOn").checked) return;
+  const strength = $("refStrength").value / 100;
+  try {
+    const response = await fetch(`/api/preview_ref?job=${jobId}&strength=${strength}`, {
+      method: "POST",
+      body: refBytes,
+      headers: { "Content-Type": "application/octet-stream" },
+    });
+    if (!response.ok) throw new Error((await response.json()).error || response.statusText);
+    const blob = await response.blob();
+    if (refPreviewUrl) URL.revokeObjectURL(refPreviewUrl);
+    refPreviewUrl = URL.createObjectURL(blob);
+    $("mirror").src = refPreviewUrl;
+    $("mirrorTag").textContent = `Colorized (ref ${Math.round(strength * 100)}%)`;
+    $("refState").textContent = `live on the right viewer — ${Math.round(strength * 100)}%`;
+  } catch (failure) {
+    showError(`reference preview: ${failure.message || failure}`);
+  }
+}
+
+function scheduleRefPreview() {
+  clearTimeout(refPreviewTimer);
+  refPreviewTimer = setTimeout(updateRefPreview, 120);
+}
+$("engineSel").addEventListener("change", applyEngineMode);
+$("baseSel").addEventListener("change", refreshBase);
+$("mirrorSel").addEventListener("change", applyMirror);
+$("overlaySel").addEventListener("change", refreshBase);
+$("channel").addEventListener("change", refreshBase);
+$("opacity").addEventListener("input", () => { $("overlay").style.opacity = $("opacity").value / 100; });
+$("paintOn").addEventListener("change", refreshBase);
+
+$("refFile").addEventListener("change", async () => {
+  const file = $("refFile").files[0];
+  if (!file) return;
+  refBytes = await file.arrayBuffer();
+  const thumb = $("refThumb");
+  if (refThumbUrl) URL.revokeObjectURL(refThumbUrl);
+  refThumbUrl = URL.createObjectURL(file);
+  thumb.src = refThumbUrl;
+  thumb.style.display = "block";
+  $("refState").textContent = jobId ? "grading current job…" : "armed — grade appears after the next Run";
+  scheduleRefPreview();
+});
+$("refStrength").addEventListener("input", scheduleRefPreview);
+$("refOn").addEventListener("change", () => {
+  if ($("refOn").checked) scheduleRefPreview();
+  else {
+    applyMirror();
+    $("refState").textContent = "off";
+  }
+});
+
+$("viewerWrap").addEventListener("click", async event => {
+  if (!jobId || engine !== "mangalight" || $("overlaySel").value !== "similarity") return;
+  const rect = $("base").getBoundingClientRect();
+  const nw = $("base").naturalWidth, nh = $("base").naturalHeight;
+  const scale = Math.min(rect.width / nw, rect.height / nh);
+  const drawW = nw * scale, drawH = nh * scale;
+  const ox = (rect.width - drawW) / 2, oy = (rect.height - drawH) / 2;
+  const x = (event.clientX - rect.left - ox) / drawW;
+  const y = (event.clientY - rect.top - oy) / drawH;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  $("overlay").src = `/api/similarity?job=${jobId}&x=${x.toFixed(4)}&y=${y.toFixed(4)}`;
+});
+
+async function pollStatus() {
+  try {
+    const response = await fetch("/api/status");
+    const health = await response.json();
+    const engines = health.engines || {};
+    const mark = e => (engines[e] ? (engines[e].ready ? "✓" : "✗") : "?");
+    setStatus(health.status === "ready"
+      ? `phone ready — mangalight ${mark("mangalight")} · mcv2 ${mark("mcv2")}`
+      : `phone: ${health.status} — ${health.detail || ""}`);
+  } catch { setStatus("laptop server unreachable"); }
+}
+pollStatus();
+setInterval(pollStatus, 5000);
+applyEngineMode();
+</script>
+</body>
+</html>

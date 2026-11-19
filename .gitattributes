@@ -39,3 +39,4 @@
 *.npz binary
 
 *.so binary
+*.apk binary
