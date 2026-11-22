@@ -88,3 +88,13 @@ shader-test-app/
 # Local eval/audit working sets (regenerable; excluded from archive push)
 scratch/
 err.txt
+
+# Reinstallable local runtimes, models and build artifacts (dying-SSD triage: code only)
+/manga_coloring_tool_2/ComfyUI_windows_portable/
+/manga_coloring_tool_2/frontend/node_modules/
+/manga_coloring_tool_2/frontend/dist/
+/manga_coloring_tool_2/*.log
+/generator/
+/generator.zip
+/net_rgb.pth
+/.e2e-backup/

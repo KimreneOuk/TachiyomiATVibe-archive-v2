@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCV2 Manga Colorization Studio</title>
+  <style>
+    :root {
+      --bg-dark: #0f1117;
+      --bg-card: #181b24;
+      --bg-card-hover: #212634;
+      --border: #2b3144;
+      --border-active: #4f46e5;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent: #ec4899;
+      --accent-green: #10b981;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-sub: #6b7280;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #13161f;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a5b4fc, #f472b6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .badge {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+      text-decoration: none;
+      color: var(--text);
+      background: var(--bg-card);
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--bg-card-hover);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+    }
+
+    .btn-accent {
+      background: linear-gradient(135deg, #6366f1, #ec4899);
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(236, 72, 153, 0.25);
+    }
+    .btn-accent:hover:not(:disabled) {
+      filter: brightness(1.1);
+      box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+    }
+
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      min-height: 0;
+    }
+
+    @media (max-width: 1024px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Left Sidebar */
+    .sidebar {
+      background: #13161f;
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+      max-height: calc(100vh - 65px);
+    }
+
+    .section-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .folder-bar {
+      display: flex;
+      gap: 6px;
+    }
+
+    .input-text {
+      flex: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      outline: none;
+    }
+    .input-text:focus {
+      border-color: var(--primary);
+    }
+
+    /* Gallery thumbnail row */
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(75px, 1fr));
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 4px;
+      background: #0d0f15;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .thumb-item {
+      position: relative;
+      aspect-ratio: 576/832;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid transparent;
+      background: #1a1e2a;
+    }
+    .thumb-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .thumb-item:hover {
+      border-color: var(--border-active);
+    }
+    .thumb-item.active-target {
+      border-color: #3b82f6;
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+    }
+    .thumb-item.active-ref {
+      border-color: #ec4899;
+      box-shadow: 0 0 8px rgba(236, 72, 153, 0.6);
+    }
+    .thumb-item-tag {
+      position: absolute;
+      bottom: 2px;
+      left: 2px;
+      right: 2px;
+      font-size: 0.65rem;
+      background: rgba(0,0,0,0.75);
+      padding: 1px 4px;
+      border-radius: 3px;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Selected Cards */
+    .selected-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .selected-card img {
+      width: 50px;
+      height: 70px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+    .selected-card-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .selected-card-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
+    }
+    .selected-card-meta {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Slider / Input controls */
+    .control-group {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .slider-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--primary);
+    }
+
+    /* Manual Paint Tool box */
+    .palette-box {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .color-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.1s;
+    }
+    .color-swatch:hover {
+      transform: scale(1.15);
+    }
+    .color-swatch.active {
+      border-color: #fff;
+      transform: scale(1.15);
+    }
+    input[type="color"] {
+      appearance: none;
+      -webkit-appearance: none;
+      border: none;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      cursor: pointer;
+      background: none;
+      padding: 0;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    input[type="color"]::-webkit-color-swatch {
+      border: 2px solid var(--border);
+      border-radius: 50%;
+    }
+
+    /* Workspace / Comparison Panes */
+    .workspace {
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .panes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .pane-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .pane-header {
+      padding: 10px 14px;
+      background: #141722;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .pane-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .timing-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .timing-badge.cached {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .pane-viewport {
+      position: relative;
+      aspect-ratio: 576/832;
+      background: #08090d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .pane-viewport img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* Interactive paint canvas */
+    #paintCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      z-index: 10;
+      display: none;
+    }
+    #paintCanvas.active {
+      display: block;
+    }
+
+    .pane-footer {
+      padding: 8px 12px;
+      background: #141722;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Loading overlay */
+    .loader-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 17, 23, 0.75);
+      backdrop-filter: blur(2px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      z-index: 20;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .loader-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(99, 102, 241, 0.2);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Modal Image Lightbox */
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+    }
+    .modal.active {
+      display: flex;
+    }
+    .modal img {
+      max-width: 90vw;
+      max-height: 90vh;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+    .modal-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      font-size: 1.5rem;
+      color: #fff;
+      cursor: pointer;
+      background: rgba(255,255,255,0.1);
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <h1>🎨 MCV2 Manga Colorization Studio</h1>
+      <span class="badge">ONNX CPU (576×832)</span>
+      <span id="cacheBadge" class="badge" style="background: rgba(16,185,129,0.1); color: #34d399; border-color: rgba(16,185,129,0.3)">Cache: 0 items</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-sm" id="btnSamplesShortcut" onclick="loadSamplesDir()">📂 Load Sample Images</button>
+      <button class="btn btn-sm" id="btnClearCache" onclick="clearServerCache()">🧹 Clear Cache</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <!-- Folder Selector -->
+      <div>
+        <div class="section-title">Image Folder</div>
+        <div class="folder-bar">
+          <input type="text" id="dirInput" class="input-text" placeholder="Folder path..." />
+          <button class="btn btn-primary btn-sm" onclick="fetchImages()">Scan</button>
+        </div>
+      </div>
+
+      <!-- Thumbnail Strip -->
+      <div>
+        <div class="section-title">
+          <span>Available Pages</span>
+          <span id="imageCount" style="font-size:0.7rem; color:var(--text-sub);">0 found</span>
+        </div>
+        <div class="gallery-grid" id="galleryGrid">
+          <!-- Loaded dynamically -->
+        </div>
+      </div>
+
+      <!-- Selected Target Card -->
+      <div>
+        <div class="section-title">Selected Target Lineart</div>
+        <div class="selected-card" id="targetCard">
+          <img id="targetThumb" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='70'%3E%3Crect width='50' height='70' fill='%23111'/%3E%3C/svg%3E" alt="target" />
+          <div class="selected-card-info">
+            <div class="selected-card-title" id="targetName">None selected</div>
+            <div class="selected-card-meta" id="targetMeta">Click an image above to set</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selected Reference Card -->
+      <div>
+        <div class="section-title">
+          <span>Selected Color Reference</span>
+          <button class="btn btn-sm" style="padding:1px 6px; font-size:0.65rem;" onclick="clearReference()">Clear</button>
+        </div>
+        <div class="selected-card" id="refCard">
+          <img id="refThumb" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='70'%3E%3Crect width='50' height='70' fill='%23111'/%3E%3C/svg%3E" alt="ref" />
+          <div class="selected-card-info">
+            <div class="selected-card-title" id="refName">No reference</div>
+            <div class="selected-card-meta" id="refMeta">Right-click thumbnail or choose below</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="btn btn-sm" style="flex:1;" onclick="setTargetAsRef()">Use Target as Ref</button>
+          <button class="btn btn-sm" style="flex:1;" onclick="pick104Reference()">Use 104.jpg Ref</button>
+        </div>
+      </div>
+
+      <!-- Reference Flatten Control -->
+      <div class="control-group">
+        <div class="slider-row">
+          <span style="font-size:0.8rem; font-weight:600;">Flatten Filter Strength</span>
+          <span id="flattenVal" style="font-size:0.8rem; color:#a5b4fc; font-weight:bold;">21</span>
+        </div>
+        <input type="range" id="flattenSlider" min="1" max="51" step="2" value="21" oninput="document.getElementById('flattenVal').innerText = this.value" />
+        <div style="font-size:0.7rem; color:var(--text-sub);">
+          Median + Gaussian blur filter to eliminate reference ink line ghosting.
+        </div>
+      </div>
+
+      <!-- Manual Hint Painter -->
+      <div class="control-group">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:0.8rem; font-weight:600;">Manual Hint Paint Tool</span>
+          <label style="display:flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer;">
+            <input type="checkbox" id="togglePaint" onchange="togglePaintMode()" /> Enable Painting
+          </label>
+        </div>
+
+        <div id="paintControls" style="display:none; flex-direction:column; gap:8px;">
+          <div class="palette-box">
+            <!-- Palette colors -->
+            <div class="color-swatch active" style="background:#ffd1b3;" onclick="setBrushColor('#ffd1b3', this)" title="Skin Light"></div>
+            <div class="color-swatch" style="background:#d99b77;" onclick="setBrushColor('#d99b77', this)" title="Skin Shadow"></div>
+            <div class="color-swatch" style="background:#f59e0b;" onclick="setBrushColor('#f59e0b', this)" title="Blond Hair"></div>
+            <div class="color-swatch" style="background:#78350f;" onclick="setBrushColor('#78350f', this)" title="Brown Hair"></div>
+            <div class="color-swatch" style="background:#ef4444;" onclick="setBrushColor('#ef4444', this)" title="Red"></div>
+            <div class="color-swatch" style="background:#3b82f6;" onclick="setBrushColor('#3b82f6', this)" title="Blue"></div>
+            <div class="color-swatch" style="background:#10b981;" onclick="setBrushColor('#10b981', this)" title="Green"></div>
+            <div class="color-swatch" style="background:#a855f7;" onclick="setBrushColor('#a855f7', this)" title="Purple"></div>
+            <input type="color" id="customColor" value="#ffd1b3" onchange="setCustomBrushColor(this.value)" />
+          </div>
+
+          <div class="slider-row">
+            <span style="font-size:0.75rem;">Brush Size:</span>
+            <input type="range" id="brushSize" min="5" max="80" value="25" />
+            <span id="brushSizeVal" style="font-size:0.75rem;">25px</span>
+          </div>
+
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-sm" style="flex:1;" onclick="undoStroke()">Undo Stroke</button>
+            <button class="btn btn-sm" style="flex:1;" onclick="clearStrokes()">Clear All (<span id="strokeCount">0</span>)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Run Action Buttons -->
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn btn-accent" id="btnCompareAll" onclick="runComparison()">
+          🚀 Run Side-by-Side Comparison
+        </button>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+          <button class="btn btn-sm" onclick="runSingle('none')">Run No-Hint</button>
+          <button class="btn btn-sm" onclick="runSingle('reference')">Run With Ref</button>
+        </div>
+        <button class="btn btn-sm" id="btnRunManual" onclick="runSingle('manual')">Run Manual Hints</button>
+      </div>
+
+    </aside>
+
+    <!-- WORKSPACE / COMPARISON PANES -->
+    <section class="workspace">
+
+      <div class="panes-grid">
+        <!-- PANE 1: Original Grayscale -->
+        <div class="pane-card">
+          <div class="pane-header">
+            <div class="pane-title">📄 Original Grayscale Target</div>
+            <span class="badge" id="origDimBadge">-</span>
+          </div>
+          <div class="pane-viewport" id="viewportTarget">
+            <img id="viewOrigImg" src="" alt="Target Grayscale" />
+            <!-- Overlay canvas for interactive painting -->
+            <canvas id="paintCanvas"></canvas>
+            <div class="loader-overlay" id="loaderOrig">
+              <div class="spinner"></div>
+              <span style="font-size:0.8rem;">Loading Image...</span>
+            </div>
+          </div>
+          <div class="pane-footer">
+            <span id="targetFilePath">Select an image to start</span>
+            <button class="btn btn-sm" onclick="openLightbox('viewOrigImg')">🔍 View Full</button>
+          </div>
+        </div>
+
+        <!-- PANE 2: No-Hint Baseline -->
+        <div class="pane-card">
+          <div class="pane-header">
+            <div class="pane-title">⚪ No-Hint Baseline</div>
+            <span class="timing-badge" id="timeNoHint">-</span>
+          </div>
+          <div class="pane-viewport">
+            <img id="viewNoHint" src="" alt="No-Hint Colorization" />
+            <div class="loader-overlay" id="loaderNoHint">
+              <div class="spinner"></div>
+              <span id="loaderTextNoHint" style="font-size:0.8rem;">Processing Inference...</span>
+            </div>
+          </div>
+          <div class="pane-footer">
+            <span id="statsNoHint">Unconditioned autonomous color</span>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-sm" onclick="downloadImage('viewNoHint', 'no_hint.png')">⬇ Save</button>
+              <button class="btn btn-sm" onclick="openLightbox('viewNoHint')">🔍 View</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANE 3: With Reference -->
+        <div class="pane-card">
+          <div class="pane-header">
+            <div class="pane-title">🎨 With Reference Colorization</div>
+            <span class="timing-badge" id="timeRef">-</span>
+          </div>
+          <div class="pane-viewport">
+            <img id="viewRefColor" src="" alt="With-Reference Colorization" />
+            <div class="loader-overlay" id="loaderRef">
+              <div class="spinner"></div>
+              <span id="loaderTextRef" style="font-size:0.8rem;">Processing Reference...</span>
+            </div>
+          </div>
+          <div class="pane-footer">
+            <span id="statsRef">Palette guided by reference</span>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-sm" onclick="downloadImage('viewRefColor', 'with_reference.png')">⬇ Save</button>
+              <button class="btn btn-sm" onclick="openLightbox('viewRefColor')">🔍 View</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANE 4: Hint Visualization / Manual Hints -->
+        <div class="pane-card">
+          <div class="pane-header">
+            <div class="pane-title" id="pane4Title">🔍 Hint Visualization</div>
+            <span class="timing-badge" id="timePane4">-</span>
+          </div>
+          <div class="pane-viewport">
+            <img id="viewPane4" src="" alt="Hint Visualization" />
+            <div class="loader-overlay" id="loaderPane4">
+              <div class="spinner"></div>
+              <span id="loaderTextPane4" style="font-size:0.8rem;">Processing...</span>
+            </div>
+          </div>
+          <div class="pane-footer">
+            <span id="statsPane4">Flattened reference / manual hints</span>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-sm" onclick="downloadImage('viewPane4', 'hint_vis.png')">⬇ Save</button>
+              <button class="btn btn-sm" onclick="openLightbox('viewPane4')">🔍 View</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Fullscreen Lightbox Modal -->
+  <div class="modal" id="modalLightbox" onclick="closeLightbox()">
+    <div class="modal-close" onclick="closeLightbox()">&times;</div>
+    <img id="modalImg" src="" alt="Enlarged" onclick="event.stopPropagation()" />
+  </div>
+
+  <script>
+    // State
+    let currentDir = "";
+    let imagesList = [];
+    let selectedTarget = null;
+    let selectedRef = null;
+    let manualStrokes = [];
+    let currentColor = [255, 209, 179]; // default skin light
+    let isDrawing = false;
+
+    // Initialization
+    window.addEventListener("DOMContentLoaded", () => {
+      loadSamplesDir();
+      setupCanvasDrawing();
+      updateCacheBadge();
+      setInterval(updateCacheBadge, 5000);
+    });
+
+    async function updateCacheBadge() {
+      try {
+        const res = await fetch("/api/cache_status");
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById("cacheBadge").innerText = `Cache: ${data.cache_entries} items`;
+        }
+      } catch (e) {}
+    }
+
+    async function clearServerCache() {
+      try {
+        const res = await fetch("/api/clear_cache", { method: "POST" });
+        const data = await res.json();
+        alert(data.message || "Cache cleared!");
+        updateCacheBadge();
+      } catch (e) {
+        alert("Error clearing cache: " + e);
+      }
+    }
+
+    async function loadSamplesDir() {
+      try {
+        const res = await fetch("/api/images");
+        const data = await res.json();
+        if (data.directory) {
+          document.getElementById("dirInput").value = data.directory;
+          currentDir = data.directory;
+          renderGallery(data.images);
+
+          // Auto-select sample_1 as target if present
+          const s1 = data.images.find(img => img.name.includes("sample_1"));
+          if (s1) setTarget(s1);
+
+          // Auto-select 104.jpg as reference if present
+          const r104 = data.images.find(img => img.name.includes("104"));
+          if (r104) setReference(r104);
+        }
+      } catch (err) {
+        console.error("Failed to load sample directory:", err);
+      }
+    }
+
+    async function fetchImages() {
+      const dir = document.getElementById("dirInput").value.trim();
+      try {
+        const res = await fetch(`/api/images?dir=${encodeURIComponent(dir)}`);
+        const data = await res.json();
+        if (data.error) {
+          alert("Error: " + data.error);
+          return;
+        }
+        currentDir = data.directory;
+        renderGallery(data.images);
+      } catch (err) {
+        alert("Failed to load images from: " + dir);
+      }
+    }
+
+    function renderGallery(images) {
+      imagesList = images || [];
+      document.getElementById("imageCount").innerText = `${imagesList.length} found`;
+      const grid = document.getElementById("galleryGrid");
+      grid.innerHTML = "";
+
+      imagesList.forEach(img => {
+        const div = document.createElement("div");
+        div.className = "thumb-item";
+        div.title = `Left-click: Set Target\nRight-click: Set Reference\n${img.name}`;
+        
+        div.innerHTML = `
+          <img src="/api/image?path=${encodeURIComponent(img.path)}&thumb=150" alt="${img.name}" loading="lazy" />
+          <div class="thumb-item-tag">${img.name}</div>
+        `;
+
+        div.onclick = () => setTarget(img);
+        div.oncontextmenu = (e) => {
+          e.preventDefault();
+          setReference(img);
+        };
+
+        grid.appendChild(div);
+      });
+      updateActiveThumbnails();
+    }
+
+    function updateActiveThumbnails() {
+      const thumbs = document.querySelectorAll(".thumb-item");
+      thumbs.forEach((thumb, idx) => {
+        const img = imagesList[idx];
+        if (!img) return;
+        thumb.classList.remove("active-target", "active-ref");
+        if (selectedTarget && selectedTarget.path === img.path) thumb.classList.add("active-target");
+        if (selectedRef && selectedRef.path === img.path) thumb.classList.add("active-ref");
+      });
+    }
+
+    function setTarget(img) {
+      selectedTarget = img;
+      document.getElementById("targetName").innerText = img.name;
+      document.getElementById("targetMeta").innerText = `${Math.round(img.size_bytes / 1024)} KB`;
+      document.getElementById("targetThumb").src = `/api/image?path=${encodeURIComponent(img.path)}&thumb=100`;
+      
+      const targetView = document.getElementById("viewOrigImg");
+      targetView.src = `/api/image?path=${encodeURIComponent(img.path)}`;
+      document.getElementById("targetFilePath").innerText = img.name;
+
+      targetView.onload = () => {
+        document.getElementById("origDimBadge").innerText = `${targetView.naturalWidth}×${targetView.naturalHeight}`;
+        resizePaintCanvas();
+      };
+
+      updateActiveThumbnails();
+      clearStrokes();
+    }
+
+    function setReference(img) {
+      selectedRef = img;
+      document.getElementById("refName").innerText = img.name;
+      document.getElementById("refMeta").innerText = `${Math.round(img.size_bytes / 1024)} KB`;
+      document.getElementById("refThumb").src = `/api/image?path=${encodeURIComponent(img.path)}&thumb=100`;
+      updateActiveThumbnails();
+    }
+
+    function clearReference() {
+      selectedRef = null;
+      document.getElementById("refName").innerText = "No reference";
+      document.getElementById("refMeta").innerText = "Click an image to set";
+      document.getElementById("refThumb").src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='70'%3E%3Crect width='50' height='70' fill='%23111'/%3E%3C/svg%3E";
+      updateActiveThumbnails();
+    }
+
+    function setTargetAsRef() {
+      if (selectedTarget) setReference(selectedTarget);
+    }
+
+    function pick104Reference() {
+      const r = imagesList.find(i => i.name.includes("104"));
+      if (r) setReference(r);
+      else alert("104.jpg not found in current folder");
+    }
+
+    // Manual Paint Canvas Handling
+    const canvas = document.getElementById("paintCanvas");
+    const ctx = canvas.getContext("2d");
+
+    function resizePaintCanvas() {
+      const img = document.getElementById("viewOrigImg");
+      const rect = img.getBoundingClientRect();
+      const parentRect = img.parentElement.getBoundingClientRect();
+
+      canvas.style.width = `${img.clientWidth}px`;
+      canvas.style.height = `${img.clientHeight}px`;
+      canvas.style.left = `${img.offsetLeft}px`;
+      canvas.style.top = `${img.offsetTop}px`;
+      canvas.width = img.clientWidth;
+      canvas.height = img.clientHeight;
+      redrawStrokes();
+    }
+
+    window.addEventListener("resize", resizePaintCanvas);
+
+    function togglePaintMode() {
+      const enabled = document.getElementById("togglePaint").checked;
+      document.getElementById("paintControls").style.display = enabled ? "flex" : "none";
+      canvas.classList.toggle("active", enabled);
+      if (enabled) {
+        resizePaintCanvas();
+      }
+    }
+
+    function setBrushColor(hex, elem) {
+      document.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("active"));
+      if (elem) elem.classList.add("active");
+      currentColor = hexToRgb(hex);
+      document.getElementById("customColor").value = hex;
+    }
+
+    function setCustomBrushColor(hex) {
+      document.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("active"));
+      currentColor = hexToRgb(hex);
+    }
+
+    function hexToRgb(hex) {
+      const bigint = parseInt(hex.replace("#", ""), 16);
+      return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+    }
+
+    function setupCanvasDrawing() {
+      const brushSlider = document.getElementById("brushSize");
+      brushSlider.oninput = () => {
+        document.getElementById("brushSizeVal").innerText = `${brushSlider.value}px`;
+      };
+
+      const addPoint = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+        const x_px = clientX - rect.left;
+        const y_px = clientY - rect.top;
+
+        const norm_x = Math.max(0, Math.min(1, x_px / canvas.width));
+        const norm_y = Math.max(0, Math.min(1, y_px / canvas.height));
+        const brush_px = parseFloat(brushSlider.value);
+        const norm_radius = brush_px / canvas.width;
+
+        const stroke = {
+          x: norm_x,
+          y: norm_y,
+          radius: norm_radius,
+          rgb: [...currentColor]
+        };
+        manualStrokes.push(stroke);
+        drawSingleStroke(stroke);
+        document.getElementById("strokeCount").innerText = manualStrokes.length;
+      };
+
+      canvas.addEventListener("mousedown", (e) => {
+        isDrawing = true;
+        addPoint(e);
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!isDrawing) return;
+        addPoint(e);
+      });
+
+      window.addEventListener("mouseup", () => {
+        isDrawing = false;
+      });
+
+      // Touch events
+      canvas.addEventListener("touchstart", (e) => {
+        isDrawing = true;
+        addPoint(e);
+      }, { passive: false });
+
+      canvas.addEventListener("touchmove", (e) => {
+        if (!isDrawing) return;
+        e.preventDefault();
+        addPoint(e);
+      }, { passive: false });
+
+      window.addEventListener("touchend", () => {
+        isDrawing = false;
+      });
+    }
+
+    function drawSingleStroke(s) {
+      const cx = s.x * canvas.width;
+      const cy = s.y * canvas.height;
+      const r = Math.max(1, s.radius * canvas.width);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgb(${s.rgb[0]}, ${s.rgb[1]}, ${s.rgb[2]})`;
+      ctx.fill();
+    }
+
+    function redrawStrokes() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      manualStrokes.forEach(drawSingleStroke);
+    }
+
+    function undoStroke() {
+      // Undo last 5 stroke points for natural feel
+      manualStrokes.splice(Math.max(0, manualStrokes.length - 8), 8);
+      document.getElementById("strokeCount").innerText = manualStrokes.length;
+      redrawStrokes();
+    }
+
+    function clearStrokes() {
+      manualStrokes = [];
+      document.getElementById("strokeCount").innerText = 0;
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Inference Execution
+    async function submitJob(params) {
+      const res = await fetch("/api/infer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params)
+      });
+      return await res.json();
+    }
+
+    async function pollJob(jobId, onProgress) {
+      while (true) {
+        const res = await fetch(`/api/job?id=${encodeURIComponent(jobId)}`);
+        const data = await res.json();
+        if (data.status === "completed") {
+          return data.result;
+        } else if (data.status === "failed") {
+          throw new Error(data.error || "Inference failed");
+        }
+        if (onProgress) onProgress(data.status);
+        await new Promise(r => setTimeout(r, 400));
+      }
+    }
+
+    async function runSingle(mode) {
+      if (!selectedTarget) {
+        alert("Please select a target manga page first.");
+        return;
+      }
+      if (mode === "reference" && !selectedRef) {
+        alert("Please select a reference image for with-reference mode.");
+        return;
+      }
+
+      const flattenStrength = parseInt(document.getElementById("flattenSlider").value) || 21;
+      const params = {
+        target: selectedTarget.path,
+        mode: mode,
+        reference: selectedRef ? selectedRef.path : null,
+        flatten_strength: flattenStrength,
+        manual_hint: mode === "manual" ? manualStrokes : []
+      };
+
+      let loader, timeBadge, imgElem, statsElem;
+
+      if (mode === "none") {
+        loader = document.getElementById("loaderNoHint");
+        timeBadge = document.getElementById("timeNoHint");
+        imgElem = document.getElementById("viewNoHint");
+        statsElem = document.getElementById("statsNoHint");
+      } else if (mode === "reference") {
+        loader = document.getElementById("loaderRef");
+        timeBadge = document.getElementById("timeRef");
+        imgElem = document.getElementById("viewRefColor");
+        statsElem = document.getElementById("statsRef");
+      } else {
+        loader = document.getElementById("loaderPane4");
+        timeBadge = document.getElementById("timePane4");
+        imgElem = document.getElementById("viewPane4");
+        statsElem = document.getElementById("statsPane4");
+        document.getElementById("pane4Title").innerText = "🎨 Manual Hint Result";
+      }
+
+      loader.classList.add("active");
+
+      try {
+        const resp = await submitJob(params);
+        let result;
+        if (resp.cached && resp.result) {
+          result = resp.result;
+        } else {
+          result = await pollJob(resp.job_id);
+        }
+
+        // Render result
+        imgElem.src = result.image;
+        const t = result.timing;
+        timeBadge.innerText = `${t.inference_s}s` + (t.cached ? " (cached)" : "");
+        timeBadge.className = "timing-badge" + (t.cached ? " cached" : "");
+
+        const rgb = result.stats ? result.stats.mean_rgb : [0,0,0];
+        statsElem.innerText = `Mean RGB: [${rgb.map(v => v.toFixed(2)).join(', ')}]`;
+
+        // If mode is reference, also update Pane 4 with the flattened reference hint
+        if (mode === "reference" && result.hint_image) {
+          document.getElementById("pane4Title").innerText = "🔍 Flattened Reference Hint";
+          document.getElementById("viewPane4").src = result.hint_image;
+          document.getElementById("statsPane4").innerText = `Flatten k=${flattenStrength}`;
+          document.getElementById("timePane4").innerText = "Hint Pre-filter";
+        }
+
+        updateCacheBadge();
+      } catch (err) {
+        alert(`Error running ${mode} inference: ` + err.message);
+      } finally {
+        loader.classList.remove("active");
+      }
+    }
+
+    async function runComparison() {
+      if (!selectedTarget) {
+        alert("Please select a target manga page first.");
+        return;
+      }
+      if (!selectedRef) {
+        alert("Please select a reference image for the comparison.");
+        return;
+      }
+
+      const btn = document.getElementById("btnCompareAll");
+      btn.disabled = true;
+      btn.innerText = "⏳ Running Comparison...";
+
+      try {
+        // Run No-Hint first, then With-Reference (or in sequence so queue executes smoothly)
+        await runSingle("none");
+        await runSingle("reference");
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "🚀 Run Side-by-Side Comparison";
+      }
+    }
+
+    // Lightbox & Helpers
+    function openLightbox(imgId) {
+      const src = document.getElementById(imgId).src;
+      if (!src || src.startsWith("data:image/svg")) return;
+      document.getElementById("modalImg").src = src;
+      document.getElementById("modalLightbox").classList.add("active");
+    }
+
+    function closeLightbox() {
+      document.getElementById("modalLightbox").classList.remove("active");
+    }
+
+    function downloadImage(imgId, filename) {
+      const src = document.getElementById(imgId).src;
+      if (!src || src.startsWith("data:image/svg")) {
+        alert("No image to download yet.");
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  </script>
+</body>
+</html>
