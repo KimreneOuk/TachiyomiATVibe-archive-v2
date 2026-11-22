@@ -72,10 +72,26 @@ const PUBLIC_MODES = [
   },
 ];
 
+// Checkpoints disponibles en ComfyUI/models/diffusion_models (server.py los resuelve por nombre)
+const ENGINE_FILES = {
+  fp8: 'flux-2-klein-4b-fp8.safetensors',
+  nvfp4: 'flux-2-klein-4b-nvfp4.safetensors',
+};
+
+// Text encoders disponibles en ComfyUI/models/text_encoders (server.py los resuelve por nombre)
+const ENCODER_FILES = {
+  fp4: 'qwen_3_4b_fp4_flux2.safetensors',
+  bf16: 'qwen_3_4b.safetensors',
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('studio');
   const [selectedModeId, setSelectedModeId] = useState('balanced');
   const [outputFormat, setOutputFormat] = useState('png');
+  const [selectedEngine, setSelectedEngine] = useState('nvfp4');
+  const [selectedEncoder, setSelectedEncoder] = useState('fp4');
+  const [panelMode, setPanelMode] = useState(false);
+  const [panelUpscale, setPanelUpscale] = useState(false);
 
   // Idioma (English por defecto)
   const [lang, setLang] = useState(() => {
@@ -205,7 +221,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [inputMode, inputFiles, folderPath, sessionName, selectedModeId, refFile, refPath, autoRef, outputFormat, isGenerating]);
+  }, [inputMode, inputFiles, folderPath, sessionName, selectedModeId, refFile, refPath, autoRef, outputFormat, selectedEngine, selectedEncoder, panelMode, panelUpscale, isGenerating]);
 
   const handleInputFilesChange = (files) => {
     setInputFiles(files);
@@ -285,6 +301,10 @@ export default function App() {
     formData.append('folder_path_input', folderPath);
     formData.append('preset_name', currentModeInfo.name);
     formData.append('output_format', outputFormat);
+    formData.append('unet_name', ENGINE_FILES[selectedEngine] || '');
+    formData.append('encoder_name', ENCODER_FILES[selectedEncoder] || '');
+    formData.append('panel_mode', panelMode);
+    formData.append('panel_upscale', panelUpscale);
 
     if (refFile) {
       formData.append('ref_file', refFile);
@@ -788,6 +808,50 @@ export default function App() {
                       </div>
                     </div>
                   )}
+
+                  {/* DIFFUSION ENGINE */}
+                  <div className="glass-card p-4 space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-dim)] block">{t.engineLabel}</label>
+                    <select
+                      value={selectedEngine}
+                      onChange={(e) => setSelectedEngine(e.target.value)}
+                      disabled={isGenerating}
+                      className="w-full px-3 py-2 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-main)] font-semibold cursor-pointer"
+                    >
+                      <option value="fp8">{t.engineFp8}</option>
+                      <option value="nvfp4">{t.engineNvfp4}</option>
+                    </select>
+                  </div>
+
+                  {/* TEXT ENCODER */}
+                  <div className="glass-card p-4 space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-dim)] block">{t.encoderLabel}</label>
+                    <select
+                      value={selectedEncoder}
+                      onChange={(e) => setSelectedEncoder(e.target.value)}
+                      disabled={isGenerating}
+                      className="w-full px-3 py-2 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-main)] font-semibold cursor-pointer"
+                    >
+                      <option value="fp4">{t.encoderFp4}</option>
+                      <option value="bf16">{t.encoderBf16}</option>
+                    </select>
+                  </div>
+
+                  {/* PANEL PIPELINE */}
+                  <div className="glass-card p-4 space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-dim)] block">{t.panelLabel}</label>
+                    <label className="flex items-center gap-2 text-xs text-[var(--text-soft)] cursor-pointer font-semibold">
+                      <input type="checkbox" checked={panelMode} onChange={(e) => setPanelMode(e.target.checked)} disabled={isGenerating} className="accent-[var(--accent)]" />
+                      🧩 {t.panelMode}
+                    </label>
+                    {panelMode && (
+                      <label className="flex items-center gap-2 text-xs text-[var(--text-soft)] cursor-pointer font-semibold pl-6">
+                        <input type="checkbox" checked={panelUpscale} onChange={(e) => setPanelUpscale(e.target.checked)} disabled={isGenerating} className="accent-[var(--accent)]" />
+                        ✨ {t.panelUpscale}
+                      </label>
+                    )}
+                    <p className="text-[10px] text-[var(--text-dim)] leading-snug">{t.panelModeNote}</p>
+                  </div>
 
                   {/* OUTPUT FORMAT */}
                   <div className="glass-card p-4 space-y-2">

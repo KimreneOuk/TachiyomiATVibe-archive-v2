@@ -17,6 +17,8 @@ class WorkflowNodes:
     STEPS: str = "92:62"
     CFG: str = "92:63"
     MEGAPIXELS: List[str] = field(default_factory=lambda: ["92:80", "92:85"])
+    UNET: str = "92:70"
+    CLIP: str = "92:71"
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,8 @@ PROMPT_NODE_ID: Final[str] = NODES.PROMPT
 STEPS_NODE_ID: Final[str] = NODES.STEPS
 CFG_NODE_ID: Final[str] = NODES.CFG
 MEGAPIXELS_NODE_IDS: Final[List[str]] = NODES.MEGAPIXELS
+UNET_NODE_ID: Final[str] = NODES.UNET
+CLIP_NODE_ID: Final[str] = NODES.CLIP
 
 
 def ensure_directories_exist() -> None:

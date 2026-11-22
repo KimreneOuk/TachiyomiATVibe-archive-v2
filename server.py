@@ -158,6 +158,10 @@ async def generate_batch_endpoint(
     folder_path_input: str = Form(""),
     preset_name: str = Form(""),
     output_format: str = Form("png"),
+    unet_name: str = Form(""),
+    encoder_name: str = Form(""),
+    panel_mode: bool = Form(False),
+    panel_upscale: bool = Form(False),
 ):
     """Ejecuta la generación en lote transmitiendo eventos Server-Sent Events (SSE)."""
     
@@ -208,6 +212,10 @@ async def generate_batch_endpoint(
                 folder_path_input=folder_path_input,
                 preset_name=preset_name,
                 output_format=output_format,
+                unet_name=unet_name or None,
+                encoder_name=encoder_name or None,
+                panel_mode=panel_mode,
+                panel_upscale=panel_upscale,
             )
 
             for gallery_list, status_msg, last_saved, stats_msg in gen:

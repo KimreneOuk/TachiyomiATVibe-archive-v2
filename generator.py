@@ -24,6 +24,8 @@ from config import (
     STEPS_NODE_ID,
     CFG_NODE_ID,
     MEGAPIXELS_NODE_IDS,
+    UNET_NODE_ID,
+    CLIP_NODE_ID,
     OUTPUT_BASE_DIR,
 )
 
@@ -56,6 +58,10 @@ def generate_single_image(
     steps: int,
     cfg: float = 1.0,
     megapixels: float = 1.0,
+    unet_name: Optional[str] = None,
+    encoder_name: Optional[str] = None,
+    panel_mode: bool = False,
+    panel_upscale: bool = False,
 ) -> Optional[bytes]:
     """
     Envía un workflow a ComfyUI y devuelve los bytes de la imagen generada.
@@ -63,6 +69,19 @@ def generate_single_image(
     """
     if _cancel_event.is_set():
         return None
+
+    # Panel mode runs on the bench's panel pipeline (detect -> stitch) instead
+    # of driving ComfyUI directly, so the geometry logic stays in one place.
+    if panel_mode:
+        from bench_client import colorize_panel
+        ref_bytes = None
+        if use_ref and ref_image_path and os.path.exists(ref_image_path):
+            ref_bytes = Path(ref_image_path).read_bytes()
+        return colorize_panel(
+            Path(input_image_path).read_bytes(), ref_bytes,
+            prompt_text, steps, megapixels, unet_name, encoder_name,
+            panel_upscale, cancel_event=_cancel_event,
+        )
 
     if not os.path.exists(WORKFLOW_FILE):
         raise FileNotFoundError(f"Workflow no encontrado: '{WORKFLOW_FILE}'")
@@ -93,6 +112,14 @@ def generate_single_image(
     for mp_node in MEGAPIXELS_NODE_IDS:
         if mp_node in wf:
             wf[mp_node]["inputs"]["megapixels"] = float(megapixels)
+
+    # Permite cambiar de motor (fp8/nvfp4) sin editar el workflow base
+    if unet_name and UNET_NODE_ID in wf:
+        wf[UNET_NODE_ID]["inputs"]["unet_name"] = unet_name
+
+    # Permite cambiar el codificador de texto (fp4/bf16) sin editar el workflow base
+    if encoder_name and CLIP_NODE_ID in wf:
+        wf[CLIP_NODE_ID]["inputs"]["clip_name"] = encoder_name
 
     # 4 — Semilla dinámica
     for node_data in wf.values():
@@ -167,6 +194,10 @@ def batch_process_generator(
     folder_path_input: str = "",
     preset_name: str = "",
     output_format: str = "png",
+    unet_name: Optional[str] = None,
+    encoder_name: Optional[str] = None,
+    panel_mode: bool = False,
+    panel_upscale: bool = False,
 ) -> Generator[Tuple[List[Any], str, Optional[str], str], None, None]:
     """Generador que procesa un lote de imágenes y hace yield del estado tras cada imagen."""
     _reset_cancel()
@@ -237,7 +268,11 @@ def batch_process_generator(
 
         try:
             img_bytes = generate_single_image(
-                img_file.name, current_ref, prompt_text, use_ref, steps, cfg, megapixels
+                img_file.name, current_ref, prompt_text, use_ref, steps, cfg, megapixels,
+                unet_name=unet_name,
+                encoder_name=encoder_name,
+                panel_mode=panel_mode,
+                panel_upscale=panel_upscale,
             )
 
             if _cancel_event.is_set():

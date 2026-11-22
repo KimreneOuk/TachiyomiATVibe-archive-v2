@@ -132,7 +132,7 @@
   },
   "92:70": {
     "inputs": {
-      "unet_name": "flux-2-klein-4b-fp8.safetensors",
+      "unet_name": "flux-2-klein-4b-nvfp4.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
@@ -142,7 +142,7 @@
   },
   "92:71": {
     "inputs": {
-      "clip_name": "qwen_3_4b.safetensors",
+      "clip_name": "qwen_3_4b_fp4_flux2.safetensors",
       "type": "flux2",
       "device": "default"
     },
