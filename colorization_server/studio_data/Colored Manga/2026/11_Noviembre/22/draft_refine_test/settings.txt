@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: draft_refine_test
+Colorization Mode: Standard
+Output Format: PNG
+Completed Images: 1/1
+Total Time: 01:28
+Average Time Per Image: 88.00s
+Status: Completado
+Completed At: 2026-11-22 19:32:41

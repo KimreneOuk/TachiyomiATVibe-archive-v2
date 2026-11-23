@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: smoke_test_ultrafast_Ultra_Fast_Colorization
+Colorization Mode: Ultra Fast Colorization
+Output Format: PNG
+Completed Images: 1/1
+Total Time: 11:27
+Average Time Per Image: 687.00s
+Status: Completado
+Completed At: 2026-11-21 15:27:53

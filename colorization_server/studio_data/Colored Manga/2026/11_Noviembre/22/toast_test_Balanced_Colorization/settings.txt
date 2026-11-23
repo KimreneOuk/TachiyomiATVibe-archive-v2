@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: toast_test_Balanced_Colorization
+Colorization Mode: Balanced Colorization
+Output Format: PNG
+Completed Images: 0/1
+Total Time: 00:01
+Average Time Per Image: 0.00s
+Status: Completado
+Completed At: 2026-11-22 21:04:52

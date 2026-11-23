@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: smoke_test_nvfp4_uf_Ultra_Fast_Colorization
+Colorization Mode: Ultra Fast Colorization
+Output Format: PNG
+Completed Images: 1/1
+Total Time: 00:04
+Average Time Per Image: 4.00s
+Status: Completado
+Completed At: 2026-11-21 16:31:05

@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: ab_mcv2official
+Colorization Mode: Standard
+Output Format: PNG
+Completed Images: 1/1
+Total Time: 01:29
+Average Time Per Image: 89.00s
+Status: Completado
+Completed At: 2026-11-22 20:09:31

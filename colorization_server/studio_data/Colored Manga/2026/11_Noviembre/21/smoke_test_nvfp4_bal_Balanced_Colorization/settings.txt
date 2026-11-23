@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: smoke_test_nvfp4_bal_Balanced_Colorization
+Colorization Mode: Balanced Colorization
+Output Format: PNG
+Completed Images: 1/1
+Total Time: 03:06
+Average Time Per Image: 186.00s
+Status: Completado
+Completed At: 2026-11-21 16:30:37

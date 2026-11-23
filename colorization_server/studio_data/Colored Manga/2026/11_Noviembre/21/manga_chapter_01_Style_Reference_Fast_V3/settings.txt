@@ -1,0 +1,9 @@
+Project: Manga Coloring Tool 2
+Session Name: manga_chapter_01_Style_Reference_Fast
+Colorization Mode: Style Reference Fast
+Output Format: PNG
+Completed Images: 0/1
+Total Time: 03:09
+Average Time Per Image: 0.00s
+Status: Cancelado
+Completed At: 2026-11-21 15:46:54
