@@ -98,3 +98,10 @@ err.txt
 /generator.zip
 /net_rgb.pth
 /.e2e-backup/
+
+# colorization_server: keep recovery material + user outputs, skip rebuildable bulk
+/colorization_server/.venv/
+/colorization_server/runs/
+/colorization_server/studio_data/temp_inputs/
+/colorization_server/*.log
+/colorization_server/*.err
